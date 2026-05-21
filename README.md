@@ -1,4 +1,4 @@
-# DiDe — Location-Based Reporting Platform
+# DiDe
 
 <div align="center">
 
