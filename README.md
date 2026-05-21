@@ -154,10 +154,10 @@ CORS_ORIGIN=http://localhost:3000
 PGHOST=127.0.0.1
 PGPORT=5432
 PGUSER=postgres
-PGPASSWORD=your_password
-PGDATABASE=dide_db
+PGPASSWORD=
+PGDATABASE=
 
-JWT_SECRET=change-this-secret-key
+JWT_SECRET=dev-secret
 JWT_EXPIRES=7d
 
 COOKIE_SAMESITE=lax
