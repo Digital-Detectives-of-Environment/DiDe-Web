@@ -305,7 +305,7 @@ ssh -i your-key.pem ubuntu@SERVER_IP
 sudo mkdir -p /var/www/dide
 sudo chown -R ubuntu:ubuntu /var/www/dide
 cd /var/www/dide
-git clone https://github.com/banbar/dide.git dide
+git clone https://github.com/Digital-Detectives-of-Environment/DiDe-Web.git
 cd dide
 ```
 
