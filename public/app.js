@@ -8673,13 +8673,13 @@ document.addEventListener('DOMContentLoaded', () => {
   
   const langDefaultBtn2 = document.getElementById('lang-default');
   const langEn = document.getElementById('lang-en');
-  const _cfgDefaultLang = (typeof window.getDefaultLang === 'function') ? window.getDefaultLang() : 'tr';
   
   if (langDefaultBtn2) {
     langDefaultBtn2.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      await changeLanguage(_cfgDefaultLang);
+      const dl = (typeof window.getDefaultLang === 'function') ? window.getDefaultLang() : 'tr';
+      await changeLanguage(dl);
     });
   }
   
