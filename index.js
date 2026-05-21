@@ -269,10 +269,10 @@ app.get(/^\/uploads\/(.+)$/, (req, res) => {
 });
 
 app.get('/i18n.js', (req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, 'i18n', 'main.js'));
+  res.sendFile(path.join(__dirname, 'i18n', 'main.js'));
 });
 
-app.use('/i18n', express.static(path.join(PUBLIC_DIR, 'i18n')));
+app.use('/i18n', express.static(path.join(__dirname, 'i18n')));
 
 app.use(express.static(PUBLIC_DIR));
 
@@ -831,7 +831,7 @@ app.post('/api/polygon/records', async (req, res) => {
 
 function loadI18nTranslations() {
   const translations = {};
-  const i18nDir = path.join(PUBLIC_DIR, 'i18n');
+  const i18nDir = path.join(__dirname, 'i18n');
   try {
     const files = fs.readdirSync(i18nDir).filter(f => /^[A-Z]{2}\.js$/i.test(f));
     for (const file of files) {
