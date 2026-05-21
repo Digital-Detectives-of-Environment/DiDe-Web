@@ -1,0 +1,41 @@
+{
+  "name": "DiDe",
+  "version": "1.0.0",
+  "private": true,
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "generate-2fa": "node generate-2fa-secret.js",
+    "test": "echo \"No tests specified\" && exit 0",
+    "pw:install": "playwright install",
+    "mobile:ios": "node scripts/mobile-run.js --platform=ios --url=http://localhost:3000",
+    "mobile:android": "node scripts/mobile-run.js --platform=android --url=http://localhost:3000",
+    "dev:ios": "npm-run-all -p dev mobile:ios",
+    "dev:android": "npm-run-all -p dev mobile:android",
+    "dev:both": "npm-run-all -p dev mobile:ios mobile:android"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "body-parser": "^2.2.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
+    "nodemailer": "^7.0.6",
+    "pg": "^8.16.3",
+    "qrcode-terminal": "^0.12.0",
+    "speakeasy": "^2.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "nodemon": "^3.1.10",
+    "npm-run-all": "^4.1.5"
+  }
+}

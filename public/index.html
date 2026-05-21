@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <link rel="stylesheet" href="/index.css" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Loading…</title>
+  <link id="site-favicon" rel="icon" href="/favicon.ico" />
+
+  <!-- Preload icon assets -->
+  <link rel="preload" as="image" href="/camera.svg" />
+  <link rel="preload" as="image" href="/video.svg" />
+  <link rel="preload" as="image" href="/mic.svg" />
+  <link rel="preload" as="image" href="/download.svg" />
+  <link rel="preload" as="image" href="/back.svg" />
+
+  <!-- Leaflet & MarkerCluster -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" defer></script>
+
+  <style>
+    :root.theme-light{
+      --bg:#fafafa; --surface:#ffffff; --text:#111827; --muted:#6b7280;
+      --border:#e5e7eb; --border-soft:#eee; --shadow-sm:0 1px 2px rgba(0,0,0,.06);
+      --shadow-md:0 6px 16px rgba(0,0,0,.08);
+    }
+    :root.theme-dark{
+      --bg:#0b1020; --surface:#0f172a; --text:#e5e7eb; --muted:#9ca3af;
+      --border:#1f2937; --border-soft:#1f2937;
+      --shadow-sm:0 1px 2px rgba(0,0,0,.3); --shadow-md:0 6px 16px rgba(0,0,0,.35);
+    }
+    body{background:var(--bg); color:var(--text);}
+    :root.theme-dark table{ background: var(--surface); }
+    :root.theme-dark .auth .btn{ background:#fff!important; color:#000!important; border-color:var(--border); }
+
+    .icon-btn{
+      appearance:none; background:#fff; border:1px solid var(--border);
+      width:36px; height:36px; padding:0; border-radius:8px;
+      display:inline-flex; align-items:center; justify-content:center;
+      line-height:0; cursor:pointer; box-shadow:var(--shadow-sm);
+    }
+    .icon-btn svg{ width:22px; height:22px; display:block; }
+    .icon-btn img{ width:22px; height:22px; display:block; }
+
+    :root.theme-dark .icon-btn img,
+    :root.theme-dark .icon-btn svg,
+    :root.theme-dark .card-back-btn img,
+    :root.theme-dark .header-back-btn img,
+    :root.theme-dark #btn-use-location img,
+    :root.theme-dark #btn-add-photo img,
+    :root.theme-dark #btn-add-photo svg,
+    :root.theme-dark #btn-add-video img,
+    :root.theme-dark #btn-add-video svg,
+    :root.theme-dark #btn-stt img,
+    :root.theme-dark .back-btn img,
+    :root.theme-dark button img,
+    :root.theme-dark button svg{
+      filter: none !important;
+      opacity: 1 !important;
+    }
+
+    .info{
+      background:var(--surface);
+      color:var(--text);
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:10px 12px;
+      box-shadow:var(--shadow-sm);
+    }
+
+    .leaflet-popup-content .btn{ 
+      background:#fff; color:#111; border:1px solid var(--border); 
+      padding:.35rem .7rem; border-radius:10px; 
+    }
+    .leaflet-popup-content .btn.ghost{ background:#fff; color:#111; border-color:var(--border); }
+    .leaflet-popup-content .btn.danger{ background:#fff; color:#b91c1c; border-color:#fecaca; }
+
+    .muted{ color:var(--muted); }
+    #map{ min-height: 420px; }
+
+    .thumb-grid{
+      display:grid;
+      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+      gap:8px;
+      margin-top:6px;
+    }
+    .thumb-tile{
+      border:1px solid var(--border);
+      background:var(--surface);
+      border-radius:10px;
+      padding:4px;
+      box-shadow:var(--shadow-sm);
+      display:flex; align-items:center; justify-content:center;
+      max-height:180px;
+      overflow:hidden;
+    }
+    .thumb-tile img, .thumb-tile video{
+      width:100%; height:100%; object-fit:cover; border-radius:6px;
+      display:block;
+    }
+
+    .popup-photos, .popup-videos{
+      margin:.4rem 0;
+    }
+    .popup-photos .grid, .popup-videos .grid{
+      display:grid;
+      grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+      gap:6px;
+    }
+    .popup-photo-link, .popup-video-link{ 
+      display:block; 
+      border:1px solid var(--border);
+      border-radius:8px;
+      overflow:hidden;
+      transition: all 0.2s ease;
+    }
+    .popup-photo-link:hover, .popup-video-link:hover{
+      box-shadow:var(--shadow-md);
+      transform:translateY(-1px);
+    }
+    .popup-photo-link img{
+      width:100%; height:100px; object-fit:cover; border-radius:8px;
+      display:block;
+    }
+    .popup-video-link video{
+      width:100%; height:120px; object-fit:cover; border-radius:8px;
+      display:block;
+    }
+
+    .modal{ position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:9999; }
+    .modal.show{ display:flex; }
+    .modal .box{ background:var(--surface); border:1px solid var(--border); border-radius:12px; width:min(560px, 92vw); padding:12px; box-shadow:var(--shadow-md); }
+    .modal .head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+    .modal video, .modal canvas{ width:100%; border-radius:10px; background:#000; }
+    .row.gap6{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+
+    .admin-card h3{ margin-top:0; }
+    .admin-grid{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap:14px;
+    }
+    @media (min-width: 980px){
+      .admin-grid{
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    table{ width:100%; border-collapse:collapse; }
+    th, td{ border:1px solid var(--border); padding:8px; vertical-align:top; position:relative; }
+    th{ background:var(--surface); text-align:left; }
+    body.role-supervisor.supervisor-mode-form #admin-card{ display: none !important; }
+
+    .events-map-wrap{ margin-top:10px; position:relative; }
+    #events-map{ width:100%; height:420px; }
+    .map-export-btn{
+      position:absolute; right:10px; top:10px;
+      width:40px; height:40px; border-radius:8px; border:1px solid var(--border);
+      background:#fff; display:inline-flex; align-items:center; justify-content:center;
+      box-shadow:var(--shadow-sm); cursor:pointer;
+    }
+    .map-export-btn img{ width:22px; height:22px; display:block; }
+    .table-export-btn{
+      display:inline-flex!important;
+      align-items:center;
+      justify-content:center;
+      min-width:34px!important;
+      min-height:34px!important;
+      padding:6px!important;
+      background:#fff!important;
+      border:1px solid var(--border)!important;
+      border-radius:8px!important;
+      cursor:pointer;
+      transition:all 0.2s ease;
+      vertical-align:middle;
+      margin-left:8px;
+      box-shadow:var(--shadow-sm);
+    }
+    .table-export-btn:hover{
+      box-shadow:var(--shadow-md);
+      transform:translateY(-1px);
+      border-color:var(--primary);
+    }
+    .table-export-btn img{
+      width:18px;
+      height:18px;
+      display:block;
+    }
+    .filter-dropdown{
+      position:absolute; top:100%; left:0; background:var(--surface);
+      border:1px solid var(--border); border-radius:8px; padding:8px;
+      box-shadow:var(--shadow-md); z-index:99999; min-width:200px;
+      max-height:300px; overflow-y:auto; display:none;
+    }
+    .filter-dropdown.show{ display:block; }
+
+    .card-title-line{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      margin-bottom:12px;
+    }
+    .back-btn{
+      width:30px;
+      height:30px;
+      border:none;
+      background:transparent;
+      padding:0;
+      cursor:pointer;
+      outline:none;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .back-btn img{
+      width:24px;
+      height:24px;
+      display:block;
+    }
+    .back-btn:focus{
+      outline:none;
+      box-shadow:none;
+    }
+
+    .map-legend{
+      position:absolute;
+      right:10px;
+      bottom:10px;
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:8px;
+      padding:8px 10px;
+      box-shadow:var(--shadow-md);
+      max-width:210px;
+      z-index:400;
+    }
+    .map-legend h5{
+      font-size:0.9rem;
+      margin:0 0 6px;
+    }
+    .map-legend .legend-row{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      margin-bottom:4px;
+      font-size:0.75rem;
+      flex-wrap:wrap;
+    }
+    .map-legend .legend-icon{
+      width:20px;
+      height:20px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+    }
+    @media (max-width: 992px){
+      .map-legend{
+        max-width:160px;
+        font-size:0.7rem;
+        right:6px;
+        bottom:6px;
+      }
+      .map-legend h5{ font-size:0.78rem; }
+    }
+    @media (max-width: 576px){
+      .map-legend{
+        max-width:140px;
+        padding:6px 8px;
+      }
+    }
+    
+    #btn-add-type {
+      padding: 0.35rem 0.7rem !important;
+      font-size: 0.9rem !important;
+      height: auto !important;
+      min-height: 32px !important;
+    }
+    
+    /* Language Selector */
+    .language-selector {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-right: 8px;
+    }
+    .language-selector button {
+      padding: 4px 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+    .language-selector button:hover {
+      background: var(--bg);
+    }
+    .language-selector button.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <div class="brand">
+        <img id="site-logo" alt="logo" class="hidden" />
+        <h1 id="site-title"></h1>
+      </div>
+      <div class="auth">
+        <div class="language-selector">
+          <button id="lang-default">--</button>
+          <button id="lang-en" class="active">EN</button>
+        </div>
+        <button id="btn-use-location-header" class="icon-btn hidden" type="button" data-i18n-title="useMyLocation"
+          onclick="if(window.geoFindMeWithPolygonFlow){geoFindMeWithPolygonFlow();}">
+          <img src="/useposition.svg" alt="" onerror="this.style.display='none';" />
+        </button>
+        <button id="btn-theme-toggle" class="icon-btn" type="button" aria-label="Theme"></button>
+        <span id="whoami" class="hidden"></span>
+        <button id="btn-open-login" class="btn" data-i18n="login">Login</button>
+        <button id="btn-logout" class="btn hidden" data-i18n="logout">Logout</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="card">
+      <div id="map-wrap" class="map-wrap" style="position:relative;">
+        <div id="map" aria-label="Map"></div>
+      </div>
+    </section>
+
+    <aside class="stack">
+      <!-- LOGIN -->
+      <section id="login-card" class="card">
+        <div class="card-title-line">
+          <button class="back-btn" type="button" data-i18n-title="back" onclick="if(typeof restoreMapViewFromOverlay==='function')restoreMapViewFromOverlay();">
+            <img src="/back.svg" data-i18n-alt="back" />
+          </button>
+          <h3 style="margin:0;" data-i18n="login">Login</h3>
+        </div>
+        <div id="login-error" class="error hidden"></div>
+        <label for="login-user" data-i18n="usernameOrEmail">Username or Email</label>
+        <input id="login-user" type="text" data-i18n-placeholder="usernameOrEmailPlaceholder"
+               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
+        <label for="login-pass" data-i18n="password">Password</label>
+        <div class="input-wrap">
+          <input id="login-pass" type="password" placeholder="••••••••" autocomplete="new-password" />
+          <button type="button" class="eye-btn" data-eye="login-pass" title="Show/Hide">👁</button>
+        </div>
+        <div id="totp-block" class="hidden">
+          <label for="login-totp" data-i18n="verificationCode">Verification Code (2FA)</label>
+          <input id="login-totp" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="123456" autocomplete="one-time-code" />
+          <div class="muted" data-i18n="verificationCodeRequired">Required for Admin/Supervisor.</div>
+        </div>
+        <button id="btn-login" class="btn primary" style="margin-top:10px;" data-i18n="login">Login</button>
+        <div class="muted" style="margin-top:8px;">
+          <a href="#" id="goto-forgot" data-i18n="forgotPassword">Forgot Password?</a> •
+          <span data-i18n="dontHaveAccount">Don't have an account?</span> <a href="#" id="toggle-register" data-i18n="signUp">Sign Up</a>
+        </div>
+      </section>
+
+      <!-- REGISTER -->
+      <section id="register-card" class="card hidden">
+        <div class="card-title-line">
+          <button class="back-btn" type="button" data-i18n-title="back" onclick="document.getElementById('register-card').classList.add('hidden');document.getElementById('login-card').classList.remove('hidden');">
+            <img src="/back.svg" data-i18n-alt="back" />
+          </button>
+          <h3 style="margin:0;" data-i18n="signUp">Sign Up</h3>
+        </div>
+        <div id="register-error" class="error hidden"></div>
+        <div id="allowed-domain" class="muted hidden"></div>
+        <label for="reg-username" data-i18n="username">Username</label>
+        <input id="reg-username" type="text" data-i18n-placeholder="usernamePlaceholder" autocomplete="off" />
+        <label for="reg-email" data-i18n="email">Email</label>
+        <input id="reg-email" type="email" placeholder="example@domain.com" autocomplete="off" />
+        <label for="reg-pass" data-i18n="password">Password</label>
+        <div class="input-wrap">
+          <input id="reg-pass" type="password" data-i18n-placeholder="weakPasswordPlaceholder" autocomplete="new-password" />
+          <button type="button" class="eye-btn" data-eye="reg-pass" title="Show/Hide">👁</button>
+        </div>
+        <div class="row">
+          <div><label for="reg-name" data-i18n="firstName">First Name</label><input id="reg-name" type="text" autocomplete="off" data-i18n-placeholder="firstNamePlaceholder" /></div>
+          <div><label for="reg-surname" data-i18n="lastName">Last Name</label><input id="reg-surname" type="text" autocomplete="off" data-i18n-placeholder="lastNamePlaceholder" /></div>
+        </div>
+        <button id="btn-register" class="btn primary" style="margin-top:10px;" data-i18n="signUp">Sign Up</button>
+        <div class="muted" style="margin-top:8px;"><a href="#" id="toggle-login"><span data-i18n="alreadyHaveAccount">Already have an account?</span> <span data-i18n="login">Login</span></a></div>
+      </section>
+
+      <!-- FORGOT PASSWORD -->
+      <section id="forgot-card" class="card hidden">
+        <div class="card-title-line">
+          <button class="back-btn" type="button" data-i18n-title="back" onclick="document.getElementById('forgot-card').classList.add('hidden');document.getElementById('login-card').classList.remove('hidden');">
+            <img src="/back.svg" data-i18n-alt="back" />
+          </button>
+          <h3 style="margin:0;" data-i18n="resetPassword">Reset Password</h3>
+        </div>
+        <div class="muted" style="margin:-2px 0 6px;" data-i18n="resetPasswordSteps">Reset your password in 3 steps: Email → Code → New Password</div>
+        <div id="forgot-error" class="error hidden"></div>
+        <div id="fg-email-row">
+          <label for="fg-email" data-i18n="email">Email</label>
+          <input id="fg-email" type="email" data-i18n-placeholder="registeredEmailPlaceholder" autocomplete="email" />
+          <div class="inline" style="gap:8px; margin:8px 0;">
+            <button id="btn-forgot-start" class="btn" data-i18n="sendCode">Send Code</button>
+          </div>
+        </div>
+        <div id="fg-code-row" class="hidden">
+          <label for="fg-code" data-i18n="verificationCode">Verification Code</label>
+          <input id="fg-code" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="123456" autocomplete="one-time-code" />
+          <div class="inline" style="gap:8px; margin-top:8px;">
+            <button id="btn-forgot-verify" class="btn" data-i18n="verifyCode">Verify Code</button>
+          </div>
+        </div>
+        <div id="fg-pass1-row" class="hidden">
+          <label for="fg-pass1" data-i18n="newPassword">New Password</label>
+          <input id="fg-pass1" type="password" data-i18n-placeholder="newPasswordPlaceholder" autocomplete="new-password" />
+        </div>
+        <div id="fg-pass2-row" class="hidden">
+          <label for="fg-pass2" data-i18n="confirmNewPassword">Confirm New Password</label>
+          <input id="fg-pass2" type="password" data-i18n-placeholder="confirmNewPasswordPlaceholder" autocomplete="new-password" />
+          <div class="inline" style="gap:8px; margin-top:8px;">
+            <button id="btn-forgot-reset" class="btn primary" data-i18n="resetPassword">Reset Password</button>
+          </div>
+        </div>
+        <div class="inline" style="gap:8px; margin-top:10px;">
+          <a href="#" id="back-to-login" class="btn ghost" data-i18n="backToLogin">Back to Login</a>
+        </div>
+      </section>
+
+      <!-- EVENT FORM -->
+      <section id="olay-card" class="card hidden">
+        <div class="card-title-line">
+          <button class="back-btn" type="button" data-i18n-title="back" onclick="if(typeof restoreMapViewFromOverlay==='function')restoreMapViewFromOverlay();">
+            <img src="/back.svg" data-i18n-alt="back" />
+          </button>
+          <h3 style="margin:0;" data-i18n="eventReportForm">Event Report Form</h3>
+        </div>
+        <div id="error-message" class="error hidden"></div>
+
+        <label for="olay_turu" data-i18n="eventType">Event Type</label>
+        <select id="olay_turu"><option value="" data-i18n="pleaseSelect">-- Select --</option></select>
+
+        <label for="aciklama" style="margin-top:6px;" data-i18n="description">Description</label>
+        <textarea id="aciklama" rows="4" data-i18n-placeholder="enterDescriptionPlaceholder" style="resize:none;"></textarea>
+
+        <div class="row coord-row">
+          <div><label for="lat" data-i18n="latitude">Latitude</label><input id="lat" type="text" data-i18n-placeholder="selectFromMapPlaceholder" /></div>
+          <div><label for="lng" data-i18n="longitude">Longitude</label><input id="lng" type="text" data-i18n-placeholder="selectFromMapPlaceholder" /></div>
+        </div>
+
+        <div class="inline" style="gap:8px; margin:8px 0;" id="media-bar">
+          <button id="btn-add-photo" class="icon-btn" data-i18n-title="takePhoto" data-i18n-aria-label="takePhoto">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M9 4h6l1.2 2H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.8L9 4zM12 18a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0-2.2a2.8 2.8 0 1 1 0-5.6 2.8 2.8 0 0 1 0 5.6z"/></svg>
+          </button>
+          <button id="btn-add-video" class="icon-btn" data-i18n-title="recordVideo" data-i18n-aria-label="recordVideo">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3 7h11a2 2 0 0 1 2 2v1.4l4-2.3a1 1 0 0 1 1.5.86v7.08a1 1 0 0 1-1.5.86l-4-2.3V15a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/></svg>
+          </button>
+          <button type="button" id="btn-use-location" class="icon-btn" data-i18n-title="useMyLocation" data-i18n-aria-label="useMyLocation">
+          </button>
+          <input id="file-photo" type="file" accept="image/*" capture="environment" class="hidden" />
+          <input id="file-video" type="file" accept="video/*" capture="environment" class="hidden" />
+        </div>
+
+        <div class="thumbs">
+          <div id="photo-list" class="thumb-grid"></div>
+          <div id="video-list" class="thumb-grid" style="margin-top:4px;"></div>
+        </div>
+
+        <div class="inline" style="gap:8px; margin-top:6px;">
+          <button type="button" id="btn-stop-live" class="btn ghost hidden" data-i18n="stopTracking">Stop Tracking</button>
+        </div>
+        <div class="inline" style="gap:10px; margin-top:8px;">
+          <button type="button" id="submit-btn" class="btn primary" data-i18n="submit">Submit</button>
+          <button type="button" id="cancel-edit-btn" class="btn ghost hidden" data-i18n="cancel">Cancel</button>
+          <span id="edit-hint" class="muted hidden"><span data-i18n="editing">Editing</span>: <span id="edit-id"></span></span>
+        </div>
+      </section>
+
+      <!-- VG1: POLYGON CONFIRM CARD -->
+      <section id="polygon-confirm-card" class="card polygon-flow-card hidden">
+        <div class="polygon-flow-content">
+          <h3 style="margin:0 0 8px 0;" data-i18n="confirmRegion">Are you in the correct grid?</h3>
+          <div id="polygon-confirm-info" style="font-size:1.1rem;font-weight:600;margin:8px 0 16px;"></div>
+          <div class="inline" style="gap:12px;">
+            <button type="button" id="btn-polygon-confirm-yes" class="btn primary" style="min-width:80px;" data-i18n="yes">Yes</button>
+            <button type="button" id="btn-polygon-confirm-no" class="btn ghost" style="min-width:80px;" data-i18n="no">No</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- VG2: EXISTING RECORDS REVIEW (fullscreen swipeable) -->
+      <section id="polygon-records-card" class="polygon-records-fullscreen hidden">
+        <div id="polygon-records-header">
+          <span id="polygon-records-count"></span>
+        </div>
+        <!-- Instagram-style floating counter (top-right, fades in/out) -->
+        <div id="polygon-records-float-counter" class="pr-float-counter"></div>
+        <div id="polygon-records-swiper">
+          <!-- pages injected by JS -->
+        </div>
+        <!-- Instagram-style dots (always visible) -->
+        <div id="polygon-records-dots" class="pr-records-dots"></div>
+        <div id="polygon-records-actions">
+          <div id="polygon-records-add-label" class="pr-add-label" data-i18n="wantToAddRecord">Would you like to add a record?</div>
+          <div class="pr-action-buttons">
+            <button type="button" id="btn-polygon-records-continue" class="polygon-action-btn polygon-action-tick" title="Devam">&#10003;</button>
+            <button type="button" id="btn-polygon-records-return" class="polygon-action-btn polygon-action-cross" title="Geri">&#10007;</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ADMIN PANEL -->
+      <section id="admin-card" class="card admin-card hidden">
+        <h3 data-i18n="administrationPanel">Administration Panel</h3>
+
+        <div class="tab-nav">
+          <button class="tab-btn active" data-tab="types-tab" data-i18n="eventTypes">Event Types</button>
+          <button class="tab-btn" data-tab="users-tab" data-i18n="users">Users</button>
+          <button class="tab-btn" data-tab="events-tab" data-i18n="events">Events</button>
+          <button class="tab-btn" data-tab="veri-tipi-tab" data-i18n="existingData">Existing Data</button>
+          <button class="tab-btn" data-tab="regions-tab" id="btn-regions-tab" data-i18n="findMyRegion" style="display:none;">Find My Region</button>
+        </div>
+
+        <div id="types-tab" class="tab-content active">
+          <div class="panel">
+            <div style="margin:6px 0;">
+              <div style="margin-bottom:8px;">
+                <input id="new-type-name" type="text" data-i18n-placeholder="newEventTypeNamePlaceholder" style="width:100%;" />
+              </div>
+              <div style="margin-bottom:8px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500;" data-i18n="isBeneficial">Is it beneficial to citizens?</label>
+                <label style="display:inline-flex; align-items:center; gap:4px; margin-right:16px;">
+                  <input type="radio" name="new-type-good" id="new-type-good-yes" value="true" checked style="margin:0;" />
+                  <span data-i18n="beneficial">Beneficial</span>
+                </label>
+                <label style="display:inline-flex; align-items:center; gap:4px;">
+                  <input type="radio" name="new-type-good" id="new-type-good-no" value="false" style="margin:0;" />
+                  <span data-i18n="notBeneficial">Not Beneficial</span>
+                </label>
+              </div>
+              <div>
+                <button id="btn-add-type" class="btn" style="padding:0.35rem 0.7rem; font-size:0.9rem;" data-i18n="add">Add</button>
+              </div>
+            </div>
+            <div class="table-wrap" style="overflow:auto;">
+              <table id="types-table">
+                <thead>
+                  <tr>
+                    <th>
+                      <span data-i18n="typeName">Name</span>
+                      <span class="filter-icon" data-column="name" data-i18n-title="search">▼</span>
+                      <div class="filter-dropdown" data-column="name"></div>
+                    </th>
+                    <th>
+                      <span data-i18n="good">Beneficial?</span>
+                      <span class="filter-icon" data-column="good" data-i18n-title="search">▼</span>
+                      <div class="filter-dropdown" data-column="good"></div>
+                    </th>
+                    <th>
+                      <span data-i18n="addedBy">Created By</span>
+                      <span class="filter-icon" data-column="creator" data-i18n-title="search">▼</span>
+                      <div class="filter-dropdown" data-column="creator"></div>
+                    </th>
+                    <th data-i18n="actions">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="type-tbody"></tbody>
+              </table>
+            </div>
+            <div class="pagination">
+              <div class="pagination-info" id="types-pagination-info"></div>
+              <div class="pagination-controls" id="types-pagination-controls"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Users Tab -->
+        <div id="users-tab" class="tab-content">
+          <div class="panel">
+            <div class="table-wrap" style="overflow:auto;">
+              <table id="users-table">
+                <thead>
+                  <tr>
+                    <th>
+                      <span data-i18n="username">Username</span>
+                      <span class="filter-icon" data-column="username" data-i18n-title="search">▼</span>
+                      <div class="filter-dropdown" data-column="username"></div>
+                    </th>
+                    <th>
+                      <span data-i18n="role">Role</span>
+                      <span class="filter-icon" data-column="role" data-i18n-title="search">▼</span>
+                      <div class="filter-dropdown" data-column="role"></div>
+                    </th>
+                    <th>
+                      <span data-i18n="email">Email</span>
+                      <span class="filter-icon" data-column="email" data-i18n-title="search">▼</span>
+                      <div class="filter-dropdown" data-column="email"></div>
+                    </th>
+                    <th>
+                      <span data-i18n="verified">Verified</span>
+                      <span class="filter-icon" data-column="verified" data-i18n-title="search">▼</span>
+                      <div class="filter-dropdown" data-column="verified"></div>
+                    </th>
+                    <th data-i18n="actions">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="user-tbody"></tbody>
+              </table>
+            </div>
+            <div class="pagination">
+              <div class="pagination-info" id="users-pagination-info"></div>
+              <div class="pagination-controls" id="users-pagination-controls"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Events Tab -->
+        <div id="events-tab" class="tab-content">
+          <div class="panel">
+            <div id="events-table-wrap" class="table-wrap" style="overflow:auto;">
+              <table id="events-table">
+                <thead>
+                  <tr>
+                    <th>
+                      <span data-i18n="type">Type</span>
+                      <span class="filter-icon" data-column="type" data-i18n-title="search">▼</span>
+                      <div class="filter-dropdown" data-column="type"></div>
+                    </th>
+                    <th data-i18n="description">Description</th>
+                    <th>
+                      <span data-i18n="addedBy">Created By</span>
+                      <span class="filter-icon" data-column="creator" data-i18n-title="search">▼</span>
+                      <div class="filter-dropdown" data-column="creator"></div>
+                    </th>
+                    <th>
+                      <span data-i18n="photo">Photo</span>
+                      <span class="filter-icon" data-column="photo" data-i18n-title="search">▼</span>
+                      <div class="filter-dropdown" data-column="photo"></div>
+                    </th>
+                    <th>
+                      <span data-i18n="video">Video</span>
+                      <span class="filter-icon" data-column="video" data-i18n-title="search">▼</span>
+                      <div class="filter-dropdown" data-column="video"></div>
+                    </th>
+                    <th>
+                      <span data-i18n="addedDate">Date Added</span>
+                      <span class="filter-icon" data-column="date" data-i18n-title="search">▼</span>
+                      <div class="filter-dropdown" data-column="date"></div>
+                    </th>
+                    <th data-i18n="actions">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="event-tbody"></tbody>
+              </table>
+            </div>
+
+            <div id="events-map-wrap" class="events-map-wrap" aria-label="Filtered events map">
+              <div id="events-map"></div>
+            </div>
+
+            <div class="pagination">
+              <div class="pagination-info" id="events-pagination-info"></div>
+              <div class="pagination-controls" id="events-pagination-controls"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Veri Tipi Tab -->
+        <div id="veri-tipi-tab" class="tab-content">
+          <section id="panel-veri-tipi">
+            <div class="row" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+              <h3 style="margin:0;" data-i18n="existingData">Existing Data</h3>
+              <button id="btn-veri-tipi-add" class="btn" title="Ekle">+</button>
+            </div>
+
+            <div id="veri-tipi-table-wrap" style="margin-top:10px;"></div>
+          </section>
+        </div>
+
+        <!-- Regions Tab (Bölgemi Bul) -->
+        <div id="regions-tab" class="tab-content">
+          <div class="panel">
+            <div class="table-wrap" style="overflow:auto;">
+              <table id="regions-table">
+                <thead>
+                  <tr id="regions-thead-row">
+                    <!-- columns injected by JS based on PK1/PK2 -->
+                  </tr>
+                </thead>
+                <tbody id="region-tbody"></tbody>
+              </table>
+            </div>
+            <div class="pagination">
+              <div class="pagination-info" id="regions-pagination-info"></div>
+              <div class="pagination-controls" id="regions-pagination-controls"></div>
+            </div>
+            <div id="regions-map-wrap" class="events-map-wrap" style="margin-top:12px;">
+              <div id="regions-map"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <!-- Wizard Modal (Veri Tipi) -->
+  <div id="modal-veri-tipi" class="modal" aria-hidden="true">
+    <div class="box">
+      <div class="head">
+        <h3 id="veri-tipi-step-title" style="margin:0;">Veri Tipi Ekle</h3>
+        <button id="btn-veri-tipi-cancel-x" class="btn ghost" type="button">×</button>
+      </div>
+
+      <div id="veri-tipi-step-body"></div>
+
+      <div style="display:flex; justify-content:space-between; gap:10px; margin-top:12px;">
+        <button id="btn-veri-tipi-back" class="btn ghost" data-i18n="back">Back</button>
+        <div style="display:flex; gap:10px;">
+          <button id="btn-veri-tipi-cancel" class="btn ghost" data-i18n="cancel">Cancel</button>
+          <button id="btn-veri-tipi-next" class="btn" data-i18n="next">Next</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- PHOTO CAMERA MODAL -->
+  <div id="photo-modal" class="modal" aria-hidden="true">
+    <div class="box">
+      <div class="head">
+        <h4 data-i18n="takePhoto">Take Photo</h4>
+        <button id="pm-close" class="btn ghost" type="button" data-i18n="close">Close</button>
+      </div>
+      <video id="pm-video" playsinline autoplay muted></video>
+      <canvas id="pm-canvas" class="hidden"></canvas>
+      <div class="row gap6" style="margin-top:8px;">
+        <button id="pm-capture" class="btn primary" type="button" data-i18n="capture">Capture</button>
+        <button id="pm-retake" class="btn ghost hidden" type="button" data-i18n="retake">Retake</button>
+        <button id="pm-use" class="btn hidden" type="button" data-i18n="use">Use</button>
+        <button id="pm-gallery" class="btn" type="button" data-i18n="gallery">Gallery</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIDEO CAMERA MODAL -->
+  <div id="video-modal" class="modal" aria-hidden="true">
+    <div class="box">
+      <div class="head">
+        <h4 data-i18n="recordVideo">Record Video</h4>
+        <button id="vm-close" class="btn ghost" type="button" data-i18n="close">Close</button>
+      </div>
+      <video id="vm-preview" playsinline autoplay></video>
+      <div class="row gap6" style="margin-top:8px;">
+        <button id="vm-start" class="btn primary" type="button" data-i18n="startRecording">Start Recording</button>
+        <button id="vm-stop" class="btn danger hidden" type="button" data-i18n="stopRecording">Stop Recording</button>
+        <button id="vm-gallery" class="btn" type="button" data-i18n="gallery">Gallery</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- UPDATE EVENT TYPE MODAL -->
+  <div id="update-type-modal" class="modal" aria-hidden="true">
+    <div class="box">
+      <div class="head">
+        <h4 data-i18n="update">Update Event Type</h4>
+        <button id="update-type-cancel-btn" class="btn ghost" type="button" data-i18n="cancel">Cancel</button>
+      </div>
+      <div style="margin:12px 0;">
+        <label for="update-type-input" data-i18n="typeName">Event Type Name</label>
+        <input id="update-type-input" type="text" data-i18n-placeholder="typeNamePlaceholder" autocomplete="off" />
+      </div>
+      <div style="margin:12px 0;">
+        <label style="display:block; margin-bottom:6px; font-weight:500;" data-i18n="isBeneficial">Is it beneficial to citizens?</label>
+        <label style="display:inline-flex; align-items:center; gap:4px; margin-right:16px;">
+          <input type="radio" name="update-type-good" id="update-type-good-yes" value="true" style="margin:0;" />
+          <span data-i18n="beneficial">Beneficial</span>
+        </label>
+        <label style="display:inline-flex; align-items:center; gap:4px;">
+          <input type="radio" name="update-type-good" id="update-type-good-no" value="false" style="margin:0;" />
+          <span data-i18n="notBeneficial">Not Beneficial</span>
+        </label>
+      </div>
+      <div class="row gap6" style="margin-top:8px;">
+        <button id="update-type-save-btn" class="btn primary" type="button" data-i18n="save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    if (!('serviceWorker' in navigator)) return;
+    const swCode = `
+      let authToken = null; self.addEventListener('message', (e) => {
+        if (e && e.data && e.data.type === 'SET_TOKEN') {
+          authToken = e.data.token || null;
+        }
+      });
+      function shouldIntercept(url) {
+        try {
+          const u = new URL(url);
+          if (u.origin !== self.location.origin) return false;
+          if (/^\\/uploads\\//.test(u.pathname)) return true;
+          if (/^\\/api\\/olay\\/\\d+\\/(photo|video)(\\/.*)?$/.test(u.pathname)) return true;
+          return false;
+        } catch { return false; }
+      }
+      self.addEventListener('fetch', (event) => {
+        const req = event.request;
+        if (!shouldIntercept(req.url) || !authToken) return;
+        event.respondWith((async () => {
+          const headers = new Headers(req.headers);
+          headers.set('Authorization', 'Bearer ' + authToken);
+          const proxied = new Request(req, { headers });
+          try { return await fetch(proxied); } catch { return fetch(req); }
+        })());
+      });
+    `;
+    const blob = new Blob([swCode], { type: 'text/javascript' });
+    const swUrl = URL.createObjectURL(blob);
+    navigator.serviceWorker.register(swUrl).then(async (reg) => {
+      const sendToken = () => {
+        try {
+          const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+          (reg.active || reg.waiting)?.postMessage({ type: 'SET_TOKEN', token });
+        } catch {}
+      };
+      if (reg.active) sendToken();
+      navigator.serviceWorker.ready.then(() => sendToken());
+      window.addEventListener('storage', (ev) => {
+        if (ev.key === 'auth_token' || ev.key === 'token') sendToken();
+      });
+      const _setItem = localStorage.setItem.bind(localStorage);
+      localStorage.setItem = function(k, v){
+        _setItem(k, v);
+        if (k === 'auth_token' || k === 'token') { try { sendToken(); } catch {} }
+      };
+    }).catch(() => {});
+  })();
+  </script>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+  <script src="https://unpkg.com/proj4@2.9.2/dist/proj4.js"></script>
+  <script src="https://unpkg.com/georaster@1.6.0/dist/georaster.browser.bundle.min.js"></script>
+  <script src="https://unpkg.com/georaster-layer-for-leaflet@3.10.0/dist/georaster-layer-for-leaflet.min.js"></script>
+
+  <script>
+    (function(){
+      if (!window.L) return;
+      const WORLD_BOUNDS = L.latLngBounds(L.latLng(-85, -180), L.latLng(85, 180));
+      const _map = L.map;
+      L.map = function(id, options){
+        const o = Object.assign({},
+          { maxZoom: 18, minZoom: 2, worldCopyJump: false, maxBounds: WORLD_BOUNDS, maxBoundsViscosity: 1.0 },
+          (options||{})
+        );
+        const m = _map.call(this, id, o);
+        try { m.setMaxBounds(WORLD_BOUNDS); } catch {}
+        return m;
+      };
+      const _tile = L.tileLayer;
+      L.tileLayer = function(url, options){
+        const o = Object.assign({}, { noWrap: true, bounds: WORLD_BOUNDS }, (options||{}));
+        return _tile.call(this, url, o);
+      };
+    })();
+  </script>
+
+  <script src="/i18n/main.js"></script>
+  <script src="/app.js"></script>
+  
+  <script>
+    window.addEventListener('languagechange', function(e) {
+      document.querySelectorAll('.language-selector button').forEach(btn => {
+        btn.classList.remove('active');
+      });
+      if (e.detail.language === 'en') {
+        var enBtn = document.getElementById('lang-en');
+        if (enBtn) enBtn.classList.add('active');
+      } else {
+        var defBtn = document.getElementById('lang-default');
+        if (defBtn) defBtn.classList.add('active');
+      }
+      
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        el.textContent = t(key);
+      });
+      
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        const key = el.getAttribute('data-i18n-placeholder');
+        el.placeholder = t(key);
+      });
+      
+      document.querySelectorAll('[data-i18n-title]').forEach(el => {
+        const key = el.getAttribute('data-i18n-title');
+        el.title = t(key);
+      });
+      
+      document.querySelectorAll('[data-i18n-aria-label]').forEach(el => {
+        const key = el.getAttribute('data-i18n-aria-label');
+        el.setAttribute('aria-label', t(key));
+      });
+      
+      document.querySelectorAll('[data-i18n-alt]').forEach(el => {
+        const key = el.getAttribute('data-i18n-alt');
+        el.alt = t(key);
+      });
+    });
+  </script>
+</body>
+</html>
