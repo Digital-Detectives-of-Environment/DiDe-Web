@@ -1,0 +1,4 @@
+1. Downloading NPM packages:
+npm install
+
+2. Regulation of environmental variables (Readme.md)

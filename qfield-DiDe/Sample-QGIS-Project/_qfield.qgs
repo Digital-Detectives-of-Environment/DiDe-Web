@@ -1,0 +1,1771 @@
+<!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
+<qgis version="3.24.1-Tisler" projectname="_qfield.qgs (offline)" saveDateTime="2025-11-08T15:31:29" saveUserFull="USER" saveUser="USER">
+  <homePath path=""/>
+  <title>_qfield.qgs (offline)</title>
+  <autotransaction active="0"/>
+  <evaluateDefaultValues active="0"/>
+  <trust active="0"/>
+  <projectCrs>
+    <spatialrefsys nativeFormat="Wkt">
+      <wkt>PROJCRS["WGS 84 / Pseudo-Mercator",BASEGEOGCRS["WGS 84",ENSEMBLE["World Geodetic System 1984 ensemble",MEMBER["World Geodetic System 1984 (Transit)"],MEMBER["World Geodetic System 1984 (G730)"],MEMBER["World Geodetic System 1984 (G873)"],MEMBER["World Geodetic System 1984 (G1150)"],MEMBER["World Geodetic System 1984 (G1674)"],MEMBER["World Geodetic System 1984 (G1762)"],MEMBER["World Geodetic System 1984 (G2139)"],ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]],ENSEMBLEACCURACY[2.0]],PRIMEM["Greenwich",0,ANGLEUNIT["degree",0.0174532925199433]],ID["EPSG",4326]],CONVERSION["Popular Visualisation Pseudo-Mercator",METHOD["Popular Visualisation Pseudo Mercator",ID["EPSG",1024]],PARAMETER["Latitude of natural origin",0,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8801]],PARAMETER["Longitude of natural origin",0,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8802]],PARAMETER["False easting",0,LENGTHUNIT["metre",1],ID["EPSG",8806]],PARAMETER["False northing",0,LENGTHUNIT["metre",1],ID["EPSG",8807]]],CS[Cartesian,2],AXIS["easting (X)",east,ORDER[1],LENGTHUNIT["metre",1]],AXIS["northing (Y)",north,ORDER[2],LENGTHUNIT["metre",1]],USAGE[SCOPE["Web mapping and visualisation."],AREA["World between 85.06°S and 85.06°N."],BBOX[-85.06,-180,85.06,180]],ID["EPSG",3857]]</wkt>
+      <proj4>+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs</proj4>
+      <srsid>3857</srsid>
+      <srid>3857</srid>
+      <authid>EPSG:3857</authid>
+      <description>WGS 84 / Pseudo-Mercator</description>
+      <projectionacronym>merc</projectionacronym>
+      <ellipsoidacronym>EPSG:7030</ellipsoidacronym>
+      <geographicflag>false</geographicflag>
+    </spatialrefsys>
+  </projectCrs>
+  <layer-tree-group>
+    <customproperties>
+      <Option/>
+    </customproperties>
+    <layer-tree-layer checked="Qt::Checked" providerKey="ogr" id="olaylar_b7e880e8_9460_44f5_a5b0_6a994c6401ae" legend_exp="" legend_split_behavior="0" source="./data.gpkg|layername=olaylar_b7e880e8_9460_44f5_a5b0_6a994c6401ae" name="olaylar" patch_size="-1,-1" expanded="1">
+      <customproperties>
+        <Option/>
+      </customproperties>
+    </layer-tree-layer>
+    <layer-tree-layer checked="Qt::Checked" providerKey="ogr" id="users_9db8946e_fa52_45eb_9b5a_93d8b7a62664" legend_exp="" legend_split_behavior="0" source="./data.gpkg|layername=users_9db8946e_fa52_45eb_9b5a_93d8b7a62664" name="users" patch_size="-1,-1" expanded="1">
+      <customproperties>
+        <Option/>
+      </customproperties>
+    </layer-tree-layer>
+    <layer-tree-layer checked="Qt::Checked" providerKey="ogr" id="olay_2bc6d6d1_e589_4f3a_a3d4_14d5e95051e3" legend_exp="" legend_split_behavior="0" source="./data.gpkg|layername=olay_2bc6d6d1_e589_4f3a_a3d4_14d5e95051e3" name="olay" patch_size="-1,-1" expanded="1">
+      <customproperties>
+        <Option/>
+      </customproperties>
+    </layer-tree-layer>
+    <layer-tree-layer checked="Qt::Checked" providerKey="wms" id="OpenStreetMap_ad3efa10_4856_4969_86d6_bfbe596e6e6b" legend_exp="" legend_split_behavior="0" source="crs=EPSG:3857&amp;format&amp;type=xyz&amp;url=https://tile.openstreetmap.org/%7Bz%7D/%7Bx%7D/%7By%7D.png&amp;zmax=19&amp;zmin=0" name="OpenStreetMap" patch_size="-1,-1" expanded="1">
+      <customproperties>
+        <Option/>
+      </customproperties>
+    </layer-tree-layer>
+    <custom-order enabled="0">
+      <item>OpenStreetMap_ad3efa10_4856_4969_86d6_bfbe596e6e6b</item>
+      <item>olay_2bc6d6d1_e589_4f3a_a3d4_14d5e95051e3</item>
+    </custom-order>
+  </layer-tree-group>
+  <snapping-settings maxScale="0" intersection-snapping="0" unit="1" self-snapping="0" type="1" scaleDependencyMode="0" enabled="0" mode="2" minScale="0" tolerance="12">
+    <individual-layer-settings>
+      <layer-setting maxScale="0" units="1" type="1" id="olay_2bc6d6d1_e589_4f3a_a3d4_14d5e95051e3" enabled="0" minScale="0" tolerance="12"/>
+    </individual-layer-settings>
+  </snapping-settings>
+  <relations/>
+  <polymorphicRelations/>
+  <mapcanvas name="theMapCanvas" annotationsVisible="1">
+    <units>meters</units>
+    <extent>
+      <xmin>3345909.71200905088335276</xmin>
+      <ymin>4263962.32317529246211052</ymin>
+      <xmax>3833005.94882951490581036</xmax>
+      <ymax>5359763.56067157909274101</ymax>
+    </extent>
+    <rotation>0</rotation>
+    <destinationsrs>
+      <spatialrefsys nativeFormat="Wkt">
+        <wkt>PROJCRS["WGS 84 / Pseudo-Mercator",BASEGEOGCRS["WGS 84",ENSEMBLE["World Geodetic System 1984 ensemble",MEMBER["World Geodetic System 1984 (Transit)"],MEMBER["World Geodetic System 1984 (G730)"],MEMBER["World Geodetic System 1984 (G873)"],MEMBER["World Geodetic System 1984 (G1150)"],MEMBER["World Geodetic System 1984 (G1674)"],MEMBER["World Geodetic System 1984 (G1762)"],MEMBER["World Geodetic System 1984 (G2139)"],ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]],ENSEMBLEACCURACY[2.0]],PRIMEM["Greenwich",0,ANGLEUNIT["degree",0.0174532925199433]],ID["EPSG",4326]],CONVERSION["Popular Visualisation Pseudo-Mercator",METHOD["Popular Visualisation Pseudo Mercator",ID["EPSG",1024]],PARAMETER["Latitude of natural origin",0,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8801]],PARAMETER["Longitude of natural origin",0,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8802]],PARAMETER["False easting",0,LENGTHUNIT["metre",1],ID["EPSG",8806]],PARAMETER["False northing",0,LENGTHUNIT["metre",1],ID["EPSG",8807]]],CS[Cartesian,2],AXIS["easting (X)",east,ORDER[1],LENGTHUNIT["metre",1]],AXIS["northing (Y)",north,ORDER[2],LENGTHUNIT["metre",1]],USAGE[SCOPE["Web mapping and visualisation."],AREA["World between 85.06°S and 85.06°N."],BBOX[-85.06,-180,85.06,180]],ID["EPSG",3857]]</wkt>
+        <proj4>+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs</proj4>
+        <srsid>3857</srsid>
+        <srid>3857</srid>
+        <authid>EPSG:3857</authid>
+        <description>WGS 84 / Pseudo-Mercator</description>
+        <projectionacronym>merc</projectionacronym>
+        <ellipsoidacronym>EPSG:7030</ellipsoidacronym>
+        <geographicflag>false</geographicflag>
+      </spatialrefsys>
+    </destinationsrs>
+    <rendermaptile>0</rendermaptile>
+    <expressionContextScope/>
+  </mapcanvas>
+  <projectModels/>
+  <legend updateDrawingOrder="true">
+    <legendlayer checked="Qt::Checked" showFeatureCount="0" drawingOrder="-1" name="olaylar" open="true">
+      <filegroup hidden="false" open="true">
+        <legendlayerfile isInOverview="0" layerid="olaylar_b7e880e8_9460_44f5_a5b0_6a994c6401ae" visible="1"/>
+      </filegroup>
+    </legendlayer>
+    <legendlayer checked="Qt::Checked" showFeatureCount="0" drawingOrder="-1" name="users" open="true">
+      <filegroup hidden="false" open="true">
+        <legendlayerfile isInOverview="0" layerid="users_9db8946e_fa52_45eb_9b5a_93d8b7a62664" visible="1"/>
+      </filegroup>
+    </legendlayer>
+    <legendlayer checked="Qt::Checked" showFeatureCount="0" drawingOrder="-1" name="olay" open="true">
+      <filegroup hidden="false" open="true">
+        <legendlayerfile isInOverview="0" layerid="olay_2bc6d6d1_e589_4f3a_a3d4_14d5e95051e3" visible="1"/>
+      </filegroup>
+    </legendlayer>
+    <legendlayer checked="Qt::Checked" showFeatureCount="0" drawingOrder="-1" name="OpenStreetMap" open="true">
+      <filegroup hidden="false" open="true">
+        <legendlayerfile isInOverview="0" layerid="OpenStreetMap_ad3efa10_4856_4969_86d6_bfbe596e6e6b" visible="1"/>
+      </filegroup>
+    </legendlayer>
+  </legend>
+  <mapViewDocks/>
+  <main-annotation-layer autoRefreshEnabled="0" refreshOnNotifyEnabled="0" type="annotation" legendPlaceholderImage="" refreshOnNotifyMessage="" autoRefreshTime="0">
+    <id>Annotations_8326b240_40a1_4586_b689_dff83bf2decf</id>
+    <datasource></datasource>
+    <keywordList>
+      <value></value>
+    </keywordList>
+    <layername>Annotations</layername>
+    <srs>
+      <spatialrefsys nativeFormat="Wkt">
+        <wkt>GEOGCRS["WGS 84",ENSEMBLE["World Geodetic System 1984 ensemble",MEMBER["World Geodetic System 1984 (Transit)"],MEMBER["World Geodetic System 1984 (G730)"],MEMBER["World Geodetic System 1984 (G873)"],MEMBER["World Geodetic System 1984 (G1150)"],MEMBER["World Geodetic System 1984 (G1674)"],MEMBER["World Geodetic System 1984 (G1762)"],MEMBER["World Geodetic System 1984 (G2139)"],ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]],ENSEMBLEACCURACY[2.0]],PRIMEM["Greenwich",0,ANGLEUNIT["degree",0.0174532925199433]],CS[ellipsoidal,2],AXIS["geodetic latitude (Lat)",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["geodetic longitude (Lon)",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]],USAGE[SCOPE["Horizontal component of 3D system."],AREA["World."],BBOX[-90,-180,90,180]],ID["EPSG",4326]]</wkt>
+        <proj4>+proj=longlat +datum=WGS84 +no_defs</proj4>
+        <srsid>3452</srsid>
+        <srid>4326</srid>
+        <authid>EPSG:4326</authid>
+        <description>WGS 84</description>
+        <projectionacronym>longlat</projectionacronym>
+        <ellipsoidacronym>EPSG:7030</ellipsoidacronym>
+        <geographicflag>true</geographicflag>
+      </spatialrefsys>
+    </srs>
+    <resourceMetadata>
+      <identifier></identifier>
+      <parentidentifier></parentidentifier>
+      <language></language>
+      <type></type>
+      <title></title>
+      <abstract></abstract>
+      <links/>
+      <fees></fees>
+      <encoding></encoding>
+      <crs>
+        <spatialrefsys nativeFormat="Wkt">
+          <wkt></wkt>
+          <proj4></proj4>
+          <srsid>0</srsid>
+          <srid>0</srid>
+          <authid></authid>
+          <description></description>
+          <projectionacronym></projectionacronym>
+          <ellipsoidacronym></ellipsoidacronym>
+          <geographicflag>false</geographicflag>
+        </spatialrefsys>
+      </crs>
+      <extent/>
+    </resourceMetadata>
+    <items/>
+    <layerOpacity>1</layerOpacity>
+    <blendMode>0</blendMode>
+    <paintEffect/>
+  </main-annotation-layer>
+  <projectlayers>
+    <maplayer maxScale="0" autoRefreshEnabled="0" refreshOnNotifyEnabled="0" type="raster" styleCategories="AllStyleCategories" legendPlaceholderImage="" hasScaleBasedVisibilityFlag="0" refreshOnNotifyMessage="" autoRefreshTime="0" minScale="1e+08">
+      <extent>
+        <xmin>-20037508.34278924390673637</xmin>
+        <ymin>-20037508.34278924763202667</ymin>
+        <xmax>20037508.34278924390673637</xmax>
+        <ymax>20037508.34278924763202667</ymax>
+      </extent>
+      <wgs84extent>
+        <xmin>-180</xmin>
+        <ymin>-85.05112877980660357</ymin>
+        <xmax>179.99999999999997158</xmax>
+        <ymax>85.05112877980660357</ymax>
+      </wgs84extent>
+      <id>OpenStreetMap_ad3efa10_4856_4969_86d6_bfbe596e6e6b</id>
+      <datasource>crs=EPSG:3857&amp;format&amp;type=xyz&amp;url=https://tile.openstreetmap.org/%7Bz%7D/%7Bx%7D/%7By%7D.png&amp;zmax=19&amp;zmin=0</datasource>
+      <keywordList>
+        <value></value>
+      </keywordList>
+      <layername>OpenStreetMap</layername>
+      <srs>
+        <spatialrefsys nativeFormat="Wkt">
+          <wkt>PROJCRS["WGS 84 / Pseudo-Mercator",BASEGEOGCRS["WGS 84",ENSEMBLE["World Geodetic System 1984 ensemble",MEMBER["World Geodetic System 1984 (Transit)"],MEMBER["World Geodetic System 1984 (G730)"],MEMBER["World Geodetic System 1984 (G873)"],MEMBER["World Geodetic System 1984 (G1150)"],MEMBER["World Geodetic System 1984 (G1674)"],MEMBER["World Geodetic System 1984 (G1762)"],MEMBER["World Geodetic System 1984 (G2139)"],ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]],ENSEMBLEACCURACY[2.0]],PRIMEM["Greenwich",0,ANGLEUNIT["degree",0.0174532925199433]],ID["EPSG",4326]],CONVERSION["Popular Visualisation Pseudo-Mercator",METHOD["Popular Visualisation Pseudo Mercator",ID["EPSG",1024]],PARAMETER["Latitude of natural origin",0,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8801]],PARAMETER["Longitude of natural origin",0,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8802]],PARAMETER["False easting",0,LENGTHUNIT["metre",1],ID["EPSG",8806]],PARAMETER["False northing",0,LENGTHUNIT["metre",1],ID["EPSG",8807]]],CS[Cartesian,2],AXIS["easting (X)",east,ORDER[1],LENGTHUNIT["metre",1]],AXIS["northing (Y)",north,ORDER[2],LENGTHUNIT["metre",1]],USAGE[SCOPE["Web mapping and visualisation."],AREA["World between 85.06°S and 85.06°N."],BBOX[-85.06,-180,85.06,180]],ID["EPSG",3857]]</wkt>
+          <proj4>+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs</proj4>
+          <srsid>3857</srsid>
+          <srid>3857</srid>
+          <authid>EPSG:3857</authid>
+          <description>WGS 84 / Pseudo-Mercator</description>
+          <projectionacronym>merc</projectionacronym>
+          <ellipsoidacronym>EPSG:7030</ellipsoidacronym>
+          <geographicflag>false</geographicflag>
+        </spatialrefsys>
+      </srs>
+      <resourceMetadata>
+        <identifier>OpenStreetMap tiles</identifier>
+        <parentidentifier></parentidentifier>
+        <language></language>
+        <type>dataset</type>
+        <title>OpenStreetMap tiles</title>
+        <abstract>OpenStreetMap is built by a community of mappers that contribute and maintain data about roads, trails, cafés, railway stations, and much more, all over the world.</abstract>
+        <links>
+          <link size="" url="https://www.openstreetmap.org/" type="WWW:LINK" name="Source" description="" mimeType="" format=""/>
+        </links>
+        <fees></fees>
+        <rights>Base map and data from OpenStreetMap and OpenStreetMap Foundation (CC-BY-SA). © https://www.openstreetmap.org and contributors.</rights>
+        <license>Open Data Commons Open Database License (ODbL)</license>
+        <license>Creative Commons Attribution-ShareAlike (CC-BY-SA)</license>
+        <encoding></encoding>
+        <crs>
+          <spatialrefsys nativeFormat="Wkt">
+            <wkt>PROJCRS["WGS 84 / Pseudo-Mercator",BASEGEOGCRS["WGS 84",ENSEMBLE["World Geodetic System 1984 ensemble",MEMBER["World Geodetic System 1984 (Transit)"],MEMBER["World Geodetic System 1984 (G730)"],MEMBER["World Geodetic System 1984 (G873)"],MEMBER["World Geodetic System 1984 (G1150)"],MEMBER["World Geodetic System 1984 (G1674)"],MEMBER["World Geodetic System 1984 (G1762)"],MEMBER["World Geodetic System 1984 (G2139)"],ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]],ENSEMBLEACCURACY[2.0]],PRIMEM["Greenwich",0,ANGLEUNIT["degree",0.0174532925199433]],ID["EPSG",4326]],CONVERSION["Popular Visualisation Pseudo-Mercator",METHOD["Popular Visualisation Pseudo Mercator",ID["EPSG",1024]],PARAMETER["Latitude of natural origin",0,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8801]],PARAMETER["Longitude of natural origin",0,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8802]],PARAMETER["False easting",0,LENGTHUNIT["metre",1],ID["EPSG",8806]],PARAMETER["False northing",0,LENGTHUNIT["metre",1],ID["EPSG",8807]]],CS[Cartesian,2],AXIS["easting (X)",east,ORDER[1],LENGTHUNIT["metre",1]],AXIS["northing (Y)",north,ORDER[2],LENGTHUNIT["metre",1]],USAGE[SCOPE["Web mapping and visualisation."],AREA["World between 85.06°S and 85.06°N."],BBOX[-85.06,-180,85.06,180]],ID["EPSG",3857]]</wkt>
+            <proj4>+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs</proj4>
+            <srsid>3857</srsid>
+            <srid>3857</srid>
+            <authid>EPSG:3857</authid>
+            <description>WGS 84 / Pseudo-Mercator</description>
+            <projectionacronym>merc</projectionacronym>
+            <ellipsoidacronym>EPSG:7030</ellipsoidacronym>
+            <geographicflag>false</geographicflag>
+          </spatialrefsys>
+        </crs>
+        <extent>
+          <spatial maxy="85.05112877980660357" maxz="0" maxx="180" minx="-180" dimensions="2" minz="0" crs="EPSG:4326" miny="-85.05112877980660357"/>
+        </extent>
+      </resourceMetadata>
+      <provider>wms</provider>
+      <noData>
+        <noDataList useSrcNoData="0" bandNo="1"/>
+      </noData>
+      <map-layer-style-manager current="default">
+        <map-layer-style name="default"/>
+      </map-layer-style-manager>
+      <metadataUrls/>
+      <flags>
+        <Identifiable>1</Identifiable>
+        <Removable>1</Removable>
+        <Searchable>1</Searchable>
+        <Private>0</Private>
+      </flags>
+      <temporal fetchMode="0" enabled="0" mode="0">
+        <fixedRange>
+          <start></start>
+          <end></end>
+        </fixedRange>
+      </temporal>
+      <customproperties>
+        <Option type="Map">
+          <Option type="QString" value="OpenStreetMap_ad3efa10_4856_4969_86d6_bfbe596e6e6b" name="QFieldSync/remoteLayerId"/>
+          <Option type="QString" value="Value" name="identify/format"/>
+        </Option>
+      </customproperties>
+      <pipe-data-defined-properties>
+        <Option type="Map">
+          <Option type="QString" value="" name="name"/>
+          <Option name="properties"/>
+          <Option type="QString" value="collection" name="type"/>
+        </Option>
+      </pipe-data-defined-properties>
+      <pipe>
+        <provider>
+          <resampling zoomedOutResamplingMethod="nearestNeighbour" enabled="false" maxOversampling="2" zoomedInResamplingMethod="nearestNeighbour"/>
+        </provider>
+        <rasterrenderer band="1" alphaBand="-1" type="singlebandcolordata" nodataColor="" opacity="1">
+          <rasterTransparency/>
+          <minMaxOrigin>
+            <limits>None</limits>
+            <extent>WholeRaster</extent>
+            <statAccuracy>Estimated</statAccuracy>
+            <cumulativeCutLower>0.02</cumulativeCutLower>
+            <cumulativeCutUpper>0.98</cumulativeCutUpper>
+            <stdDevFactor>2</stdDevFactor>
+          </minMaxOrigin>
+        </rasterrenderer>
+        <brightnesscontrast gamma="1" brightness="0" contrast="0"/>
+        <huesaturation saturation="0" colorizeOn="0" invertColors="0" colorizeRed="255" colorizeBlue="128" colorizeStrength="100" grayscaleMode="0" colorizeGreen="128"/>
+        <rasterresampler maxOversampling="2"/>
+        <resamplingStage>resamplingFilter</resamplingStage>
+      </pipe>
+      <blendMode>0</blendMode>
+    </maplayer>
+    <maplayer geometry="Point" simplifyAlgorithm="0" hasScaleBasedVisibilityFlag="0" simplifyDrawingHints="0" minScale="100000000" wkbType="Point" autoRefreshTime="0" autoRefreshEnabled="0" readOnly="0" labelsEnabled="0" simplifyMaxScale="1" maxScale="0" styleCategories="AllStyleCategories" simplifyLocal="1" type="vector" simplifyDrawingTol="1" symbologyReferenceScale="-1" refreshOnNotifyMessage="" legendPlaceholderImage="" refreshOnNotifyEnabled="0">
+      <extent>
+        <xmin>15.732421875</xmin>
+        <ymin>16.1851997375487997</ymin>
+        <xmax>54.97559356689450283</xmax>
+        <ymax>40.92019653320309658</ymax>
+      </extent>
+      <wgs84extent>
+        <xmin>15.732421875</xmin>
+        <ymin>16.1851997375487997</ymin>
+        <xmax>54.97559356689450283</xmax>
+        <ymax>40.92019653320309658</ymax>
+      </wgs84extent>
+      <id>olay_2bc6d6d1_e589_4f3a_a3d4_14d5e95051e3</id>
+      <datasource>./data.gpkg|layername=olay_2bc6d6d1_e589_4f3a_a3d4_14d5e95051e3</datasource>
+      <keywordList>
+        <value></value>
+      </keywordList>
+      <layername>olay</layername>
+      <srs>
+        <spatialrefsys nativeFormat="Wkt">
+          <wkt>GEOGCRS["WGS 84",ENSEMBLE["World Geodetic System 1984 ensemble",MEMBER["World Geodetic System 1984 (Transit)"],MEMBER["World Geodetic System 1984 (G730)"],MEMBER["World Geodetic System 1984 (G873)"],MEMBER["World Geodetic System 1984 (G1150)"],MEMBER["World Geodetic System 1984 (G1674)"],MEMBER["World Geodetic System 1984 (G1762)"],MEMBER["World Geodetic System 1984 (G2139)"],ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]],ENSEMBLEACCURACY[2.0]],PRIMEM["Greenwich",0,ANGLEUNIT["degree",0.0174532925199433]],CS[ellipsoidal,2],AXIS["geodetic latitude (Lat)",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["geodetic longitude (Lon)",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]],USAGE[SCOPE["Horizontal component of 3D system."],AREA["World."],BBOX[-90,-180,90,180]],ID["EPSG",4326]]</wkt>
+          <proj4>+proj=longlat +datum=WGS84 +no_defs</proj4>
+          <srsid>3452</srsid>
+          <srid>4326</srid>
+          <authid>EPSG:4326</authid>
+          <description>WGS 84</description>
+          <projectionacronym>longlat</projectionacronym>
+          <ellipsoidacronym>EPSG:7030</ellipsoidacronym>
+          <geographicflag>true</geographicflag>
+        </spatialrefsys>
+      </srs>
+      <resourceMetadata>
+        <identifier></identifier>
+        <parentidentifier></parentidentifier>
+        <language></language>
+        <type>dataset</type>
+        <title>olay_2bc6d6d1_e589_4f3a_a3d4_14d5e95051e3 (offline)</title>
+        <abstract></abstract>
+        <contact>
+          <name></name>
+          <organization></organization>
+          <position></position>
+          <voice></voice>
+          <fax></fax>
+          <email></email>
+          <role></role>
+        </contact>
+        <links/>
+        <fees></fees>
+        <encoding></encoding>
+        <crs>
+          <spatialrefsys nativeFormat="Wkt">
+            <wkt>GEOGCRS["WGS 84",ENSEMBLE["World Geodetic System 1984 ensemble",MEMBER["World Geodetic System 1984 (Transit)"],MEMBER["World Geodetic System 1984 (G730)"],MEMBER["World Geodetic System 1984 (G873)"],MEMBER["World Geodetic System 1984 (G1150)"],MEMBER["World Geodetic System 1984 (G1674)"],MEMBER["World Geodetic System 1984 (G1762)"],MEMBER["World Geodetic System 1984 (G2139)"],ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]],ENSEMBLEACCURACY[2.0]],PRIMEM["Greenwich",0,ANGLEUNIT["degree",0.0174532925199433]],CS[ellipsoidal,2],AXIS["geodetic latitude (Lat)",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["geodetic longitude (Lon)",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]],USAGE[SCOPE["Horizontal component of 3D system."],AREA["World."],BBOX[-90,-180,90,180]],ID["EPSG",4326]]</wkt>
+            <proj4>+proj=longlat +datum=WGS84 +no_defs</proj4>
+            <srsid>3452</srsid>
+            <srid>4326</srid>
+            <authid>EPSG:4326</authid>
+            <description>WGS 84</description>
+            <projectionacronym>longlat</projectionacronym>
+            <ellipsoidacronym>EPSG:7030</ellipsoidacronym>
+            <geographicflag>true</geographicflag>
+          </spatialrefsys>
+        </crs>
+        <extent>
+          <spatial maxy="0" maxz="0" maxx="0" minx="0" dimensions="2" minz="0" crs="EPSG:4326" miny="0"/>
+          <temporal>
+            <period>
+              <start></start>
+              <end></end>
+            </period>
+          </temporal>
+        </extent>
+      </resourceMetadata>
+      <provider encoding="UTF-8">ogr</provider>
+      <vectorjoins/>
+      <layerDependencies/>
+      <dataDependencies/>
+      <expressionfields/>
+      <map-layer-style-manager current="default">
+        <map-layer-style name="default"/>
+      </map-layer-style-manager>
+      <auxiliaryLayer/>
+      <metadataUrls/>
+      <flags>
+        <Identifiable>1</Identifiable>
+        <Removable>1</Removable>
+        <Searchable>1</Searchable>
+        <Private>0</Private>
+      </flags>
+      <temporal accumulate="0" fixedDuration="0" endField="" limitMode="0" startField="deactivated_at" endExpression="" enabled="0" durationUnit="min" mode="0" durationField="fid" startExpression="">
+        <fixedRange>
+          <start></start>
+          <end></end>
+        </fixedRange>
+      </temporal>
+      <renderer-v2 forceraster="0" referencescale="-1" type="singleSymbol" enableorderby="0" symbollevels="0">
+        <symbols>
+          <symbol force_rhr="0" type="marker" alpha="1" name="0" clip_to_extent="1">
+            <data_defined_properties>
+              <Option type="Map">
+                <Option type="QString" value="" name="name"/>
+                <Option name="properties"/>
+                <Option type="QString" value="collection" name="type"/>
+              </Option>
+            </data_defined_properties>
+            <layer class="SimpleMarker" enabled="1" locked="0" pass="0">
+              <Option type="Map">
+                <Option type="QString" value="0" name="angle"/>
+                <Option type="QString" value="square" name="cap_style"/>
+                <Option type="QString" value="141,90,153,255" name="color"/>
+                <Option type="QString" value="1" name="horizontal_anchor_point"/>
+                <Option type="QString" value="bevel" name="joinstyle"/>
+                <Option type="QString" value="circle" name="name"/>
+                <Option type="QString" value="0,0" name="offset"/>
+                <Option type="QString" value="3x:0,0,0,0,0,0" name="offset_map_unit_scale"/>
+                <Option type="QString" value="MM" name="offset_unit"/>
+                <Option type="QString" value="35,35,35,255" name="outline_color"/>
+                <Option type="QString" value="solid" name="outline_style"/>
+                <Option type="QString" value="0" name="outline_width"/>
+                <Option type="QString" value="3x:0,0,0,0,0,0" name="outline_width_map_unit_scale"/>
+                <Option type="QString" value="MM" name="outline_width_unit"/>
+                <Option type="QString" value="diameter" name="scale_method"/>
+                <Option type="QString" value="2" name="size"/>
+                <Option type="QString" value="3x:0,0,0,0,0,0" name="size_map_unit_scale"/>
+                <Option type="QString" value="MM" name="size_unit"/>
+                <Option type="QString" value="1" name="vertical_anchor_point"/>
+              </Option>
+              <prop k="angle" v="0"/>
+              <prop k="cap_style" v="square"/>
+              <prop k="color" v="141,90,153,255"/>
+              <prop k="horizontal_anchor_point" v="1"/>
+              <prop k="joinstyle" v="bevel"/>
+              <prop k="name" v="circle"/>
+              <prop k="offset" v="0,0"/>
+              <prop k="offset_map_unit_scale" v="3x:0,0,0,0,0,0"/>
+              <prop k="offset_unit" v="MM"/>
+              <prop k="outline_color" v="35,35,35,255"/>
+              <prop k="outline_style" v="solid"/>
+              <prop k="outline_width" v="0"/>
+              <prop k="outline_width_map_unit_scale" v="3x:0,0,0,0,0,0"/>
+              <prop k="outline_width_unit" v="MM"/>
+              <prop k="scale_method" v="diameter"/>
+              <prop k="size" v="2"/>
+              <prop k="size_map_unit_scale" v="3x:0,0,0,0,0,0"/>
+              <prop k="size_unit" v="MM"/>
+              <prop k="vertical_anchor_point" v="1"/>
+              <data_defined_properties>
+                <Option type="Map">
+                  <Option type="QString" value="" name="name"/>
+                  <Option name="properties"/>
+                  <Option type="QString" value="collection" name="type"/>
+                </Option>
+              </data_defined_properties>
+            </layer>
+          </symbol>
+        </symbols>
+        <rotation/>
+        <sizescale/>
+      </renderer-v2>
+      <customproperties>
+        <Option type="Map">
+          <Option type="QString" value="copy" name="QFieldSync/action"/>
+          <Option type="QString" value="{&quot;photo_urls&quot;: &quot;'DCIM/olay_' || format_date(now(),'yyyyMMddhhmmsszzz') || '.{extension}'&quot;, &quot;video_urls&quot;: &quot;'files/olay_' || format_date(now(),'yyyyMMddhhmmsszzz') || '_{filename}'&quot;}" name="QFieldSync/attachment_naming"/>
+          <Option type="QString" value="" name="QFieldSync/attribute_editing_locked_expression"/>
+          <Option type="QString" value="offline" name="QFieldSync/cloud_action"/>
+          <Option type="QString" value="" name="QFieldSync/feature_addition_locked_expression"/>
+          <Option type="QString" value="" name="QFieldSync/feature_deletion_locked_expression"/>
+          <Option type="QString" value="" name="QFieldSync/geometry_editing_locked_expression"/>
+          <Option type="QString" value="{&quot;photo_urls&quot;: &quot;'DCIM/olay_' || format_date(now(),'yyyyMMddhhmmsszzz') || '.{extension}'&quot;}" name="QFieldSync/photo_naming"/>
+          <Option type="QString" value="{}" name="QFieldSync/relationship_maximum_visible"/>
+          <Option type="QString" value="olay_d862f2c4_99ec_4097_864d_d35ddca1c83a" name="QFieldSync/remoteLayerId"/>
+          <Option type="QString" value="olay_id" name="QFieldSync/sourceDataPrimaryKeys"/>
+          <Option type="int" value="30" name="QFieldSync/tracking_distance_requirement_minimum_meters"/>
+          <Option type="int" value="1" name="QFieldSync/tracking_erroneous_distance_safeguard_maximum_meters"/>
+          <Option type="int" value="0" name="QFieldSync/tracking_measurement_type"/>
+          <Option type="int" value="30" name="QFieldSync/tracking_time_requirement_interval_seconds"/>
+          <Option type="int" value="0" name="QFieldSync/value_map_button_interface_threshold"/>
+          <Option type="List" name="dualview/previewExpressions">
+            <Option type="QString" value="&quot;created_by_name&quot;"/>
+          </Option>
+          <Option type="int" value="0" name="embeddedWidgets/count"/>
+          <Option type="bool" value="true" name="isOfflineEditable"/>
+          <Option type="QString" value="" name="layerNameSuffix"/>
+          <Option type="QString" value="olay_d862f2c4_99ec_4097_864d_d35ddca1c83a" name="remoteLayerId"/>
+          <Option type="QString" value="postgres" name="remoteProvider"/>
+          <Option type="QString" value="dbname='afet_yönetimi' host=127.0.0.1 port=5432 sslmode=disable key='olay_id' srid=4326 type=Point checkPrimaryKeyUnicity='1' table=&quot;public&quot;.&quot;olay&quot; (geom)" name="remoteSource"/>
+          <Option name="variableNames"/>
+          <Option name="variableValues"/>
+        </Option>
+      </customproperties>
+      <blendMode>0</blendMode>
+      <featureBlendMode>0</featureBlendMode>
+      <layerOpacity>1</layerOpacity>
+      <SingleCategoryDiagramRenderer attributeLegend="1" diagramType="Histogram">
+        <DiagramCategory diagramOrientation="Up" minimumSize="0" penWidth="0" spacing="5" penAlpha="255" sizeScale="3x:0,0,0,0,0,0" direction="0" opacity="1" width="15" maxScaleDenominator="1e+08" barWidth="5" sizeType="MM" scaleDependency="Area" penColor="#000000" backgroundColor="#ffffff" height="15" lineSizeScale="3x:0,0,0,0,0,0" backgroundAlpha="255" enabled="0" minScaleDenominator="0" spacingUnitScale="3x:0,0,0,0,0,0" rotationOffset="270" spacingUnit="MM" scaleBasedVisibility="0" showAxis="1" lineSizeType="MM" labelPlacementMethod="XHeight">
+          <fontProperties style="" description="MS Shell Dlg 2,7.8,-1,5,50,0,0,0,0,0"/>
+          <attribute color="#000000" label="" field=""/>
+          <axisSymbol>
+            <symbol force_rhr="0" type="line" alpha="1" name="" clip_to_extent="1">
+              <data_defined_properties>
+                <Option type="Map">
+                  <Option type="QString" value="" name="name"/>
+                  <Option name="properties"/>
+                  <Option type="QString" value="collection" name="type"/>
+                </Option>
+              </data_defined_properties>
+              <layer class="SimpleLine" enabled="1" locked="0" pass="0">
+                <Option type="Map">
+                  <Option type="QString" value="0" name="align_dash_pattern"/>
+                  <Option type="QString" value="square" name="capstyle"/>
+                  <Option type="QString" value="5;2" name="customdash"/>
+                  <Option type="QString" value="3x:0,0,0,0,0,0" name="customdash_map_unit_scale"/>
+                  <Option type="QString" value="MM" name="customdash_unit"/>
+                  <Option type="QString" value="0" name="dash_pattern_offset"/>
+                  <Option type="QString" value="3x:0,0,0,0,0,0" name="dash_pattern_offset_map_unit_scale"/>
+                  <Option type="QString" value="MM" name="dash_pattern_offset_unit"/>
+                  <Option type="QString" value="0" name="draw_inside_polygon"/>
+                  <Option type="QString" value="bevel" name="joinstyle"/>
+                  <Option type="QString" value="35,35,35,255" name="line_color"/>
+                  <Option type="QString" value="solid" name="line_style"/>
+                  <Option type="QString" value="0.26" name="line_width"/>
+                  <Option type="QString" value="MM" name="line_width_unit"/>
+                  <Option type="QString" value="0" name="offset"/>
+                  <Option type="QString" value="3x:0,0,0,0,0,0" name="offset_map_unit_scale"/>
+                  <Option type="QString" value="MM" name="offset_unit"/>
+                  <Option type="QString" value="0" name="ring_filter"/>
+                  <Option type="QString" value="0" name="trim_distance_end"/>
+                  <Option type="QString" value="3x:0,0,0,0,0,0" name="trim_distance_end_map_unit_scale"/>
+                  <Option type="QString" value="MM" name="trim_distance_end_unit"/>
+                  <Option type="QString" value="0" name="trim_distance_start"/>
+                  <Option type="QString" value="3x:0,0,0,0,0,0" name="trim_distance_start_map_unit_scale"/>
+                  <Option type="QString" value="MM" name="trim_distance_start_unit"/>
+                  <Option type="QString" value="0" name="tweak_dash_pattern_on_corners"/>
+                  <Option type="QString" value="0" name="use_custom_dash"/>
+                  <Option type="QString" value="3x:0,0,0,0,0,0" name="width_map_unit_scale"/>
+                </Option>
+                <prop k="align_dash_pattern" v="0"/>
+                <prop k="capstyle" v="square"/>
+                <prop k="customdash" v="5;2"/>
+                <prop k="customdash_map_unit_scale" v="3x:0,0,0,0,0,0"/>
+                <prop k="customdash_unit" v="MM"/>
+                <prop k="dash_pattern_offset" v="0"/>
+                <prop k="dash_pattern_offset_map_unit_scale" v="3x:0,0,0,0,0,0"/>
+                <prop k="dash_pattern_offset_unit" v="MM"/>
+                <prop k="draw_inside_polygon" v="0"/>
+                <prop k="joinstyle" v="bevel"/>
+                <prop k="line_color" v="35,35,35,255"/>
+                <prop k="line_style" v="solid"/>
+                <prop k="line_width" v="0.26"/>
+                <prop k="line_width_unit" v="MM"/>
+                <prop k="offset" v="0"/>
+                <prop k="offset_map_unit_scale" v="3x:0,0,0,0,0,0"/>
+                <prop k="offset_unit" v="MM"/>
+                <prop k="ring_filter" v="0"/>
+                <prop k="trim_distance_end" v="0"/>
+                <prop k="trim_distance_end_map_unit_scale" v="3x:0,0,0,0,0,0"/>
+                <prop k="trim_distance_end_unit" v="MM"/>
+                <prop k="trim_distance_start" v="0"/>
+                <prop k="trim_distance_start_map_unit_scale" v="3x:0,0,0,0,0,0"/>
+                <prop k="trim_distance_start_unit" v="MM"/>
+                <prop k="tweak_dash_pattern_on_corners" v="0"/>
+                <prop k="use_custom_dash" v="0"/>
+                <prop k="width_map_unit_scale" v="3x:0,0,0,0,0,0"/>
+                <data_defined_properties>
+                  <Option type="Map">
+                    <Option type="QString" value="" name="name"/>
+                    <Option name="properties"/>
+                    <Option type="QString" value="collection" name="type"/>
+                  </Option>
+                </data_defined_properties>
+              </layer>
+            </symbol>
+          </axisSymbol>
+        </DiagramCategory>
+      </SingleCategoryDiagramRenderer>
+      <DiagramLayerSettings showAll="1" obstacle="0" zIndex="0" dist="0" priority="0" placement="0" linePlacementFlags="18">
+        <properties>
+          <Option type="Map">
+            <Option type="QString" value="" name="name"/>
+            <Option name="properties"/>
+            <Option type="QString" value="collection" name="type"/>
+          </Option>
+        </properties>
+      </DiagramLayerSettings>
+      <geometryOptions geometryPrecision="0" removeDuplicateNodes="0">
+        <activeChecks/>
+        <checkConfiguration/>
+      </geometryOptions>
+      <legend type="default-vector" showLabelLegend="0"/>
+      <referencedLayers/>
+      <fieldConfiguration>
+        <field name="fid" configurationFlags="None">
+          <editWidget type="Hidden">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="olay_id" configurationFlags="None">
+          <editWidget type="Range">
+            <config>
+              <Option type="Map">
+                <Option type="bool" value="true" name="AllowNull"/>
+                <Option type="int" value="2147483647" name="Max"/>
+                <Option type="int" value="-2147483648" name="Min"/>
+                <Option type="int" value="0" name="Precision"/>
+                <Option type="int" value="1" name="Step"/>
+                <Option type="QString" value="SpinBox" name="Style"/>
+              </Option>
+            </config>
+          </editWidget>
+        </field>
+        <field name="enlem" configurationFlags="None">
+          <editWidget type="TextEdit">
+            <config>
+              <Option type="Map">
+                <Option type="bool" value="false" name="IsMultiline"/>
+                <Option type="bool" value="false" name="UseHtml"/>
+              </Option>
+            </config>
+          </editWidget>
+        </field>
+        <field name="boylam" configurationFlags="None">
+          <editWidget type="TextEdit">
+            <config>
+              <Option type="Map">
+                <Option type="bool" value="false" name="IsMultiline"/>
+                <Option type="bool" value="false" name="UseHtml"/>
+              </Option>
+            </config>
+          </editWidget>
+        </field>
+        <field name="olay_turu" configurationFlags="None">
+          <editWidget type="ValueRelation">
+            <config>
+              <Option type="Map">
+                <Option type="bool" value="false" name="AllowMulti"/>
+                <Option type="bool" value="true" name="AllowNull"/>
+                <Option type="QString" value="" name="Description"/>
+                <Option type="QString" value="&quot;active&quot; = true" name="FilterExpression"/>
+                <Option type="QString" value="o_id" name="Key"/>
+                <Option type="QString" value="olaylar_6e516be5_d68f_4105_b4f6_b52e821f9cec" name="Layer"/>
+                <Option type="QString" value="olaylar" name="LayerName"/>
+                <Option type="QString" value="ogr" name="LayerProviderName"/>
+                <Option type="QString" value="C:/Users/USER/OneDrive/Resimler/Masaüstü/Data_Algorithims/afet-yonetimi_New/afet-yonetimi/qfield4/download_qfield/qfield4/data.gpkg|layername=olaylar_6e516be5_d68f_4105_b4f6_b52e821f9cec" name="LayerSource"/>
+                <Option type="int" value="1" name="NofColumns"/>
+                <Option type="bool" value="false" name="OrderByValue"/>
+                <Option type="bool" value="false" name="UseCompleter"/>
+                <Option type="QString" value="o_adi" name="Value"/>
+              </Option>
+            </config>
+          </editWidget>
+        </field>
+        <field name="aciklama" configurationFlags="None">
+          <editWidget type="TextEdit">
+            <config>
+              <Option type="Map">
+                <Option type="bool" value="false" name="IsMultiline"/>
+                <Option type="bool" value="false" name="UseHtml"/>
+              </Option>
+            </config>
+          </editWidget>
+        </field>
+        <field name="deactivated_at" configurationFlags="None">
+          <editWidget type="DateTime">
+            <config>
+              <Option type="Map">
+                <Option type="bool" value="true" name="allow_null"/>
+                <Option type="bool" value="true" name="calendar_popup"/>
+                <Option type="QString" value="M/d/yy HH:mm:ss" name="display_format"/>
+                <Option type="QString" value="M/d/yy HH:mm:ss" name="field_format"/>
+                <Option type="bool" value="false" name="field_iso_format"/>
+              </Option>
+            </config>
+          </editWidget>
+        </field>
+        <field name="created_at" configurationFlags="None">
+          <editWidget type="DateTime">
+            <config>
+              <Option type="Map">
+                <Option type="bool" value="true" name="allow_null"/>
+                <Option type="bool" value="true" name="calendar_popup"/>
+                <Option type="QString" value="M/d/yy HH:mm:ss" name="display_format"/>
+                <Option type="QString" value="M/d/yy HH:mm:ss" name="field_format"/>
+                <Option type="bool" value="false" name="field_iso_format"/>
+              </Option>
+            </config>
+          </editWidget>
+        </field>
+        <field name="active" configurationFlags="None">
+          <editWidget type="CheckBox">
+            <config>
+              <Option type="Map">
+                <Option type="QString" value="" name="CheckedState"/>
+                <Option type="int" value="0" name="TextDisplayMethod"/>
+                <Option type="QString" value="" name="UncheckedState"/>
+              </Option>
+            </config>
+          </editWidget>
+        </field>
+        <field name="created_by_name" configurationFlags="None">
+          <editWidget type="ValueRelation">
+            <config>
+              <Option type="Map">
+                <Option type="bool" value="false" name="AllowMulti"/>
+                <Option type="bool" value="false" name="AllowNull"/>
+                <Option type="QString" value="" name="Description"/>
+                <Option type="QString" value="&quot;is_active&quot; = true&#xa;" name="FilterExpression"/>
+                <Option type="QString" value="id" name="Key"/>
+                <Option type="QString" value="users_301bf0fb_e46d_482c_8905_1e9355df4163" name="Layer"/>
+                <Option type="QString" value="users" name="LayerName"/>
+                <Option type="QString" value="ogr" name="LayerProviderName"/>
+                <Option type="QString" value="C:/Users/USER/OneDrive/Resimler/Masaüstü/Data_Algorithims/afet-yonetimi_New/afet-yonetimi/qfield4/download_qfield/qfield4/data.gpkg|layername=users_301bf0fb_e46d_482c_8905_1e9355df4163" name="LayerSource"/>
+                <Option type="int" value="1" name="NofColumns"/>
+                <Option type="bool" value="false" name="OrderByValue"/>
+                <Option type="bool" value="false" name="UseCompleter"/>
+                <Option type="QString" value="username" name="Value"/>
+              </Option>
+            </config>
+          </editWidget>
+        </field>
+        <field name="created_by_role_name" configurationFlags="None">
+          <editWidget type="TextEdit">
+            <config>
+              <Option type="Map">
+                <Option type="bool" value="false" name="IsMultiline"/>
+                <Option type="bool" value="false" name="UseHtml"/>
+              </Option>
+            </config>
+          </editWidget>
+        </field>
+        <field name="deactivated_by_name" configurationFlags="None">
+          <editWidget type="TextEdit">
+            <config>
+              <Option type="Map">
+                <Option type="bool" value="false" name="IsMultiline"/>
+                <Option type="bool" value="false" name="UseHtml"/>
+              </Option>
+            </config>
+          </editWidget>
+        </field>
+        <field name="deactivated_by_role_name" configurationFlags="None">
+          <editWidget type="TextEdit">
+            <config>
+              <Option type="Map">
+                <Option type="bool" value="false" name="IsMultiline"/>
+                <Option type="bool" value="false" name="UseHtml"/>
+              </Option>
+            </config>
+          </editWidget>
+        </field>
+        <field name="created_by_id" configurationFlags="None">
+          <editWidget type="TextEdit">
+            <config>
+              <Option type="Map">
+                <Option type="bool" value="false" name="IsMultiline"/>
+                <Option type="bool" value="false" name="UseHtml"/>
+              </Option>
+            </config>
+          </editWidget>
+        </field>
+        <field name="deactivated_by_id" configurationFlags="None">
+          <editWidget type="Range">
+            <config>
+              <Option type="Map">
+                <Option type="bool" value="true" name="AllowNull"/>
+                <Option type="int" value="2147483647" name="Max"/>
+                <Option type="int" value="-2147483648" name="Min"/>
+                <Option type="int" value="0" name="Precision"/>
+                <Option type="int" value="1" name="Step"/>
+                <Option type="QString" value="SpinBox" name="Style"/>
+              </Option>
+            </config>
+          </editWidget>
+        </field>
+        <field name="photo_urls" configurationFlags="None">
+          <editWidget type="ExternalResource">
+            <config>
+              <Option type="Map">
+                <Option type="QString" value="C:/Users/USER/OneDrive/Resimler/Masaüstü/Data_Algorithims/afet-yonetimi_New/afet-yonetimi/attachments/photos" name="DefaultRoot"/>
+                <Option type="int" value="1" name="DocumentViewer"/>
+                <Option type="int" value="0" name="DocumentViewerHeight"/>
+                <Option type="int" value="0" name="DocumentViewerWidth"/>
+                <Option type="bool" value="true" name="FileWidget"/>
+                <Option type="bool" value="true" name="FileWidgetButton"/>
+                <Option type="QString" value="" name="FileWidgetFilter"/>
+                <Option type="Map" name="PropertyCollection">
+                  <Option type="QString" value="" name="name"/>
+                  <Option type="invalid" name="properties"/>
+                  <Option type="QString" value="collection" name="type"/>
+                </Option>
+                <Option type="int" value="0" name="RelativeStorage"/>
+                <Option type="QString" value="" name="StorageAuthConfigId"/>
+                <Option type="int" value="0" name="StorageMode"/>
+                <Option type="QString" value="SimpleCopy" name="StorageType"/>
+              </Option>
+            </config>
+          </editWidget>
+        </field>
+        <field name="video_urls" configurationFlags="None">
+          <editWidget type="ExternalResource">
+            <config>
+              <Option type="Map">
+                <Option type="QString" value="C:/Users/USER/OneDrive/Resimler/Masaüstü/Data_Algorithims/afet-yonetimi_New/afet-yonetimi/attachments/videos" name="DefaultRoot"/>
+                <Option type="int" value="0" name="DocumentViewer"/>
+                <Option type="int" value="0" name="DocumentViewerHeight"/>
+                <Option type="int" value="0" name="DocumentViewerWidth"/>
+                <Option type="bool" value="true" name="FileWidget"/>
+                <Option type="bool" value="true" name="FileWidgetButton"/>
+                <Option type="QString" value="" name="FileWidgetFilter"/>
+                <Option type="Map" name="PropertyCollection">
+                  <Option type="QString" value="" name="name"/>
+                  <Option type="invalid" name="properties"/>
+                  <Option type="QString" value="collection" name="type"/>
+                </Option>
+                <Option type="int" value="0" name="RelativeStorage"/>
+                <Option type="QString" value="" name="StorageAuthConfigId"/>
+                <Option type="int" value="0" name="StorageMode"/>
+                <Option type="QString" value="SimpleCopy" name="StorageType"/>
+              </Option>
+            </config>
+          </editWidget>
+        </field>
+      </fieldConfiguration>
+      <aliases>
+        <alias index="0" name="" field="fid"/>
+        <alias index="1" name="" field="olay_id"/>
+        <alias index="2" name="" field="enlem"/>
+        <alias index="3" name="" field="boylam"/>
+        <alias index="4" name="" field="olay_turu"/>
+        <alias index="5" name="" field="aciklama"/>
+        <alias index="6" name="" field="deactivated_at"/>
+        <alias index="7" name="" field="created_at"/>
+        <alias index="8" name="" field="active"/>
+        <alias index="9" name="" field="created_by_name"/>
+        <alias index="10" name="" field="created_by_role_name"/>
+        <alias index="11" name="" field="deactivated_by_name"/>
+        <alias index="12" name="" field="deactivated_by_role_name"/>
+        <alias index="13" name="" field="created_by_id"/>
+        <alias index="14" name="" field="deactivated_by_id"/>
+        <alias index="15" name="" field="photo_urls"/>
+        <alias index="16" name="" field="video_urls"/>
+      </aliases>
+      <defaults>
+        <default expression="" applyOnUpdate="0" field="fid"/>
+        <default expression="" applyOnUpdate="0" field="olay_id"/>
+        <default expression="y($geometry)" applyOnUpdate="0" field="enlem"/>
+        <default expression="x($geometry)" applyOnUpdate="0" field="boylam"/>
+        <default expression="" applyOnUpdate="0" field="olay_turu"/>
+        <default expression="" applyOnUpdate="0" field="aciklama"/>
+        <default expression="" applyOnUpdate="0" field="deactivated_at"/>
+        <default expression="" applyOnUpdate="0" field="created_at"/>
+        <default expression="true" applyOnUpdate="0" field="active"/>
+        <default expression="" applyOnUpdate="0" field="created_by_name"/>
+        <default expression="attribute(&#xd;&#xa;  get_feature('users','id',&quot;created_by_name&quot;),&#xd;&#xa;  'role'&#xd;&#xa;)&#xd;&#xa;" applyOnUpdate="1" field="created_by_role_name"/>
+        <default expression="" applyOnUpdate="0" field="deactivated_by_name"/>
+        <default expression="" applyOnUpdate="0" field="deactivated_by_role_name"/>
+        <default expression="&quot;created_by_name&quot;&#xa;" applyOnUpdate="1" field="created_by_id"/>
+        <default expression="" applyOnUpdate="0" field="deactivated_by_id"/>
+        <default expression="" applyOnUpdate="0" field="photo_urls"/>
+        <default expression="" applyOnUpdate="0" field="video_urls"/>
+      </defaults>
+      <constraints>
+        <constraint exp_strength="0" constraints="3" notnull_strength="1" field="fid" unique_strength="1"/>
+        <constraint exp_strength="0" constraints="2" notnull_strength="0" field="olay_id" unique_strength="1"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="enlem" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="boylam" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="olay_turu" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="aciklama" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="deactivated_at" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="created_at" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="active" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="created_by_name" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="created_by_role_name" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="deactivated_by_name" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="deactivated_by_role_name" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="created_by_id" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="deactivated_by_id" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="photo_urls" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="video_urls" unique_strength="0"/>
+      </constraints>
+      <constraintExpressions>
+        <constraint exp="" desc="" field="fid"/>
+        <constraint exp="" desc="" field="olay_id"/>
+        <constraint exp="" desc="" field="enlem"/>
+        <constraint exp="" desc="" field="boylam"/>
+        <constraint exp="" desc="" field="olay_turu"/>
+        <constraint exp="" desc="" field="aciklama"/>
+        <constraint exp="" desc="" field="deactivated_at"/>
+        <constraint exp="" desc="" field="created_at"/>
+        <constraint exp="" desc="" field="active"/>
+        <constraint exp="" desc="" field="created_by_name"/>
+        <constraint exp="" desc="" field="created_by_role_name"/>
+        <constraint exp="" desc="" field="deactivated_by_name"/>
+        <constraint exp="" desc="" field="deactivated_by_role_name"/>
+        <constraint exp="" desc="" field="created_by_id"/>
+        <constraint exp="" desc="" field="deactivated_by_id"/>
+        <constraint exp="" desc="" field="photo_urls"/>
+        <constraint exp="" desc="" field="video_urls"/>
+      </constraintExpressions>
+      <expressionfields/>
+      <attributeactions>
+        <defaultAction value="{00000000-0000-0000-0000-000000000000}" key="Canvas"/>
+        <actionsetting icon="" capture="0" notificationMessage="" type="5" id="{cd5978df-1d7e-484b-af03-562cf359714c}" action="[%with_variable(&#xd;&#xa;  'raw', coalesce(&quot;photo_urls&quot;,'[]'),&#xd;&#xa;  with_variable(&#xd;&#xa;    'csv', replace(replace(replace(@raw,'[',''),']',''),'&quot;',''),&#xd;&#xa;    with_variable(&#xd;&#xa;      'first', trim( array_first( string_to_array(@csv, ',') ) ),&#xd;&#xa;      CASE&#xd;&#xa;        WHEN @first IS NULL OR @first = '' THEN ''&#xd;&#xa;        WHEN left(@first,1) = '/' THEN 'http://localhost:3000' || @first&#xd;&#xa;        ELSE @first&#xd;&#xa;      END&#xd;&#xa;    )&#xd;&#xa;  )&#xd;&#xa;)%]" name="Open Photo at your browser" shortTitle="Open Photo" isEnabledOnlyWhenEditable="0">
+          <actionScope id="Feature"/>
+        </actionsetting>
+        <actionsetting icon="" capture="0" notificationMessage="" type="5" id="{3cfe5dcb-7847-486b-9527-51c80d2dc243}" action="[%with_variable(&#xd;&#xa;  'raw', coalesce(&quot;video_urls&quot;,'[]'),&#xd;&#xa;  with_variable(&#xd;&#xa;    'csv', replace(replace(replace(@raw,'[',''),']',''),'&quot;',''),&#xd;&#xa;    with_variable(&#xd;&#xa;      'first', trim( array_first( string_to_array(@csv, ',') ) ),&#xd;&#xa;      CASE&#xd;&#xa;        WHEN @first IS NULL OR @first = '' THEN ''&#xd;&#xa;        WHEN left(@first,1) = '/' THEN 'http://localhost:3000' || @first&#xd;&#xa;        ELSE @first&#xd;&#xa;      END&#xd;&#xa;    )&#xd;&#xa;  )&#xd;&#xa;)&#xd;&#xa;%]" name="Open Video at your browser" shortTitle="Open Video" isEnabledOnlyWhenEditable="0">
+          <actionScope id="Feature"/>
+        </actionsetting>
+      </attributeactions>
+      <attributetableconfig actionWidgetStyle="dropDown" sortExpression="" sortOrder="0">
+        <columns>
+          <column hidden="0" type="field" name="fid" width="-1"/>
+          <column hidden="0" type="field" name="olay_id" width="-1"/>
+          <column hidden="0" type="field" name="enlem" width="-1"/>
+          <column hidden="0" type="field" name="boylam" width="-1"/>
+          <column hidden="0" type="field" name="olay_turu" width="-1"/>
+          <column hidden="0" type="field" name="aciklama" width="-1"/>
+          <column hidden="0" type="field" name="deactivated_at" width="-1"/>
+          <column hidden="0" type="field" name="created_at" width="-1"/>
+          <column hidden="0" type="field" name="active" width="-1"/>
+          <column hidden="0" type="field" name="created_by_name" width="-1"/>
+          <column hidden="0" type="field" name="created_by_role_name" width="-1"/>
+          <column hidden="0" type="field" name="deactivated_by_name" width="-1"/>
+          <column hidden="0" type="field" name="deactivated_by_role_name" width="-1"/>
+          <column hidden="0" type="field" name="created_by_id" width="-1"/>
+          <column hidden="0" type="field" name="deactivated_by_id" width="-1"/>
+          <column hidden="0" type="field" name="photo_urls" width="-1"/>
+          <column hidden="0" type="field" name="video_urls" width="-1"/>
+          <column hidden="1" type="actions" width="-1"/>
+        </columns>
+      </attributetableconfig>
+      <conditionalstyles>
+        <rowstyles/>
+        <fieldstyles/>
+      </conditionalstyles>
+      <storedexpressions/>
+      <editform tolerant="1"></editform>
+      <editforminit/>
+      <editforminitcodesource>0</editforminitcodesource>
+      <editforminitfilepath></editforminitfilepath>
+      <editforminitcode><![CDATA[# -*- coding: utf-8 -*-
+"""
+QGIS forms can have a Python function that is called when the form is
+opened.
+
+Use this function to add extra logic to your forms.
+
+Enter the name of the function in the "Python Init function"
+field.
+An example follows:
+"""
+from qgis.PyQt.QtWidgets import QWidget
+
+def my_form_open(dialog, layer, feature):
+    geom = feature.geometry()
+    control = dialog.findChild(QWidget, "MyLineEdit")
+]]></editforminitcode>
+      <featformsuppress>0</featformsuppress>
+      <editorlayout>tablayout</editorlayout>
+      <attributeEditorForm>
+        <attributeEditorContainer showLabel="1" groupBox="0" visibilityExpression="" visibilityExpressionEnabled="0" name="olay" columnCount="1">
+          <attributeEditorField showLabel="1" index="9" name="created_by_name"/>
+          <attributeEditorField showLabel="1" index="4" name="olay_turu"/>
+          <attributeEditorField showLabel="1" index="5" name="aciklama"/>
+          <attributeEditorField showLabel="1" index="15" name="photo_urls"/>
+          <attributeEditorField showLabel="1" index="16" name="video_urls"/>
+          <attributeEditorField showLabel="1" index="7" name="created_at"/>
+          <attributeEditorField showLabel="1" index="8" name="active"/>
+          <attributeEditorField showLabel="1" index="2" name="enlem"/>
+          <attributeEditorField showLabel="1" index="3" name="boylam"/>
+        </attributeEditorContainer>
+      </attributeEditorForm>
+      <editable>
+        <field editable="1" name="aciklama"/>
+        <field editable="1" name="active"/>
+        <field editable="1" name="boylam"/>
+        <field editable="1" name="created_at"/>
+        <field editable="0" name="created_by_id"/>
+        <field editable="1" name="created_by_name"/>
+        <field editable="0" name="created_by_role_name"/>
+        <field editable="0" name="deactivated_at"/>
+        <field editable="0" name="deactivated_by_id"/>
+        <field editable="0" name="deactivated_by_name"/>
+        <field editable="0" name="deactivated_by_role_name"/>
+        <field editable="1" name="enlem"/>
+        <field editable="0" name="fid"/>
+        <field editable="0" name="olay_id"/>
+        <field editable="1" name="olay_turu"/>
+        <field editable="1" name="photo_urls"/>
+        <field editable="1" name="video_urls"/>
+      </editable>
+      <labelOnTop>
+        <field name="aciklama" labelOnTop="0"/>
+        <field name="active" labelOnTop="0"/>
+        <field name="boylam" labelOnTop="0"/>
+        <field name="created_at" labelOnTop="0"/>
+        <field name="created_by_id" labelOnTop="0"/>
+        <field name="created_by_name" labelOnTop="0"/>
+        <field name="created_by_role_name" labelOnTop="0"/>
+        <field name="deactivated_at" labelOnTop="0"/>
+        <field name="deactivated_by_id" labelOnTop="0"/>
+        <field name="deactivated_by_name" labelOnTop="0"/>
+        <field name="deactivated_by_role_name" labelOnTop="0"/>
+        <field name="enlem" labelOnTop="0"/>
+        <field name="fid" labelOnTop="0"/>
+        <field name="olay_id" labelOnTop="0"/>
+        <field name="olay_turu" labelOnTop="0"/>
+        <field name="photo_urls" labelOnTop="0"/>
+        <field name="video_urls" labelOnTop="0"/>
+      </labelOnTop>
+      <reuseLastValue>
+        <field reuseLastValue="0" name="aciklama"/>
+        <field reuseLastValue="0" name="active"/>
+        <field reuseLastValue="0" name="boylam"/>
+        <field reuseLastValue="0" name="created_at"/>
+        <field reuseLastValue="0" name="created_by_id"/>
+        <field reuseLastValue="1" name="created_by_name"/>
+        <field reuseLastValue="0" name="created_by_role_name"/>
+        <field reuseLastValue="0" name="deactivated_at"/>
+        <field reuseLastValue="0" name="deactivated_by_id"/>
+        <field reuseLastValue="0" name="deactivated_by_name"/>
+        <field reuseLastValue="0" name="deactivated_by_role_name"/>
+        <field reuseLastValue="0" name="enlem"/>
+        <field reuseLastValue="0" name="fid"/>
+        <field reuseLastValue="0" name="olay_id"/>
+        <field reuseLastValue="0" name="olay_turu"/>
+        <field reuseLastValue="0" name="photo_urls"/>
+        <field reuseLastValue="0" name="video_urls"/>
+      </reuseLastValue>
+      <dataDefinedFieldProperties/>
+      <widgets/>
+      <previewExpression>"created_by_name"</previewExpression>
+      <mapTip></mapTip>
+    </maplayer>
+    <maplayer maxScale="0" autoRefreshEnabled="0" refreshOnNotifyEnabled="0" wkbType="NoGeometry" type="vector" styleCategories="AllStyleCategories" legendPlaceholderImage="" hasScaleBasedVisibilityFlag="0" readOnly="0" refreshOnNotifyMessage="" geometry="No geometry" autoRefreshTime="0" minScale="1e+08">
+      <id>olaylar_b7e880e8_9460_44f5_a5b0_6a994c6401ae</id>
+      <datasource>./data.gpkg|layername=olaylar_b7e880e8_9460_44f5_a5b0_6a994c6401ae</datasource>
+      <keywordList>
+        <value></value>
+      </keywordList>
+      <layername>olaylar</layername>
+      <srs>
+        <spatialrefsys nativeFormat="Wkt">
+          <wkt></wkt>
+          <proj4></proj4>
+          <srsid>0</srsid>
+          <srid>0</srid>
+          <authid></authid>
+          <description></description>
+          <projectionacronym></projectionacronym>
+          <ellipsoidacronym></ellipsoidacronym>
+          <geographicflag>false</geographicflag>
+        </spatialrefsys>
+      </srs>
+      <resourceMetadata>
+        <identifier></identifier>
+        <parentidentifier></parentidentifier>
+        <language></language>
+        <type>dataset</type>
+        <title>olaylar_b7e880e8_9460_44f5_a5b0_6a994c6401ae (offline)</title>
+        <abstract></abstract>
+        <links/>
+        <fees></fees>
+        <encoding></encoding>
+        <crs>
+          <spatialrefsys nativeFormat="Wkt">
+            <wkt></wkt>
+            <proj4></proj4>
+            <srsid>0</srsid>
+            <srid>0</srid>
+            <authid></authid>
+            <description></description>
+            <projectionacronym></projectionacronym>
+            <ellipsoidacronym></ellipsoidacronym>
+            <geographicflag>false</geographicflag>
+          </spatialrefsys>
+        </crs>
+        <extent/>
+      </resourceMetadata>
+      <provider encoding="UTF-8">ogr</provider>
+      <vectorjoins/>
+      <layerDependencies/>
+      <dataDependencies/>
+      <expressionfields/>
+      <map-layer-style-manager current="default">
+        <map-layer-style name="default"/>
+      </map-layer-style-manager>
+      <auxiliaryLayer/>
+      <metadataUrls/>
+      <flags>
+        <Identifiable>1</Identifiable>
+        <Removable>1</Removable>
+        <Searchable>1</Searchable>
+        <Private>0</Private>
+      </flags>
+      <temporal accumulate="0" fixedDuration="0" endField="" limitMode="0" startField="" endExpression="" enabled="0" durationUnit="min" mode="0" durationField="" startExpression="">
+        <fixedRange>
+          <start></start>
+          <end></end>
+        </fixedRange>
+      </temporal>
+      <customproperties>
+        <Option type="Map">
+          <Option type="QString" value="olaylar_b7e880e8_9460_44f5_a5b0_6a994c6401ae" name="QFieldSync/remoteLayerId"/>
+          <Option type="QString" value="o_id" name="QFieldSync/sourceDataPrimaryKeys"/>
+          <Option type="bool" value="true" name="isOfflineEditable"/>
+          <Option type="QString" value="" name="layerNameSuffix"/>
+          <Option type="QString" value="olaylar_b7e880e8_9460_44f5_a5b0_6a994c6401ae" name="remoteLayerId"/>
+          <Option type="QString" value="postgres" name="remoteProvider"/>
+          <Option type="QString" value="dbname='afet_yönetimi' host=127.0.0.1 port=5432 sslmode=disable key='o_id' checkPrimaryKeyUnicity='1' table=&quot;public&quot;.&quot;olaylar&quot;" name="remoteSource"/>
+        </Option>
+      </customproperties>
+      <geometryOptions geometryPrecision="0" removeDuplicateNodes="0">
+        <activeChecks type="StringList">
+          <Option type="QString" value=""/>
+        </activeChecks>
+        <checkConfiguration/>
+      </geometryOptions>
+      <legend type="default-vector" showLabelLegend="0"/>
+      <referencedLayers/>
+      <fieldConfiguration>
+        <field name="fid" configurationFlags="None">
+          <editWidget type="Hidden">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="o_id" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="o_adi" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="active" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="created_by_name" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="created_by_role_name" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="created_by_id" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="deactivated_by_name" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="deactivated_by_role_name" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="deactivated_by_id" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="deactivated_at" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="created_at" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="good" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+      </fieldConfiguration>
+      <aliases>
+        <alias index="0" name="" field="fid"/>
+        <alias index="1" name="" field="o_id"/>
+        <alias index="2" name="" field="o_adi"/>
+        <alias index="3" name="" field="active"/>
+        <alias index="4" name="" field="created_by_name"/>
+        <alias index="5" name="" field="created_by_role_name"/>
+        <alias index="6" name="" field="created_by_id"/>
+        <alias index="7" name="" field="deactivated_by_name"/>
+        <alias index="8" name="" field="deactivated_by_role_name"/>
+        <alias index="9" name="" field="deactivated_by_id"/>
+        <alias index="10" name="" field="deactivated_at"/>
+        <alias index="11" name="" field="created_at"/>
+        <alias index="12" name="" field="good"/>
+      </aliases>
+      <defaults>
+        <default expression="" applyOnUpdate="0" field="fid"/>
+        <default expression="" applyOnUpdate="0" field="o_id"/>
+        <default expression="" applyOnUpdate="0" field="o_adi"/>
+        <default expression="" applyOnUpdate="0" field="active"/>
+        <default expression="" applyOnUpdate="0" field="created_by_name"/>
+        <default expression="" applyOnUpdate="0" field="created_by_role_name"/>
+        <default expression="" applyOnUpdate="0" field="created_by_id"/>
+        <default expression="" applyOnUpdate="0" field="deactivated_by_name"/>
+        <default expression="" applyOnUpdate="0" field="deactivated_by_role_name"/>
+        <default expression="" applyOnUpdate="0" field="deactivated_by_id"/>
+        <default expression="" applyOnUpdate="0" field="deactivated_at"/>
+        <default expression="" applyOnUpdate="0" field="created_at"/>
+        <default expression="" applyOnUpdate="0" field="good"/>
+      </defaults>
+      <constraints>
+        <constraint exp_strength="0" constraints="3" notnull_strength="1" field="fid" unique_strength="1"/>
+        <constraint exp_strength="0" constraints="2" notnull_strength="0" field="o_id" unique_strength="1"/>
+        <constraint exp_strength="0" constraints="2" notnull_strength="0" field="o_adi" unique_strength="1"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="active" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="created_by_name" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="created_by_role_name" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="created_by_id" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="deactivated_by_name" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="deactivated_by_role_name" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="deactivated_by_id" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="deactivated_at" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="created_at" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="good" unique_strength="0"/>
+      </constraints>
+      <constraintExpressions>
+        <constraint exp="" desc="" field="fid"/>
+        <constraint exp="" desc="" field="o_id"/>
+        <constraint exp="" desc="" field="o_adi"/>
+        <constraint exp="" desc="" field="active"/>
+        <constraint exp="" desc="" field="created_by_name"/>
+        <constraint exp="" desc="" field="created_by_role_name"/>
+        <constraint exp="" desc="" field="created_by_id"/>
+        <constraint exp="" desc="" field="deactivated_by_name"/>
+        <constraint exp="" desc="" field="deactivated_by_role_name"/>
+        <constraint exp="" desc="" field="deactivated_by_id"/>
+        <constraint exp="" desc="" field="deactivated_at"/>
+        <constraint exp="" desc="" field="created_at"/>
+        <constraint exp="" desc="" field="good"/>
+      </constraintExpressions>
+      <expressionfields/>
+      <attributeactions>
+        <defaultAction value="{00000000-0000-0000-0000-000000000000}" key="Canvas"/>
+      </attributeactions>
+      <attributetableconfig actionWidgetStyle="dropDown" sortExpression="" sortOrder="0">
+        <columns/>
+      </attributetableconfig>
+      <conditionalstyles>
+        <rowstyles/>
+        <fieldstyles/>
+      </conditionalstyles>
+      <storedexpressions/>
+      <editform tolerant="1"></editform>
+      <editforminit/>
+      <editforminitcodesource>0</editforminitcodesource>
+      <editforminitfilepath></editforminitfilepath>
+      <editforminitcode><![CDATA[]]></editforminitcode>
+      <featformsuppress>0</featformsuppress>
+      <editorlayout>generatedlayout</editorlayout>
+      <editable/>
+      <labelOnTop/>
+      <reuseLastValue/>
+      <dataDefinedFieldProperties/>
+      <widgets/>
+      <previewExpression></previewExpression>
+      <mapTip></mapTip>
+    </maplayer>
+    <maplayer maxScale="0" autoRefreshEnabled="0" refreshOnNotifyEnabled="0" wkbType="NoGeometry" type="vector" styleCategories="AllStyleCategories" legendPlaceholderImage="" hasScaleBasedVisibilityFlag="0" readOnly="0" refreshOnNotifyMessage="" geometry="No geometry" autoRefreshTime="0" minScale="1e+08">
+      <id>users_9db8946e_fa52_45eb_9b5a_93d8b7a62664</id>
+      <datasource>./data.gpkg|layername=users_9db8946e_fa52_45eb_9b5a_93d8b7a62664</datasource>
+      <keywordList>
+        <value></value>
+      </keywordList>
+      <layername>users</layername>
+      <srs>
+        <spatialrefsys nativeFormat="Wkt">
+          <wkt></wkt>
+          <proj4></proj4>
+          <srsid>0</srsid>
+          <srid>0</srid>
+          <authid></authid>
+          <description></description>
+          <projectionacronym></projectionacronym>
+          <ellipsoidacronym></ellipsoidacronym>
+          <geographicflag>false</geographicflag>
+        </spatialrefsys>
+      </srs>
+      <resourceMetadata>
+        <identifier></identifier>
+        <parentidentifier></parentidentifier>
+        <language></language>
+        <type>dataset</type>
+        <title>users_9db8946e_fa52_45eb_9b5a_93d8b7a62664 (offline)</title>
+        <abstract></abstract>
+        <links/>
+        <fees></fees>
+        <encoding></encoding>
+        <crs>
+          <spatialrefsys nativeFormat="Wkt">
+            <wkt></wkt>
+            <proj4></proj4>
+            <srsid>0</srsid>
+            <srid>0</srid>
+            <authid></authid>
+            <description></description>
+            <projectionacronym></projectionacronym>
+            <ellipsoidacronym></ellipsoidacronym>
+            <geographicflag>false</geographicflag>
+          </spatialrefsys>
+        </crs>
+        <extent/>
+      </resourceMetadata>
+      <provider encoding="UTF-8">ogr</provider>
+      <vectorjoins/>
+      <layerDependencies/>
+      <dataDependencies/>
+      <expressionfields/>
+      <map-layer-style-manager current="default">
+        <map-layer-style name="default"/>
+      </map-layer-style-manager>
+      <auxiliaryLayer/>
+      <metadataUrls/>
+      <flags>
+        <Identifiable>1</Identifiable>
+        <Removable>1</Removable>
+        <Searchable>1</Searchable>
+        <Private>0</Private>
+      </flags>
+      <temporal accumulate="0" fixedDuration="0" endField="" limitMode="0" startField="" endExpression="" enabled="0" durationUnit="min" mode="0" durationField="" startExpression="">
+        <fixedRange>
+          <start></start>
+          <end></end>
+        </fixedRange>
+      </temporal>
+      <customproperties>
+        <Option type="Map">
+          <Option type="QString" value="users_9db8946e_fa52_45eb_9b5a_93d8b7a62664" name="QFieldSync/remoteLayerId"/>
+          <Option type="QString" value="id" name="QFieldSync/sourceDataPrimaryKeys"/>
+          <Option type="bool" value="true" name="isOfflineEditable"/>
+          <Option type="QString" value="" name="layerNameSuffix"/>
+          <Option type="QString" value="users_9db8946e_fa52_45eb_9b5a_93d8b7a62664" name="remoteLayerId"/>
+          <Option type="QString" value="postgres" name="remoteProvider"/>
+          <Option type="QString" value="dbname='afet_yönetimi' host=127.0.0.1 port=5432 sslmode=disable key='id' checkPrimaryKeyUnicity='1' table=&quot;public&quot;.&quot;users&quot;" name="remoteSource"/>
+        </Option>
+      </customproperties>
+      <geometryOptions geometryPrecision="0" removeDuplicateNodes="0">
+        <activeChecks type="StringList">
+          <Option type="QString" value=""/>
+        </activeChecks>
+        <checkConfiguration/>
+      </geometryOptions>
+      <legend type="default-vector" showLabelLegend="0"/>
+      <referencedLayers/>
+      <fieldConfiguration>
+        <field name="fid" configurationFlags="None">
+          <editWidget type="Hidden">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="id" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="username" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="password_hash" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="role" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="name" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="surname" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="email" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="email_verified" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="is_verified" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="two_factor_secret" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="two_factor_enabled" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="verify_token" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="verify_expires" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="created_at" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="is_active" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="deleted_by" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="deleted_by_role" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="deleted_at" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="deleted_by_id" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="two_factor_norm_hash" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="reset_code" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+        <field name="reset_expires" configurationFlags="None">
+          <editWidget type="">
+            <config>
+              <Option/>
+            </config>
+          </editWidget>
+        </field>
+      </fieldConfiguration>
+      <aliases>
+        <alias index="0" name="" field="fid"/>
+        <alias index="1" name="" field="id"/>
+        <alias index="2" name="" field="username"/>
+        <alias index="3" name="" field="password_hash"/>
+        <alias index="4" name="" field="role"/>
+        <alias index="5" name="" field="name"/>
+        <alias index="6" name="" field="surname"/>
+        <alias index="7" name="" field="email"/>
+        <alias index="8" name="" field="email_verified"/>
+        <alias index="9" name="" field="is_verified"/>
+        <alias index="10" name="" field="two_factor_secret"/>
+        <alias index="11" name="" field="two_factor_enabled"/>
+        <alias index="12" name="" field="verify_token"/>
+        <alias index="13" name="" field="verify_expires"/>
+        <alias index="14" name="" field="created_at"/>
+        <alias index="15" name="" field="is_active"/>
+        <alias index="16" name="" field="deleted_by"/>
+        <alias index="17" name="" field="deleted_by_role"/>
+        <alias index="18" name="" field="deleted_at"/>
+        <alias index="19" name="" field="deleted_by_id"/>
+        <alias index="20" name="" field="two_factor_norm_hash"/>
+        <alias index="21" name="" field="reset_code"/>
+        <alias index="22" name="" field="reset_expires"/>
+      </aliases>
+      <defaults>
+        <default expression="" applyOnUpdate="0" field="fid"/>
+        <default expression="" applyOnUpdate="0" field="id"/>
+        <default expression="" applyOnUpdate="0" field="username"/>
+        <default expression="" applyOnUpdate="0" field="password_hash"/>
+        <default expression="" applyOnUpdate="0" field="role"/>
+        <default expression="" applyOnUpdate="0" field="name"/>
+        <default expression="" applyOnUpdate="0" field="surname"/>
+        <default expression="" applyOnUpdate="0" field="email"/>
+        <default expression="" applyOnUpdate="0" field="email_verified"/>
+        <default expression="" applyOnUpdate="0" field="is_verified"/>
+        <default expression="" applyOnUpdate="0" field="two_factor_secret"/>
+        <default expression="" applyOnUpdate="0" field="two_factor_enabled"/>
+        <default expression="" applyOnUpdate="0" field="verify_token"/>
+        <default expression="" applyOnUpdate="0" field="verify_expires"/>
+        <default expression="" applyOnUpdate="0" field="created_at"/>
+        <default expression="" applyOnUpdate="0" field="is_active"/>
+        <default expression="" applyOnUpdate="0" field="deleted_by"/>
+        <default expression="" applyOnUpdate="0" field="deleted_by_role"/>
+        <default expression="" applyOnUpdate="0" field="deleted_at"/>
+        <default expression="" applyOnUpdate="0" field="deleted_by_id"/>
+        <default expression="" applyOnUpdate="0" field="two_factor_norm_hash"/>
+        <default expression="" applyOnUpdate="0" field="reset_code"/>
+        <default expression="" applyOnUpdate="0" field="reset_expires"/>
+      </defaults>
+      <constraints>
+        <constraint exp_strength="0" constraints="3" notnull_strength="1" field="fid" unique_strength="1"/>
+        <constraint exp_strength="0" constraints="2" notnull_strength="0" field="id" unique_strength="1"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="username" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="password_hash" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="role" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="name" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="surname" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="email" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="email_verified" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="is_verified" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="two_factor_secret" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="two_factor_enabled" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="verify_token" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="verify_expires" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="created_at" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="is_active" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="deleted_by" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="deleted_by_role" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="deleted_at" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="deleted_by_id" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="2" notnull_strength="0" field="two_factor_norm_hash" unique_strength="1"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="reset_code" unique_strength="0"/>
+        <constraint exp_strength="0" constraints="0" notnull_strength="0" field="reset_expires" unique_strength="0"/>
+      </constraints>
+      <constraintExpressions>
+        <constraint exp="" desc="" field="fid"/>
+        <constraint exp="" desc="" field="id"/>
+        <constraint exp="" desc="" field="username"/>
+        <constraint exp="" desc="" field="password_hash"/>
+        <constraint exp="" desc="" field="role"/>
+        <constraint exp="" desc="" field="name"/>
+        <constraint exp="" desc="" field="surname"/>
+        <constraint exp="" desc="" field="email"/>
+        <constraint exp="" desc="" field="email_verified"/>
+        <constraint exp="" desc="" field="is_verified"/>
+        <constraint exp="" desc="" field="two_factor_secret"/>
+        <constraint exp="" desc="" field="two_factor_enabled"/>
+        <constraint exp="" desc="" field="verify_token"/>
+        <constraint exp="" desc="" field="verify_expires"/>
+        <constraint exp="" desc="" field="created_at"/>
+        <constraint exp="" desc="" field="is_active"/>
+        <constraint exp="" desc="" field="deleted_by"/>
+        <constraint exp="" desc="" field="deleted_by_role"/>
+        <constraint exp="" desc="" field="deleted_at"/>
+        <constraint exp="" desc="" field="deleted_by_id"/>
+        <constraint exp="" desc="" field="two_factor_norm_hash"/>
+        <constraint exp="" desc="" field="reset_code"/>
+        <constraint exp="" desc="" field="reset_expires"/>
+      </constraintExpressions>
+      <expressionfields/>
+      <attributeactions>
+        <defaultAction value="{00000000-0000-0000-0000-000000000000}" key="Canvas"/>
+      </attributeactions>
+      <attributetableconfig actionWidgetStyle="dropDown" sortExpression="" sortOrder="0">
+        <columns/>
+      </attributetableconfig>
+      <conditionalstyles>
+        <rowstyles/>
+        <fieldstyles/>
+      </conditionalstyles>
+      <storedexpressions/>
+      <editform tolerant="1"></editform>
+      <editforminit/>
+      <editforminitcodesource>0</editforminitcodesource>
+      <editforminitfilepath></editforminitfilepath>
+      <editforminitcode><![CDATA[]]></editforminitcode>
+      <featformsuppress>0</featformsuppress>
+      <editorlayout>generatedlayout</editorlayout>
+      <editable/>
+      <labelOnTop/>
+      <reuseLastValue/>
+      <dataDefinedFieldProperties/>
+      <widgets/>
+      <previewExpression></previewExpression>
+      <mapTip></mapTip>
+    </maplayer>
+  </projectlayers>
+  <layerorder>
+    <layer id="OpenStreetMap_ad3efa10_4856_4969_86d6_bfbe596e6e6b"/>
+    <layer id="olay_2bc6d6d1_e589_4f3a_a3d4_14d5e95051e3"/>
+  </layerorder>
+  <properties>
+    <Digitizing>
+      <AvoidIntersectionsMode type="int">0</AvoidIntersectionsMode>
+    </Digitizing>
+    <Gui>
+      <CanvasColorBluePart type="int">255</CanvasColorBluePart>
+      <CanvasColorGreenPart type="int">255</CanvasColorGreenPart>
+      <CanvasColorRedPart type="int">255</CanvasColorRedPart>
+      <SelectionColorAlphaPart type="int">255</SelectionColorAlphaPart>
+      <SelectionColorBluePart type="int">0</SelectionColorBluePart>
+      <SelectionColorGreenPart type="int">255</SelectionColorGreenPart>
+      <SelectionColorRedPart type="int">255</SelectionColorRedPart>
+    </Gui>
+    <Legend>
+      <filterByMap type="bool">false</filterByMap>
+    </Legend>
+    <Measure>
+      <Ellipsoid type="QString">EPSG:7030</Ellipsoid>
+    </Measure>
+    <Measurement>
+      <AreaUnits type="QString">m2</AreaUnits>
+      <DistanceUnits type="QString">meters</DistanceUnits>
+    </Measurement>
+    <OfflineEditingPlugin>
+      <OfflineDbPath type="QString">./data.gpkg</OfflineDbPath>
+    </OfflineEditingPlugin>
+    <PAL>
+      <CandidatesLinePerCM type="double">5</CandidatesLinePerCM>
+      <CandidatesPolygonPerCM type="double">2.5</CandidatesPolygonPerCM>
+      <DrawRectOnly type="bool">false</DrawRectOnly>
+      <DrawUnplaced type="bool">false</DrawUnplaced>
+      <PlacementEngineVersion type="int">1</PlacementEngineVersion>
+      <SearchMethod type="int">0</SearchMethod>
+      <ShowingAllLabels type="bool">false</ShowingAllLabels>
+      <ShowingCandidates type="bool">false</ShowingCandidates>
+      <ShowingPartialsLabels type="bool">true</ShowingPartialsLabels>
+      <TextFormat type="int">0</TextFormat>
+      <UnplacedColor type="QString">255,0,0,255</UnplacedColor>
+    </PAL>
+    <Paths>
+      <Absolute type="bool">false</Absolute>
+    </Paths>
+    <PositionPrecision>
+      <Automatic type="bool">true</Automatic>
+      <DecimalPlaces type="int">2</DecimalPlaces>
+    </PositionPrecision>
+    <QFieldSync>
+      <dirsToCopy type="QString">{}</dirsToCopy>
+      <exportDirectoryProject type="QString">C:\Users\USER\Downloads\Github-Afet-y\qfield-asis</exportDirectoryProject>
+    </QFieldSync>
+    <SpatialRefSys>
+      <ProjectionsEnabled type="int">1</ProjectionsEnabled>
+    </SpatialRefSys>
+    <qfieldsync>
+      <originalProjectPath type="QString">.</originalProjectPath>
+    </qfieldsync>
+  </properties>
+  <dataDefinedServerProperties>
+    <Option type="Map">
+      <Option type="QString" value="" name="name"/>
+      <Option name="properties"/>
+      <Option type="QString" value="collection" name="type"/>
+    </Option>
+  </dataDefinedServerProperties>
+  <visibility-presets/>
+  <transformContext/>
+  <projectMetadata>
+    <identifier></identifier>
+    <parentidentifier></parentidentifier>
+    <language></language>
+    <type></type>
+    <title>_qfield.qgs (offline)</title>
+    <abstract></abstract>
+    <links/>
+    <author>USER</author>
+    <creation>2025-11-08T15:19:13</creation>
+  </projectMetadata>
+  <Annotations/>
+  <Layouts/>
+  <mapViewDocks3D/>
+  <Bookmarks/>
+  <ProjectViewSettings UseProjectScales="0">
+    <Scales/>
+    <DefaultViewExtent xmin="2603114.41742736846208572" xmax="4575801.24341119732707739" ymin="4263962.32317529246211052" ymax="5359763.56067157909274101">
+      <spatialrefsys nativeFormat="Wkt">
+        <wkt>PROJCRS["WGS 84 / Pseudo-Mercator",BASEGEOGCRS["WGS 84",ENSEMBLE["World Geodetic System 1984 ensemble",MEMBER["World Geodetic System 1984 (Transit)"],MEMBER["World Geodetic System 1984 (G730)"],MEMBER["World Geodetic System 1984 (G873)"],MEMBER["World Geodetic System 1984 (G1150)"],MEMBER["World Geodetic System 1984 (G1674)"],MEMBER["World Geodetic System 1984 (G1762)"],MEMBER["World Geodetic System 1984 (G2139)"],ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]],ENSEMBLEACCURACY[2.0]],PRIMEM["Greenwich",0,ANGLEUNIT["degree",0.0174532925199433]],ID["EPSG",4326]],CONVERSION["Popular Visualisation Pseudo-Mercator",METHOD["Popular Visualisation Pseudo Mercator",ID["EPSG",1024]],PARAMETER["Latitude of natural origin",0,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8801]],PARAMETER["Longitude of natural origin",0,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8802]],PARAMETER["False easting",0,LENGTHUNIT["metre",1],ID["EPSG",8806]],PARAMETER["False northing",0,LENGTHUNIT["metre",1],ID["EPSG",8807]]],CS[Cartesian,2],AXIS["easting (X)",east,ORDER[1],LENGTHUNIT["metre",1]],AXIS["northing (Y)",north,ORDER[2],LENGTHUNIT["metre",1]],USAGE[SCOPE["Web mapping and visualisation."],AREA["World between 85.06°S and 85.06°N."],BBOX[-85.06,-180,85.06,180]],ID["EPSG",3857]]</wkt>
+        <proj4>+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs</proj4>
+        <srsid>3857</srsid>
+        <srid>3857</srid>
+        <authid>EPSG:3857</authid>
+        <description>WGS 84 / Pseudo-Mercator</description>
+        <projectionacronym>merc</projectionacronym>
+        <ellipsoidacronym>EPSG:7030</ellipsoidacronym>
+        <geographicflag>false</geographicflag>
+      </spatialrefsys>
+    </DefaultViewExtent>
+  </ProjectViewSettings>
+  <ProjectTimeSettings cumulativeTemporalRange="0" timeStep="1" timeStepUnit="h" frameRate="1"/>
+  <ProjectDisplaySettings>
+    <BearingFormat id="bearing">
+      <Option type="Map">
+        <Option type="QChar" value="" name="decimal_separator"/>
+        <Option type="int" value="6" name="decimals"/>
+        <Option type="int" value="0" name="direction_format"/>
+        <Option type="int" value="0" name="rounding_type"/>
+        <Option type="bool" value="false" name="show_plus"/>
+        <Option type="bool" value="true" name="show_thousand_separator"/>
+        <Option type="bool" value="false" name="show_trailing_zeros"/>
+        <Option type="QChar" value="" name="thousand_separator"/>
+      </Option>
+    </BearingFormat>
+  </ProjectDisplaySettings>
+</qgis>

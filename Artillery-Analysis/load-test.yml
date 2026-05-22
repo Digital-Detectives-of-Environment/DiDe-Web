@@ -1,0 +1,242 @@
+config:
+  target: "http://localhost:3000"
+
+  http:
+    timeout: 30000
+    pool: 100
+
+  phases:
+    - name: "Isinma Fazi"
+      duration: 30
+      arrivalRate: 1
+      rampTo: 10
+
+    - name: "Sabit Yuk Fazi"
+      duration: 60
+      arrivalRate: 10
+
+    - name: "Soguma Fazi"
+      duration: 10
+      arrivalRate: 10
+      rampTo: 1
+
+  payload:
+    - path: "./test-users-supervisor.csv"
+      fields:
+        - "sv_username"
+        - "sv_password"
+      order: random
+      skipHeader: true
+
+    - path: "./test-users-uzman.csv"
+      fields:
+        - "uz_username"
+        - "uz_password"
+      order: random
+      skipHeader: true
+
+  defaults:
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+
+  plugins:
+    metrics-by-endpoint: {}
+    ensure: {}
+
+  ensure:
+    maxErrorRate: 10
+    thresholds:
+      - http.response_time.p95: 3000
+      - http.response_time.p99: 5000
+    conditions:
+      - expression: "http.codes.500 < 20"
+        strict: true
+
+  processor: "./processor.js"
+
+scenarios:
+
+  - name: "Uzman - Giris + Tam CRUD"
+    weight: 25
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            usernameOrEmail: "{{ uz_username }}"
+            password: "{{ uz_password }}"
+          capture:
+            - json: "$.token"
+              as: "authToken"
+            - json: "$.user.id"
+              as: "userId"
+            - json: "$.user.username"
+              as: "userName"
+          afterResponse: "logFailedLogin"
+          expect:
+            - statusCode: 200
+            - hasProperty: "token"
+      - think: 1
+      - get:
+          url: "/api/olaylar_tum"
+          beforeRequest: "checkAuth"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200
+      - think: 1
+      - get:
+          url: "/api/olaylar"
+          beforeRequest: "checkAuth"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          capture:
+            - json: "$[0].o_id"
+              as: "olayTuruId"
+              strict: false
+          expect:
+            - statusCode: 200
+      - think: 1
+      - post:
+          url: "/api/submit_olay"
+          beforeRequest: "checkAuth"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            enlem: 39.9334
+            boylam: 32.8597
+            olay_turu: "{{ olayTuruId }}"
+            aciklama: "Artillery yuk testi - {{ userName }}"
+          capture:
+            - json: "$.olay_id"
+              as: "createdOlayId"
+              strict: false
+          afterResponse: "saveCreatedOlayId"
+          expect:
+            - statusCode: 200
+            - hasProperty: "olay_id"
+      - think: 2
+      - patch:
+          url: "/api/olay/{{ createdOlayId }}"
+          beforeRequest: "checkAuth"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            aciklama: "Artillery - GUNCELLENDI ({{ userName }})"
+            enlem: 39.9400
+            boylam: 32.8600
+          ifTrue: "createdOlayId"
+          expect:
+            - statusCode: 200
+      - think: 1
+      - get:
+          url: "/api/olaylar_tum"
+          beforeRequest: "checkAuth"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200
+      - think: 1
+      - delete:
+          url: "/api/olay/{{ createdOlayId }}"
+          beforeRequest: "checkAuth"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          ifTrue: "createdOlayId"
+          expect:
+            - statusCode: 200
+
+  - name: "Authenticated - Giris + CRUD"
+    weight: 10
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            usernameOrEmail: "{{ uz_username }}"
+            password: "{{ uz_password }}"
+          capture:
+            - json: "$.token"
+              as: "authToken"
+          afterResponse: "logFailedLogin"
+          expect:
+            - statusCode: 200
+      - think: 1
+      - get:
+          url: "/api/olaylar_tum"
+          beforeRequest: "checkAuth"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+      - think: 1
+      - post:
+          url: "/api/submit_olay"
+          beforeRequest: "checkAuth"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            enlem: 40.1885
+            boylam: 29.0610
+            olay_turu: 1
+            aciklama: "Auth user load test olayi"
+          capture:
+            - json: "$.olay_id"
+              as: "newOlayId"
+              strict: false
+          afterResponse: "saveCreatedOlayId"
+      - think: 1
+      - patch:
+          url: "/api/olay/{{ newOlayId }}"
+          beforeRequest: "checkAuth"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            aciklama: "Auth user - guncellendi"
+          ifTrue: "newOlayId"
+      - think: 1
+      - delete:
+          url: "/api/olay/{{ newOlayId }}"
+          beforeRequest: "checkAuth"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          ifTrue: "newOlayId"
+
+  - name: "Unauthenticated - CRUD Denemesi (Guvenlik)"
+    weight: 10
+    flow:
+      - get:
+          url: "/api/olaylar_tum"
+          expect:
+            - statusCode:
+                - 200
+                - 401
+      - think: 1
+      - post:
+          url: "/api/submit_olay"
+          json:
+            enlem: 41.0082
+            boylam: 28.9784
+            olay_turu: 1
+            aciklama: "Yetkisiz test"
+          expect:
+            - statusCode: 401
+      - think: 1
+      - patch:
+          url: "/api/olay/1"
+          json:
+            aciklama: "Yetkisiz guncelleme"
+          expect:
+            - statusCode: 401
+      - think: 1
+      - delete:
+          url: "/api/olay/1"
+          expect:
+            - statusCode: 401
+      - think: 1
+      - get:
+          url: "/api/olaylar"
+          expect:
+            - statusCode: 401
+      - think: 1
+      - get:
+          url: "/api/admin/users"
+          expect:
+            - statusCode: 401
