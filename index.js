@@ -306,11 +306,28 @@ async function listGeomTables() {
   }).filter(x => x.geomType !== 'other');
 }
 
-async function distinctValues(table, column, limit=500) {
+async function distinctValues(table, column) {
   table = assertSafeIdent(table,'table');
   column = assertSafeIdent(column,'column');
-  const q = `SELECT DISTINCT ${column} AS v FROM public.${table} WHERE ${column} IS NOT NULL ORDER BY ${column} LIMIT $1`;
-  const { rows } = await pool.query(q, [limit]);
+  const q = `SELECT DISTINCT ${column} AS v FROM public.${table} WHERE ${column} IS NOT NULL ORDER BY ${column}`;
+  const { rows } = await pool.query(q);
+  return rows.map(r => r.v);
+}
+
+async function distinctUnassignedValues(table, column) {
+  table = assertSafeIdent(table,'table');
+  column = assertSafeIdent(column,'column');
+  const colCheck = await pool.query(
+    `SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND LOWER(table_name)=LOWER($1) AND column_name='olay_turu' LIMIT 1`,
+    [table]
+  );
+  let q;
+  if (colCheck.rows.length > 0) {
+    q = `SELECT DISTINCT ${column} AS v FROM public.${table} WHERE ${column} IS NOT NULL AND olay_turu IS NULL ORDER BY ${column}`;
+  } else {
+    q = `SELECT DISTINCT ${column} AS v FROM public.${table} WHERE ${column} IS NOT NULL ORDER BY ${column}`;
+  }
+  const { rows } = await pool.query(q);
   return rows.map(r => r.v);
 }
 
@@ -418,7 +435,7 @@ app.post('/api/veri-tipi/wizard/values', mustAuth, mustSupervisor, async (req,re
     if(!hit) return res.status(404).json({ error:'tablo_bulunamadi' });
     if(hit.geomType === 'point') return res.status(400).json({ error:'point_yasak' });
 
-    const values = await distinctValues(table, column);
+    const values = await distinctUnassignedValues(table, column);
     return res.json({ ok:true, geomType: hit.geomType, values });
   }catch(e){
     const sc = e.statusCode || 500;
@@ -440,7 +457,7 @@ app.post('/api/veri-tipi/wizard/create', mustAuth, mustSupervisor, async (req,re
     if(!hit) return res.status(404).json({ error:'tablo_bulunamadi' });
     if(hit.geomType === 'point') return res.status(400).json({ error:'point_yasak' });
 
-    const values = selectAll ? await distinctValues(table, column) : valuesIn;
+    const values = selectAll ? await distinctUnassignedValues(table, column) : valuesIn;
 
     if(!values.length) return res.status(400).json({ error:'deger_yok' });
 
@@ -525,14 +542,17 @@ app.delete('/api/veri-tipi/:o_id', mustAuth, mustSupervisor, async (req,res)=>{
     if(r.is_point) return res.status(400).json({ error:'point_silinemez' });
     if(String(r.created_by_id) !== String(req.user.sub)) return res.status(403).json({ error:'sadece_kendi_kaydi' });
 
+    // Reset olay_turu on source table so the value becomes available again
     if(r.katman_tablo){
-      const table = assertSafeIdent(r.katman_tablo,'table');
-      await pool.query(`UPDATE public.${table} SET olay_turu = NULL WHERE olay_turu = $1`, [oId]);
+      try {
+        const table = assertSafeIdent(r.katman_tablo,'table');
+        await pool.query(`UPDATE public.${table} SET olay_turu = NULL WHERE olay_turu = $1`, [oId]);
+      } catch(e) { console.warn('[veri-tipi delete] source table update error:', e.message); }
     }
 
-    await pool.query(`UPDATE public.olaylar SET active=false, deactivated_by_id=$1, deactivated_by_name=$2, deactivated_by_role_name=$3, deactivated_at=now() WHERE o_id=$4`,
-      [req.user.sub, req.user.username, req.user.role, oId]
-    );
+    // Hard delete from olaylar table
+    await pool.query(`DELETE FROM public.olaylar WHERE o_id=$1`, [oId]);
+
     return res.json({ ok:true });
   }catch(e){
     return res.status(500).json({ error:'sunucu_hatasi' });
