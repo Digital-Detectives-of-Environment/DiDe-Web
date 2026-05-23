@@ -1337,17 +1337,17 @@ async function migratePlainTotpOnBoot() {
   const client = await pool.connect();
   try {
     const { rows } = await client.query(
-      `SELECT id, two_factor_norm_hash FROM users
-       WHERE two_factor_norm_hash IS NOT NULL
-         AND two_factor_norm_hash <> ''
-         AND two_factor_norm_hash NOT LIKE 'enc:v1:%'`
+      `SELECT id, two_factor_secret FROM users
+       WHERE two_factor_secret IS NOT NULL
+         AND two_factor_secret <> ''
+         AND two_factor_secret NOT LIKE 'enc:v1:%'`
     );
     for (const r of rows) {
-      const enc = encSecret(r.two_factor_norm_hash);
+      const enc = encSecret(r.two_factor_secret);
       try {
         await client.query('BEGIN');
         await client.query(`SELECT set_config('app.bypass_totp_check','1',true)`);
-        await client.query('UPDATE users SET two_factor_norm_hash=$1, two_factor_enabled=TRUE WHERE id=$2', [enc, r.id]);
+        await client.query('UPDATE users SET two_factor_secret=$1, two_factor_enabled=TRUE WHERE id=$2', [enc, r.id]);
         await client.query('COMMIT');
       } catch (e) {
         try { await client.query('ROLLBACK'); } catch {}
@@ -1407,6 +1407,7 @@ async function ensureDbSqlHelpers() {
   await run('users add reset_code',         `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS reset_code text`);
   await run('users add reset_expires',      `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS reset_expires timestamptz`);
   await run('users drop two_factor_hash',   `ALTER TABLE public.users DROP COLUMN IF EXISTS two_factor_hash`);
+  await run('users add two_factor_secret',   `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS two_factor_secret text`);
   await run('users add two_factor_norm_hash', `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS two_factor_norm_hash text`);
 
   await run('event add photo_urls',          `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS photo_urls text`);
@@ -1734,21 +1735,23 @@ async function ensureDbSqlHelpers() {
       IF bypass = '1' THEN RETURN NEW; END IF;
 
       IF NEW.role IS DISTINCT FROM 'supervisor' THEN
+        NEW.two_factor_secret := NULL;
         NEW.two_factor_norm_hash := NULL;
         RETURN NEW;
       END IF;
 
-      IF NEW.two_factor_norm_hash IS NULL OR NEW.two_factor_norm_hash = '' THEN
+      IF NEW.two_factor_secret IS NULL OR NEW.two_factor_secret = '' THEN
         NEW.two_factor_enabled := false;
+        NEW.two_factor_secret := NULL;
         NEW.two_factor_norm_hash := NULL;
         RETURN NEW;
       END IF;
 
-      IF NEW.two_factor_norm_hash LIKE 'enc:v1:%' THEN
-        RAISE EXCEPTION 'totp_plain_required' USING ERRCODE='P0003';
+      IF NEW.two_factor_secret LIKE 'enc:v1:%' THEN
+        RETURN NEW;
       END IF;
 
-      b32 := app_api._normalize_base32(NEW.two_factor_norm_hash);
+      b32 := app_api._normalize_base32(NEW.two_factor_secret);
       IF b32 IS NULL OR b32 = '' THEN
         RAISE EXCEPTION 'invalid_base32' USING ERRCODE='P0003';
       END IF;
@@ -1804,9 +1807,9 @@ async function ensureDbSqlHelpers() {
     CREATE OR REPLACE FUNCTION app_api.users_after_ins_upd()
     RETURNS trigger LANGUAGE plpgsql AS $fn$
     BEGIN
-      IF NEW.two_factor_norm_hash IS NOT NULL
-         AND NEW.two_factor_norm_hash <> ''
-         AND NEW.two_factor_norm_hash NOT LIKE 'enc:v1:%' THEN
+      IF NEW.two_factor_secret IS NOT NULL
+         AND NEW.two_factor_secret <> ''
+         AND NEW.two_factor_secret NOT LIKE 'enc:v1:%' THEN
         PERFORM pg_notify('encrypt_totp', NEW.id::text);
       END IF;
       RETURN NEW;
@@ -1877,7 +1880,7 @@ async function ensureDbSqlHelpers() {
 
   await run('trg_users_totp_before', `
     CREATE TRIGGER trg_users_totp_before
-    BEFORE INSERT OR UPDATE OF two_factor_norm_hash, two_factor_enabled, role ON public.users
+    BEFORE INSERT OR UPDATE OF two_factor_secret, two_factor_enabled, role ON public.users
     FOR EACH ROW EXECUTE FUNCTION app_api.users_totp_before()
   `);
 
@@ -1895,7 +1898,7 @@ async function ensureDbSqlHelpers() {
 
   await run('trg_users_after_ins_upd', `
     CREATE TRIGGER trg_users_after_ins_upd
-    AFTER INSERT OR UPDATE OF two_factor_norm_hash ON public.users
+    AFTER INSERT OR UPDATE OF two_factor_secret ON public.users
     FOR EACH ROW EXECUTE FUNCTION app_api.users_after_ins_upd()
   `);
 
@@ -1937,7 +1940,7 @@ async function ensureDbSqlHelpers() {
     RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $fn$
     BEGIN
       UPDATE public.users
-      SET two_factor_norm_hash = NULLIF(p_base32,''),
+      SET two_factor_secret = NULLIF(p_base32,''),
           two_factor_enabled = (p_base32 IS NOT NULL AND p_base32 <> '')
       WHERE id = p_user_id;
     END
@@ -1999,16 +2002,16 @@ async function startTotpListener() {
       const id = parseInt(msg.payload, 10);
       if (!Number.isInteger(id)) return;
       try {
-        const { rows } = await listenClient.query('SELECT two_factor_norm_hash FROM users WHERE id=$1', [id]);
+        const { rows } = await listenClient.query('SELECT two_factor_secret FROM users WHERE id=$1', [id]);
         if (!rows.length) return;
-        const cur = rows[0].two_factor_norm_hash;
+        const cur = rows[0].two_factor_secret;
         if (!cur || String(cur).startsWith('enc:v1:')) return;
         const enc = encSecret(cur);
 
         try {
           await listenClient.query('BEGIN');
           await listenClient.query(`SELECT set_config('app.bypass_totp_check','1',true)`);
-          await listenClient.query('UPDATE users SET two_factor_norm_hash=$1, two_factor_enabled=TRUE WHERE id=$2', [enc, id]);
+          await listenClient.query('UPDATE users SET two_factor_secret=$1, two_factor_enabled=TRUE WHERE id=$2', [enc, id]);
           await listenClient.query('COMMIT');
           console.log(`[2FA] Kullanıcı #${id} için TOTP şifrelendi (NOTIFY).`);
         } catch (e) {
@@ -2221,7 +2224,7 @@ app.post('/api/auth/login', async (req, res) => {
     const input = norm(usernameOrEmail);
     const { rows } = await pool.query(
       `SELECT id, username, password_hash, role, email, email_verified,
-              two_factor_enabled, two_factor_norm_hash,
+              two_factor_enabled, two_factor_secret, two_factor_norm_hash,
               COALESCE(is_active,true) AS is_active
        FROM users
        WHERE (lower(btrim(username))=lower($1) OR lower(btrim(email))=lower($1))
@@ -2242,10 +2245,10 @@ app.post('/api/auth/login', async (req, res) => {
     if (!u.email_verified) return res.status(403).json({ error: 'email_dogrulanmamış', message: getErrorMessage(req, 'email_dogrulanmamış') });
 
     if (u.two_factor_enabled) {
-      if (!u.two_factor_norm_hash) return res.status(401).json({ error: 'totp_gerekli', message: getErrorMessage(req, 'totp_gerekli') });
+      if (!u.two_factor_secret) return res.status(401).json({ error: 'totp_gerekli', message: getErrorMessage(req, 'totp_gerekli') });
       if (!totp) return res.status(401).json({ error: 'totp_gerekli', message: getErrorMessage(req, 'totp_gerekli') });
 
-      const secretPlain = decSecret(String(u.two_factor_norm_hash));
+      const secretPlain = decSecret(String(u.two_factor_secret));
       const secretNorm = normalizeBase32(secretPlain);
       const secretB32 = padBase32(secretNorm);
       const tokenNorm = String(totp).replace(/\s+/g, '');
@@ -2261,13 +2264,13 @@ app.post('/api/auth/login', async (req, res) => {
 
       if (!verified) return res.status(401).json({ error: 'totp_gecersiz', message: getErrorMessage(req, 'totp_gecersiz') });
 
-      if (u.two_factor_norm_hash && !String(u.two_factor_norm_hash).startsWith('enc:v1:')) {
+      if (u.two_factor_secret && !String(u.two_factor_secret).startsWith('enc:v1:')) {
         const enc = encSecret(secretNorm);
         const client = await pool.connect();
         try {
           await client.query('BEGIN');
           await client.query(`SELECT set_config('app.bypass_totp_check','1',true)`);
-          await client.query('UPDATE users SET two_factor_norm_hash=$1, two_factor_enabled=TRUE WHERE id=$2', [enc, u.id]);
+          await client.query('UPDATE users SET two_factor_secret=$1, two_factor_enabled=TRUE WHERE id=$2', [enc, u.id]);
           await client.query('COMMIT');
         } catch (e) {
           try { await client.query('ROLLBACK'); } catch {}

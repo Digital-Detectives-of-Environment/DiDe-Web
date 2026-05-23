@@ -1,5 +1,5 @@
 -- =========================================================
--- Dide – PostgreSQL full installation script
+-- Disaster Management – PostgreSQL full installation script
 -- =========================================================
 
 -- 0) Required plugins
@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS public.users (
   reset_code           text,
   reset_expires        timestamptz,
   two_factor_enabled   boolean DEFAULT false,
+  two_factor_secret    text,
   two_factor_norm_hash text
 );
 

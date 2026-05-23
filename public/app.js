@@ -5493,7 +5493,7 @@ qs('#btn-add-type')?.addEventListener('click', async () => {
   if (btn) btn.disabled = true;
   
   try {
-    const r = await fetch('/api/admin/event_type', {
+    const r = await fetch('/api/admin/event_types', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({event_type_name: name, good: good})
