@@ -1022,9 +1022,9 @@ function showPolygonRecordsCard(records, count) {
       page.innerHTML = `
         ${mediaHtml}
         <div class="pr-info-section">
-          <div class="pr-info-type">${rec.olay_turu_adi || '-'}</div>
+          <div class="pr-info-type">${rec.event_type_name || '-'}</div>
           <div class="pr-info-date">${dateStr}</div>
-          ${rec.aciklama ? '<div class="pr-info-desc">' + rec.aciklama + '</div>' : ''}
+          ${rec.description ? '<div class="pr-info-desc">' + rec.description + '</div>' : ''}
         </div>
       `;
       track.appendChild(page);
@@ -1544,7 +1544,7 @@ async function loadRasterLayers(mapInstance, layersArray, listId){
 /* ==================== VERI_TIPI (Supervisor) ==================== */
 let __veriTipiState = {
   step: 0,
-  katman_tablo: null,
+  layer_table: null,
   attribute_column: null,
   values: [],
   select_all: true,
@@ -1617,14 +1617,14 @@ async function vt_refreshTable(){
     const canEdit = !isPoint && String(rw.created_by_id) === myId;
 
     tr.innerHTML = `
-      <td>${escapeHtml(rw.katman_tablo || '')}</td>
+      <td>${escapeHtml(rw.layer_table || '')}</td>
       <td>${escapeHtml(rw.attribute_column || '')}</td>
-      <td>${escapeHtml(rw.olay_turu || '')}</td>
+      <td>${escapeHtml(rw.event_type || '')}</td>
       <td>${rw.faydali_faydasiz_mi === 'Faydali' || rw.faydali_faydasiz_mi === 'Faydalı' ? t('beneficial') : t('notBeneficial')}</td>
       <td>${escapeHtml(rw.ekleyen || '')}</td>
       <td style="display:flex; gap:8px;">
-        <button class="btn ghost" ${canEdit ? '' : 'disabled'} data-act="upd" data-id="${rw.o_id}">${t('update')}</button>
-        <button class="btn danger" ${canEdit ? '' : 'disabled'} data-act="del" data-id="${rw.o_id}">${t('delete')}</button>
+        <button class="btn ghost" ${canEdit ? '' : 'disabled'} data-act="upd" data-id="${rw.event_type_id}">${t('update')}</button>
+        <button class="btn danger" ${canEdit ? '' : 'disabled'} data-act="del" data-id="${rw.event_type_id}">${t('delete')}</button>
       </td>
     `;
 
@@ -1669,7 +1669,7 @@ async function vt_refreshTable(){
 async function vt_startWizard(){
   __veriTipiState = {
     step: 0,
-    katman_tablo: null,
+    layer_table: null,
     attribute_column: null,
     values: [],
     select_all: true,
@@ -1705,7 +1705,7 @@ function vt_renderStep(){
     btnNext.textContent = t('next') || 'Next';
 
     btnNext.onclick = ()=>{
-      if(!__veriTipiState.katman_tablo) return toast(t('vtSelectLayerTable'), 'error');
+      if(!__veriTipiState.layer_table) return toast(t('vtSelectLayerTable'), 'error');
       __veriTipiState.step = 1;
       vt_renderStep();
     };
@@ -1727,7 +1727,7 @@ function vt_renderStep(){
       sel.innerHTML = `<option value="">-- ${t('pleaseSelect')} --</option>` +
         filteredTables.map(t => `<option value="${escapeHtml(t.table)}">${escapeHtml(t.table)} (${escapeHtml(t.geomType)})</option>`).join('');
 
-      sel.onchange = ()=>{ __veriTipiState.katman_tablo = sel.value || null; };
+      sel.onchange = ()=>{ __veriTipiState.layer_table = sel.value || null; };
       wrap.appendChild(sel);
     })();
 
@@ -1763,7 +1763,7 @@ function vt_renderStep(){
     `;
 
     (async ()=>{
-      const rr = await fetch(`/api/table-columns/${encodeURIComponent(__veriTipiState.katman_tablo)}`);
+      const rr = await fetch(`/api/table-columns/${encodeURIComponent(__veriTipiState.layer_table)}`);
       const dd = rr.ok ? await rr.json() : { columns:[] };
       const sel = body.querySelector('#vt-col');
       sel.innerHTML = `<option value="">-- ${t('vtSelectColumnPlaceholder')} --</option>` +
@@ -1783,7 +1783,7 @@ function vt_renderStep(){
         method:'POST',
         headers:{ 'Content-Type':'application/json' },
         body: JSON.stringify({
-          katman_tablo: __veriTipiState.katman_tablo,
+          layer_table: __veriTipiState.layer_table,
           attribute_column: __veriTipiState.attribute_column
         })
       });
@@ -1798,7 +1798,7 @@ function vt_renderStep(){
         __veriTipiState.select_all = true;
         __veriTipiState.good = bulkVal === 'good';
         const payload = {
-          katman_tablo: __veriTipiState.katman_tablo,
+          layer_table: __veriTipiState.layer_table,
           attribute_column: __veriTipiState.attribute_column,
           select_all: true,
           values: [],
@@ -1859,7 +1859,7 @@ function vt_renderStep(){
       return;
     }
 
-    // Filter out already-assigned values (olay_turu not null)
+    // Filter out already-assigned values (event_type not null)
     (async () => {
       let assignedValues = new Set();
       try {
@@ -1867,14 +1867,14 @@ function vt_renderStep(){
         if (existingR.ok) {
           const existingD = await existingR.json();
           const existing = existingD.rows || existingD.data || [];
-          console.log('[vt-filter] existing entries:', existing.length, 'for table:', __veriTipiState.katman_tablo, 'col:', __veriTipiState.attribute_column);
+          console.log('[vt-filter] existing entries:', existing.length, 'for table:', __veriTipiState.layer_table, 'col:', __veriTipiState.attribute_column);
           existing.forEach(entry => {
             // Match by same table AND same column
-            const sameTable = String(entry.katman_tablo || '').toLowerCase() === String(__veriTipiState.katman_tablo || '').toLowerCase();
+            const sameTable = String(entry.layer_table || '').toLowerCase() === String(__veriTipiState.layer_table || '').toLowerCase();
             const sameCol = String(entry.attribute_column || '').toLowerCase() === String(__veriTipiState.attribute_column || '').toLowerCase();
             if (sameTable && sameCol) {
-              // The event type name (olay_turu / o_adi) IS the attribute value
-              const val = entry.olay_turu || entry.o_adi || entry.attribute_value;
+              // The event type name (event_type / event_type_name) IS the attribute value
+              const val = entry.event_type || entry.event_type_name || entry.attribute_value;
               if (val != null && String(val).trim() !== '') {
                 assignedValues.add(String(val).trim());
               }
@@ -1968,7 +1968,7 @@ function vt_renderStep(){
 
     btnNext.onclick = async ()=>{
       const payload = {
-        katman_tablo: __veriTipiState.katman_tablo,
+        layer_table: __veriTipiState.layer_table,
         attribute_column: __veriTipiState.attribute_column,
         select_all: __veriTipiState.select_all,
         values: __veriTipiState.select_all ? [] : (__veriTipiState.selectedValues||[]),
@@ -2143,7 +2143,7 @@ function downloadFilteredEventsAsGeoJSON() {
     return;
   }
   
-  const eventIds = filtered.map(e => parseInt(e.olay_id, 10)).filter(id => !isNaN(id));
+  const eventIds = filtered.map(e => parseInt(e.event_id, 10)).filter(id => !isNaN(id));
   
   fetch('/api/export/geojson', {
     method: 'POST',
@@ -2159,7 +2159,7 @@ function downloadFilteredEventsAsGeoJSON() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `olaylar_${Date.now()}.geojson`;
+    a.download = `event_type_${Date.now()}.geojson`;
     document.body.appendChild(a);
     a.click();
     setTimeout(() => {
@@ -2261,7 +2261,7 @@ function ensureEventsExportControl() {
         L.DomEvent.stop(e);
         try{
           const filtered = tableStates?.events?.filtered || [];
-          const eventIds = filtered.map(ev => parseInt(ev.olay_id, 10)).filter(id => !isNaN(id));
+          const eventIds = filtered.map(ev => parseInt(ev.event_id, 10)).filter(id => !isNaN(id));
           
           const r = await fetch('/api/export/geojson', {
             method:'POST',
@@ -2404,7 +2404,7 @@ function iconForEvent(evt){
 }
 
 function markerFor(e){
-  return L.marker([parseFloat(e.enlem), parseFloat(e.boylam)], { icon: iconForEvent(e) });
+  return L.marker([parseFloat(e.latitude), parseFloat(e.longitude)], { icon: iconForEvent(e) });
 }
 
 let __lightbox = null;
@@ -3015,7 +3015,7 @@ function applyFilters(tableKey) {
       
       switch(tableKey) {
         case 'types':
-          if (column === 'name') itemValue = item.o_adi || '';
+          if (column === 'name') itemValue = item.event_type_name || '';
           if (column === 'good') itemValue = (item.good === true || item.good === 'true' || item.good === 1) ? t('beneficial') : t('notBeneficial');
           if (column === 'creator') itemValue = item.created_by_name || '-';
           break;
@@ -3026,7 +3026,7 @@ function applyFilters(tableKey) {
           if (column === 'verified') itemValue = item.email_verified ? t('yes') : t('no');
           break;
         case 'events':
-          if (column === 'type') itemValue = item.olay_turu_adi || '-';
+          if (column === 'type') itemValue = item.event_type_name || '-';
           if (column === 'creator') itemValue = item.created_by_username || '-';
           if (column === 'photo') itemValue = (Array.isArray(item.photo_urls) && item.photo_urls.length > 0) ? t('available') : t('notAvailable');
           if (column === 'video') itemValue = (Array.isArray(item.video_urls) && item.video_urls.length > 0) ? t('available') : t('notAvailable');
@@ -3142,7 +3142,7 @@ function buildFilterDropdown(tableKey, column, data) {
     
     switch(tableKey) {
       case 'types':
-        if (column === 'name') value = item.o_adi || '';
+        if (column === 'name') value = item.event_type_name || '';
         if (column === 'good') value = (item.good === true || item.good === 'true' || item.good === 1) ? t('beneficial') : t('notBeneficial');
         if (column === 'creator') value = item.created_by_name || '-';
         break;
@@ -3153,7 +3153,7 @@ function buildFilterDropdown(tableKey, column, data) {
         if (column === 'verified') value = item.email_verified ? t('yes') : t('no');
         break;
       case 'events':
-        if (column === 'type') value = item.olay_turu_adi || '-';
+        if (column === 'type') value = item.event_type_name || '-';
         if (column === 'creator') value = item.created_by_username || '-';
         if (column === 'photo') value = (Array.isArray(item.photo_urls) && item.photo_urls.length > 0) ? t('available') : t('notAvailable');
         if (column === 'video') value = (Array.isArray(item.video_urls) && item.video_urls.length > 0) ? t('available') : t('notAvailable');
@@ -3190,7 +3190,7 @@ function buildFilterDropdown(tableKey, column, data) {
     
     switch(tableKey) {
       case 'types':
-        if (column === 'name') value = item.o_adi || '';
+        if (column === 'name') value = item.event_type_name || '';
         if (column === 'good') value = (item.good === true || item.good === 'true' || item.good === 1) ? t('beneficial') : t('notBeneficial');
         if (column === 'creator') value = item.created_by_name || '-';
         break;
@@ -3201,7 +3201,7 @@ function buildFilterDropdown(tableKey, column, data) {
         if (column === 'verified') value = item.email_verified ? t('yes') : t('no');
         break;
       case 'events':
-        if (column === 'type') value = item.olay_turu_adi || '-';
+        if (column === 'type') value = item.event_type_name || '-';
         if (column === 'creator') value = item.created_by_username || '-';
         if (column === 'photo') value = (Array.isArray(item.photo_urls) && item.photo_urls.length > 0) ? t('available') : t('notAvailable');
         if (column === 'video') value = (Array.isArray(item.video_urls) && item.video_urls.length > 0) ? t('available') : t('notAvailable');
@@ -3242,7 +3242,7 @@ function buildFilterDropdown(tableKey, column, data) {
       
       switch(tableKey) {
         case 'types':
-          if (column === 'name') itemValue = item.o_adi || '';
+          if (column === 'name') itemValue = item.event_type_name || '';
           if (column === 'good') itemValue = (item.good === true || item.good === 'true' || item.good === 1) ? t('beneficial') : t('notBeneficial');
           if (column === 'creator') itemValue = item.created_by_name || '-';
           break;
@@ -3253,7 +3253,7 @@ function buildFilterDropdown(tableKey, column, data) {
           if (column === 'verified') itemValue = item.email_verified ? t('yes') : t('no');
           break;
         case 'events':
-          if (column === 'type') itemValue = item.olay_turu_adi || '-';
+          if (column === 'type') itemValue = item.event_type_name || '-';
           if (column === 'creator') itemValue = item.created_by_username || '-';
           if (column === 'photo') itemValue = (Array.isArray(item.photo_urls) && item.photo_urls.length > 0) ? t('available') : t('notAvailable');
           if (column === 'video') itemValue = (Array.isArray(item.video_urls) && item.video_urls.length > 0) ? t('available') : t('notAvailable');
@@ -3302,9 +3302,9 @@ function buildFilterDropdown(tableKey, column, data) {
 function buildEventTypeFilterDropdown(data, state) {
   const typeMap = new Map();
   state.data.forEach(item => {
-    const typeName = item.olay_turu_adi || '-';
-    const typeId = item.olay_turu_id;
-    const isGood = item.olay_turu_good === true || item.olay_turu_good === 'true' || item.olay_turu_good === 1;
+    const typeName = item.event_type_name || '-';
+    const typeId = item.event_type_id;
+    const isGood = item.event_type_good === true || item.event_type_good === 'true' || item.event_type_good === 1;
     
     if (!typeMap.has(typeName)) {
       typeMap.set(typeName, { name: typeName, id: typeId, isGood: isGood, count: 0 });
@@ -3312,7 +3312,7 @@ function buildEventTypeFilterDropdown(data, state) {
   });
   
   state.filtered.forEach(item => {
-    const typeName = item.olay_turu_adi || '-';
+    const typeName = item.event_type_name || '-';
     if (typeMap.has(typeName)) {
       typeMap.get(typeName).count++;
     }
@@ -3321,7 +3321,7 @@ function buildEventTypeFilterDropdown(data, state) {
   let goodCount = 0;
   let badCount = 0;
   state.filtered.forEach(item => {
-    const isGood = item.olay_turu_good === true || item.olay_turu_good === 'true' || item.olay_turu_good === 1;
+    const isGood = item.event_type_good === true || item.event_type_good === 'true' || item.event_type_good === 1;
     if (isGood) goodCount++;
     else badCount++;
   });
@@ -3532,8 +3532,8 @@ function applyEventTypeGoodBadFilters(tableKey) {
   const selectedTypes = state.filters.type || [];
   
   state.filtered = state.data.filter(item => {
-    const typeName = item.olay_turu_adi || '-';
-    const isGood = item.olay_turu_good === true || item.olay_turu_good === 'true' || item.olay_turu_good === 1;
+    const typeName = item.event_type_name || '-';
+    const isGood = item.event_type_good === true || item.event_type_good === 'true' || item.event_type_good === 1;
     
     if (selectedTypes.length > 0 && !selectedTypes.includes(typeName)) {
       return false;
@@ -3668,9 +3668,9 @@ function attachFilterEvents(tableKey) {
               if (selectedTypes.length > 0) {
                 cb.checked = selectedTypes.includes(typeName);
               } else {
-                const typeData = state.data.find(item => (item.olay_turu_adi || '-') === typeName);
+                const typeData = state.data.find(item => (item.event_type_name || '-') === typeName);
                 if (typeData) {
-                  const isGood = typeData.olay_turu_good === true || typeData.olay_turu_good === 'true' || typeData.olay_turu_good === 1;
+                  const isGood = typeData.event_type_good === true || typeData.event_type_good === 'true' || typeData.event_type_good === 1;
                   
                   if (specialFilters.typeGood === false && isGood) {
                     cb.checked = false;
@@ -3941,9 +3941,9 @@ function attachFilterEvents(tableKey) {
               
               dropdown.querySelectorAll('.filter-checkbox').forEach(cb => {
                 const typeName = cb.value;
-                const typeData = state.data.find(item => (item.olay_turu_adi || '-') === typeName);
+                const typeData = state.data.find(item => (item.event_type_name || '-') === typeName);
                 if (typeData) {
-                  const isGood = typeData.olay_turu_good === true || typeData.olay_turu_good === 'true' || typeData.olay_turu_good === 1;
+                  const isGood = typeData.event_type_good === true || typeData.event_type_good === 'true' || typeData.event_type_good === 1;
                   
                   if (selectedTypes.length > 0) {
                     if (goodChecked && badChecked) {
@@ -4033,9 +4033,9 @@ function attachFilterEvents(tableKey) {
                 
                 dropdown.querySelectorAll('.filter-checkbox').forEach(cb => {
                   const typeName = cb.value;
-                  const typeData = state.data.find(item => (item.olay_turu_adi || '-') === typeName);
+                  const typeData = state.data.find(item => (item.event_type_name || '-') === typeName);
                   if (typeData) {
-                    const isGood = typeData.olay_turu_good === true || typeData.olay_turu_good === 'true' || typeData.olay_turu_good === 1;
+                    const isGood = typeData.event_type_good === true || typeData.event_type_good === 'true' || typeData.event_type_good === 1;
                     
                     if (isGood && !cb.checked) allGoodChecked = false;
                     if (!isGood && !cb.checked) allBadChecked = false;
@@ -4270,31 +4270,31 @@ function clearMarkersLayerSafe(){
 }
 
 function addEventMarkerToLayer(e){
-  const lat = parseFloat(e.enlem), lng = parseFloat(e.boylam);
+  const lat = parseFloat(e.latitude), lng = parseFloat(e.longitude);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
   const m = markerFor(e).addTo(markersLayer);
 
-  const turHtml = e.olay_turu_adi ? `<b>${t('type')}:</b> ${escapeHtml(e.olay_turu_adi)}<br>` : '';
+  const turHtml = e.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(e.event_type_name)}<br>` : '';
   const creatorName = e.created_by_username ?? '';
   const creatorId = (e.created_by_id != null) ? String(e.created_by_id) : '-';
   const who = creatorName ? `${creatorName} (ID: ${creatorId})` : '-';
 
   const mediaHtml = `
     <div><b>${t('photo')}:</b></div>
-    <div class="popup-photos"><div data-ph="${e.olay_id}"></div></div>
+    <div class="popup-photos"><div data-ph="${e.event_id}"></div></div>
     <div style="height:6px"></div>
     <div><b>${t('video')}:</b></div>
-    <div class="popup-videos"><div data-vd="${e.olay_id}"></div></div>
+    <div class="popup-videos"><div data-vd="${e.event_id}"></div></div>
   `;
 
   const content = document.createElement('div');
   content.innerHTML = `
     <div style="margin-bottom:6px;">
-      <b>${t('eventID')}:</b> ${e.olay_id}
+      <b>${t('eventID')}:</b> ${e.event_id}
       <span class="badge ${e.is_mine ? 'mine' : 'other'}" style="margin-left:6px;">${e.is_mine ? t('mine') : t('other')}</span>
     </div>
     ${turHtml}
-    <div class="popup-body"><b>${t('description')}:</b> ${e.aciklama ? escapeHtml(e.aciklama) : ''}</div>
+    <div class="popup-body"><b>${t('description')}:</b> ${e.description ? escapeHtml(e.description) : ''}</div>
     ${mediaHtml}
     ${currentUser ? `<div class="popup-meta"><b>${t('addedBy')}:</b> ${escapeHtml(who)}</div>` : ''}
     <div class="inline" style="gap:6px; margin-top:8px;"></div>
@@ -4324,7 +4324,7 @@ function addEventMarkerToLayer(e){
       if (!confirm(t('confirmDeleteEvent'))) return;
       db.disabled = true;
       try {
-        const url = (currentUser.role === 'user') ? `/api/olay/${e.olay_id}` : `/api/admin/olay/${e.olay_id}`;
+        const url = (currentUser.role === 'user') ? `/api/event/${e.event_id}` : `/api/admin/event/${e.event_id}`;
         await fetch(url, {method:'DELETE'});
         await Promise.all([loadExistingEvents({ publicMode:false }), refreshAdminEvents()]);
       } catch(err) {
@@ -4436,31 +4436,31 @@ function syncEventsMapWithFilteredEvents(){
 
   try { eventsMarkersLayer.clearLayers(); } catch {}
   list.forEach(e=>{
-    const lat = parseFloat(e.enlem), lng = parseFloat(e.boylam);
+    const lat = parseFloat(e.latitude), lng = parseFloat(e.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const m = L.marker([lat,lng], { icon: iconForEvent(e) }).addTo(eventsMarkersLayer);
     
-    const turHtml = e.olay_turu_adi ? `<b>${t('type')}:</b> ${escapeHtml(e.olay_turu_adi)}<br>` : '';
+    const turHtml = e.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(e.event_type_name)}<br>` : '';
     const creatorName = e.created_by_username ?? '';
     const creatorId = (e.created_by_id != null) ? String(e.created_by_id) : '-';
     const who = creatorName ? `${creatorName} (ID: ${creatorId})` : '-';
 
     const mediaHtml = `
       <div><b>${t('photo')}:</b></div>
-      <div class="popup-photos"><div data-ph="${e.olay_id}"></div></div>
+      <div class="popup-photos"><div data-ph="${e.event_id}"></div></div>
       <div style="height:6px"></div>
       <div><b>${t('video')}:</b></div>
-      <div class="popup-videos"><div data-vd="${e.olay_id}"></div></div>
+      <div class="popup-videos"><div data-vd="${e.event_id}"></div></div>
     `;
 
     const content = document.createElement('div');
     content.innerHTML = `
       <div style="margin-bottom:6px;">
-        <b>${t('eventID')}:</b> ${e.olay_id}
+        <b>${t('eventID')}:</b> ${e.event_id}
         <span class="badge ${e.is_mine ? 'mine' : 'other'}" style="margin-left:6px;">${e.is_mine ? t('mine') : t('other')}</span>
       </div>
       ${turHtml}
-      <div class="popup-body"><b>${t('description')}:</b> ${e.aciklama ? escapeHtml(e.aciklama) : ''}</div>
+      <div class="popup-body"><b>${t('description')}:</b> ${e.description ? escapeHtml(e.description) : ''}</div>
       ${mediaHtml}
       <div class="popup-meta"><b>${t('addedBy')}:</b> ${escapeHtml(who)}</div>
       <div class="inline" style="gap:6px; margin-top:8px;"></div>
@@ -4490,7 +4490,7 @@ function syncEventsMapWithFilteredEvents(){
         if (!confirm(t('confirmDeleteEvent'))) return;
         db.disabled = true;
         try {
-          const url = (currentUser.role === 'user') ? `/api/olay/${e.olay_id}` : `/api/admin/olay/${e.olay_id}`;
+          const url = (currentUser.role === 'user') ? `/api/event/${e.event_id}` : `/api/admin/event/${e.event_id}`;
           await fetch(url, {method:'DELETE'});
           await Promise.all([loadExistingEvents({ publicMode:false }), refreshAdminEvents()]);
         } catch(err) {
@@ -4580,7 +4580,7 @@ async function loadRegionData() {
       const typeCounts = {};
       const creatorCounts = {};
       events.forEach(e => {
-        const tName = e.olay_turu_adi || '-';
+        const tName = e.event_type_name || '-';
         typeCounts[tName] = (typeCounts[tName] || 0) + 1;
         const cName = e.created_by_username || '-';
         creatorCounts[cName] = (creatorCounts[cName] || 0) + 1;
@@ -4808,10 +4808,10 @@ function syncRegionsEventMarkers() {
 
   const allEvents = tableStates.events?.data || [];
   allEvents.forEach(e => {
-    const lat = parseFloat(e.enlem), lng = parseFloat(e.boylam);
+    const lat = parseFloat(e.latitude), lng = parseFloat(e.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const m = L.marker([lat, lng], { icon: iconForEvent(e) });
-    m.bindPopup(`<b>${e.olay_turu_adi || '-'}</b><br>${e.aciklama || ''}`);
+    m.bindPopup(`<b>${e.event_type_name || '-'}</b><br>${e.description || ''}`);
     regionsMarkersLayer.addLayer(m);
   });
 
@@ -4939,15 +4939,15 @@ function syncEventsMapWithSelection() {
   }
 
   const allFiltered = tableStates.events?.filtered || [];
-  const selected = allFiltered.filter(e => __eventsSelectedRows.has(e.olay_id));
+  const selected = allFiltered.filter(e => __eventsSelectedRows.has(e.event_id));
 
   eventsMarkersLayer.clearLayers();
   const bounds = [];
   selected.forEach(e => {
-    const lat = parseFloat(e.enlem), lng = parseFloat(e.boylam);
+    const lat = parseFloat(e.latitude), lng = parseFloat(e.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const m = L.marker([lat, lng], { icon: iconForEvent(e) }).addTo(eventsMarkersLayer);
-    m.bindPopup(`<b>${e.olay_turu_adi || '-'}</b><br>${e.aciklama || ''}`);
+    m.bindPopup(`<b>${e.event_type_name || '-'}</b><br>${e.description || ''}`);
     bounds.push([lat, lng]);
   });
 
@@ -4988,15 +4988,15 @@ function renderTypeTableRows(data) {
     const goodText = (t.good === true || t.good === 'true' || t.good === 1) ? window.t('beneficial') : window.t('notBeneficial');
     
     const updateBtn = canUpdate 
-      ? `<button class="btn ghost" data-update-type="${t.o_id}" data-type-name="${escapeHtml(t.o_adi)}" data-type-good="${t.good === true || t.good === 'true' || t.good === 1 ? 'true' : 'false'}" style="margin-right:4px;">${window.t('update')}</button>`
+      ? `<button class="btn ghost" data-update-type="${t.event_type_id}" data-type-name="${escapeHtml(t.event_type_name)}" data-type-good="${t.good === true || t.good === 'true' || t.good === 1 ? 'true' : 'false'}" style="margin-right:4px;">${window.t('update')}</button>`
       : `<button class="btn ghost" disabled title="${window.t('noPermission')}" style="margin-right:4px;">${window.t('update')}</button>`;
     
     const deleteBtn = canDelete 
-      ? `<button class="btn danger" data-del-type="${t.o_id}">${window.t('delete')}</button>`
+      ? `<button class="btn danger" data-del-type="${t.event_type_id}">${window.t('delete')}</button>`
       : `<button class="btn danger" disabled title="${window.t('noPermission')}">${window.t('delete')}</button>`;
     
     tr.innerHTML = `
-      <td>${escapeHtml(t.o_adi)}</td>
+      <td>${escapeHtml(t.event_type_name)}</td>
       <td>${goodText}</td>
       <td>${escapeHtml(t.created_by_name || '-')}</td>
       <td>${updateBtn}${deleteBtn}</td>
@@ -5009,7 +5009,7 @@ function renderTypeTableRows(data) {
       if (!confirm(window.t('confirmDeleteType'))) return;
       b.disabled = true;
       try { 
-        const resp = await fetch('/api/admin/olaylar/' + b.getAttribute('data-del-type'), {method:'DELETE'});
+        const resp = await fetch('/api/admin/event_type/' + b.getAttribute('data-del-type'), {method:'DELETE'});
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok) {
           toast(window.t('deleteFailed') + ': ' + (data.message || data.error || resp.status), 'error');
@@ -5078,10 +5078,10 @@ function openUpdateTypeModal(typeId, currentName, currentGood) {
     
     newSaveBtn.disabled = true;
     try {
-      const resp = await fetch('/api/admin/olaylar/' + typeId, {
+      const resp = await fetch('/api/admin/event_type/' + typeId, {
         method: 'PATCH',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({o_adi: newName, good: newGood})
+        body: JSON.stringify({event_type_name: newName, good: newGood})
       });
       const data = await resp.json().catch(() => ({}));
       
@@ -5227,17 +5227,17 @@ function renderEventTableRows(data) {
     const dateStr = rawDate ? formatDate(rawDate) : '-';
     
     const tr = document.createElement('tr');
-    tr.dataset.olayId = o.olay_id;
-    const isSelected = __eventsSelectedRows.has(o.olay_id);
+    tr.dataset.olayId = o.event_id;
+    const isSelected = __eventsSelectedRows.has(o.event_id);
     if (isSelected) tr.classList.add('table-row-selected');
     tr.innerHTML = `
-      <td>${o.olay_turu_adi ? escapeHtml(o.olay_turu_adi) : '-'}</td>
-      <td><div class="td-desc">${o.aciklama ? escapeHtml(o.aciklama) : ''}</div></td>
+      <td>${o.event_type_name ? escapeHtml(o.event_type_name) : '-'}</td>
+      <td><div class="td-desc">${o.description ? escapeHtml(o.description) : ''}</div></td>
       <td>${escapeHtml(who)}</td>
       <td>${hasPhoto}</td>
       <td>${hasVideo}</td>
       <td>${dateStr}</td>
-      <td><button class="btn danger" data-del-olay="${o.olay_id}">${t('delete')}</button></td>
+      <td><button class="btn danger" data-del-event="${o.event_id}">${t('delete')}</button></td>
     `;
     tb.appendChild(tr);
   });
@@ -5245,13 +5245,13 @@ function renderEventTableRows(data) {
   // Setup row click → map zoom
   setupEventRowClick();
   
-  qsa('[data-del-olay]').forEach(b => {
+  qsa('[data-del-event]').forEach(b => {
     b.onclick = async () => {
       if (!confirm(t('confirmDeleteEvent'))) return;
       b.disabled = true;
       try {
-        const id = b.getAttribute('data-del-olay');
-        const url = (currentUser && currentUser.role === 'user') ? '/api/olay/' + id : '/api/admin/olay/' + id;
+        const id = b.getAttribute('data-del-event');
+        const url = (currentUser && currentUser.role === 'user') ? '/api/event/' + id : '/api/admin/event/' + id;
         const resp = await fetch(url, {method:'DELETE'});
         const data = await resp.json().catch(() => ({}));
         
@@ -5274,9 +5274,9 @@ function renderEventTableRows(data) {
 let __typePickerUIInited = false;
 
 async function loadOlayTypes() {
-  const sel = qs('#olay_turu');
+  const sel = qs('#event_type');
   try {
-    const r = await fetch('/api/olaylar');
+    const r = await fetch('/api/event_types');
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const list = await r.json();
 
@@ -5285,8 +5285,8 @@ async function loadOlayTypes() {
       list.forEach(o => {
         if(o.is_point === false) return;
         const opt = document.createElement('option');
-        opt.value = String(o.o_id);
-        opt.textContent = o.o_adi;
+        opt.value = String(o.event_type_id);
+        opt.textContent = o.event_type_name;
         sel.appendChild(opt);
       });
 
@@ -5311,7 +5311,7 @@ async function loadOlayTypes() {
 }
 
 function initTypePickerUI(){
-  const sel = qs('#olay_turu');
+  const sel = qs('#event_type');
   if (!sel) return;
 
   const wrap = sel.closest('.type-picker');
@@ -5354,7 +5354,7 @@ async function refreshAdminUsers(){
 
 async function refreshAdminEvents(){
   try {
-    const r = await fetch('/api/olaylar_tum');
+    const r = await fetch('/api/events_all');
     if (!r.ok) throw 0;
     const list = await r.json();
     
@@ -5493,10 +5493,10 @@ qs('#btn-add-type')?.addEventListener('click', async () => {
   if (btn) btn.disabled = true;
   
   try {
-    const r = await fetch('/api/admin/olaylar', {
+    const r = await fetch('/api/admin/event_type', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({o_adi: name, good: good})
+      body: JSON.stringify({event_type_name: name, good: good})
     });
     const data = await r.json().catch(() => ({}));
     
@@ -5588,8 +5588,8 @@ function _onEditLatLngInput() {
 // DB media populate
 async function populateEventMedia(container, evt){
   try {
-    const photoBox = container.querySelector(`[data-ph="${evt.olay_id}"]`);
-    const videoBox = container.querySelector(`[data-vd="${evt.olay_id}"]`);
+    const photoBox = container.querySelector(`[data-ph="${evt.event_id}"]`);
+    const videoBox = container.querySelector(`[data-vd="${evt.event_id}"]`);
 
     // Photos
     if (photoBox) {
@@ -5641,27 +5641,27 @@ async function populateEventMedia(container, evt){
   }
 }
 function recreatePopupContent(evt, marker) {
-  const turHtml = evt.olay_turu_adi ? `<b>${t('type')}:</b> ${escapeHtml(evt.olay_turu_adi)}<br>` : '';
+  const turHtml = evt.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(evt.event_type_name)}<br>` : '';
   const creatorName = evt.created_by_username ?? '';
   const creatorId = (evt.created_by_id != null) ? String(evt.created_by_id) : '-';
   const who = creatorName ? `${creatorName} (ID: ${creatorId})` : '-';
 
   const mediaHtml = `
     <div><b>${t('photo')}:</b></div>
-    <div class="popup-photos"><div data-ph="${evt.olay_id}"></div></div>
+    <div class="popup-photos"><div data-ph="${evt.event_id}"></div></div>
     <div style="height:6px"></div>
     <div><b>${t('video')}:</b></div>
-    <div class="popup-videos"><div data-vd="${evt.olay_id}"></div></div>
+    <div class="popup-videos"><div data-vd="${evt.event_id}"></div></div>
   `;
 
   const content = document.createElement('div');
   content.innerHTML = `
     <div style="margin-bottom:6px;">
-      <b>${t('eventID')}:</b> ${evt.olay_id}
+      <b>${t('eventID')}:</b> ${evt.event_id}
       <span class="badge ${evt.is_mine ? 'mine' : 'other'}" style="margin-left:6px;">${evt.is_mine ? t('mine') : t('other')}</span>
     </div>
     ${turHtml}
-    <div class="popup-body"><b>${t('description')}:</b> ${evt.aciklama ? escapeHtml(evt.aciklama) : ''}</div>
+    <div class="popup-body"><b>${t('description')}:</b> ${evt.description ? escapeHtml(evt.description) : ''}</div>
     ${mediaHtml}
     ${currentUser ? `<div class="popup-meta"><b>${t('addedBy')}:</b> ${escapeHtml(who)}</div>` : ''}
     <div class="inline" style="gap:6px; margin-top:8px;"></div>
@@ -5691,7 +5691,7 @@ function recreatePopupContent(evt, marker) {
       if (!confirm(t('confirmDeleteEvent'))) return;
       db.disabled = true;
       try {
-        const url = (currentUser.role === 'user') ? `/api/olay/${evt.olay_id}` : `/api/admin/olay/${evt.olay_id}`;
+        const url = (currentUser.role === 'user') ? `/api/event/${evt.event_id}` : `/api/admin/event/${evt.event_id}`;
         await fetch(url, {method:'DELETE'});
         await Promise.all([loadExistingEvents({ publicMode:false }), refreshAdminEvents()]);
       } catch(err) {
@@ -5725,7 +5725,7 @@ async function loadExistingEvents(opts = {}) {
     }
   }
   try {
-    const resp = await fetch('/api/olaylar_tum');
+    const resp = await fetch('/api/events_all');
     if (!resp.ok) throw 0;
     let events = await resp.json();
 
@@ -5735,9 +5735,9 @@ async function loadExistingEvents(opts = {}) {
       
       const beforeFilter = events.length;
       events = events.filter(evt => {
-        const isGood = evt.olay_turu_good === true || 
-                      evt.olay_turu_good === 'true' || 
-                      evt.olay_turu_good === 1;
+        const isGood = evt.event_type_good === true || 
+                      evt.event_type_good === 'true' || 
+                      evt.event_type_good === 1;
         
         if (showGood && showBad) return true; 
         if (showGood && isGood) return true;  
@@ -5757,11 +5757,11 @@ async function loadExistingEvents(opts = {}) {
         e2.created_by_username = null;
         e2.created_by_id = null;
       }
-      eventIndex.set(e2.olay_id, e2);
+      eventIndex.set(e2.event_id, e2);
 
-      const lat = parseFloat(e2.enlem), lng = parseFloat(e2.boylam);
+      const lat = parseFloat(e2.latitude), lng = parseFloat(e2.longitude);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        console.warn('[loadExistingEvents] Invalid coordinates, event:', e2.olay_id);
+        console.warn('[loadExistingEvents] Invalid coordinates, event:', e2.event_id);
         return;
       }
 
@@ -5771,27 +5771,27 @@ async function loadExistingEvents(opts = {}) {
         addedMarkers++;
       }
 
-      const turHtml = e2.olay_turu_adi ? `<b>${t('type')}:</b> ${escapeHtml(e2.olay_turu_adi)}<br>` : '';
+      const turHtml = e2.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(e2.event_type_name)}<br>` : '';
       const creatorName = e2.created_by_username ?? '';
       const creatorId = (e2.created_by_id != null) ? String(e2.created_by_id) : '-';
       const who = creatorName ? `${creatorName} (ID: ${creatorId})` : '-';
 
       const mediaHtml = `
         <div><b>${t('photo')}:</b></div>
-        <div class="popup-photos"><div data-ph="${e2.olay_id}"></div></div>
+        <div class="popup-photos"><div data-ph="${e2.event_id}"></div></div>
         <div style="height:6px"></div>
         <div><b>${t('video')}:</b></div>
-        <div class="popup-videos"><div data-vd="${e2.olay_id}"></div></div>
+        <div class="popup-videos"><div data-vd="${e2.event_id}"></div></div>
       `;
 
       const content = document.createElement('div');
       content.innerHTML = `
         <div style="margin-bottom:6px;">
-          <b>${t('eventID')}:</b> ${e2.olay_id}
+          <b>${t('eventID')}:</b> ${e2.event_id}
           <span class="badge ${e2.is_mine ? 'mine' : 'other'}" style="margin-left:6px;">${e2.is_mine ? t('mine') : t('other')}</span>
         </div>
         ${turHtml}
-        <div class="popup-body"><b>${t('description')}:</b> ${e2.aciklama ? escapeHtml(e2.aciklama) : ''}</div>
+        <div class="popup-body"><b>${t('description')}:</b> ${e2.description ? escapeHtml(e2.description) : ''}</div>
         ${mediaHtml}
         ${publicMode ? '' : `<div class="popup-meta"><b>${t('addedBy')}:</b> ${escapeHtml(who)}</div>`}
         <div class="inline" style="gap:6px; margin-top:8px;"></div>
@@ -5820,7 +5820,7 @@ async function loadExistingEvents(opts = {}) {
           if (!confirm(t('confirmDeleteEvent'))) return;
           db.disabled = true;
           try {
-            const url = (currentUser.role === 'user') ? `/api/olay/${e2.olay_id}` : `/api/admin/olay/${e2.olay_id}`;
+            const url = (currentUser.role === 'user') ? `/api/event/${e2.event_id}` : `/api/admin/event/${e2.event_id}`;
             await fetch(url, {method:'DELETE'});
             await Promise.all([loadExistingEvents({ publicMode }), refreshAdminEvents()]);
           } catch(err) {
@@ -5850,16 +5850,16 @@ async function loadExistingEvents(opts = {}) {
 /* ==================== EVENT FORM ==================== */
 
 function beginEdit(evt){
-  editingEventId = evt.olay_id;
-  const sel = qs('#olay_turu');
+  editingEventId = evt.event_id;
+  const sel = qs('#event_type');
   const ac  = qs('#aciklama');
   const lat = qs('#lat');
   const lng = qs('#lng');
 
-  if (sel) sel.value = evt.olay_turu_id ? String(evt.olay_turu_id) : '';
-  if (ac)  ac.value  = evt.aciklama || '';
-  if (lat) lat.value = String(Number(evt.enlem));
-  if (lng) lng.value = String(Number(evt.boylam));
+  if (sel) sel.value = evt.event_type_id ? String(evt.event_type_id) : '';
+  if (ac)  ac.value  = evt.description || '';
+  if (lat) lat.value = String(Number(evt.latitude));
+  if (lng) lng.value = String(Number(evt.longitude));
 
   // Make lat/lng inputs editable (remove readonly if any)
   if (lat) lat.removeAttribute('readonly');
@@ -5872,7 +5872,7 @@ function beginEdit(evt){
   updateClickMarkerFromInputs();
 
   const eid = qs('#edit-id');
-  if (eid) eid.textContent = '#' + evt.olay_id;
+  if (eid) eid.textContent = '#' + evt.event_id;
   show(qs('#edit-hint'));
   show(qs('#cancel-edit-btn'));
 
@@ -5903,8 +5903,8 @@ function beginEdit(evt){
   qs('#olay-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   // Zoom map to the edited event's location
-  const editLat = parseFloat(evt.enlem);
-  const editLng = parseFloat(evt.boylam);
+  const editLat = parseFloat(evt.latitude);
+  const editLng = parseFloat(evt.longitude);
   if (Number.isFinite(editLat) && Number.isFinite(editLng) && map) {
     try {
       map.setView([editLat, editLng], Math.max(map.getZoom(), 16), { animate: true });
@@ -5934,7 +5934,7 @@ function resetEdit(){
   const ac = qs('#aciklama'); 
   const lat = qs('#lat'); 
   const lng = qs('#lng'); 
-  const sel = qs('#olay_turu');
+  const sel = qs('#event_type');
   if (ac) ac.value = ''; 
   if (lat) lat.value = ''; 
   if (lng) lng.value = '';
@@ -5980,7 +5980,7 @@ function resetEdit(){
 async function submitOlay(){
   const errEl = qs('#error-message'); 
   clearError(errEl);
-  const sel = qs('#olay_turu'); 
+  const sel = qs('#event_type'); 
   if (sel && sel.value) {
     lastSelectedEventType = sel.value;
   }
@@ -5988,23 +5988,23 @@ async function submitOlay(){
   const lat = qs('#lat'); 
   const lng = qs('#lng');
   const payload = {
-    olay_turu: sel && sel.value ? parseInt(sel.value, 10) : null,
-    aciklama : ac ? ac.value.trim() : '',
-    enlem    : lat ? parseFloat(lat.value) : NaN,
-    boylam   : lng ? parseFloat(lng.value) : NaN,
+    event_type: sel && sel.value ? parseInt(sel.value, 10) : null,
+    description: ac ? ac.value.trim() : '',
+    latitude: lat ? parseFloat(lat.value) : NaN,
+    longitude: lng ? parseFloat(lng.value) : NaN,
     photo_urls: Array.isArray(photoUrls) ? photoUrls : (photoUrls ? [photoUrls] : []),
     video_urls: Array.isArray(videoUrls) ? videoUrls : (videoUrls ? [videoUrls] : []),
   };
 
-  if (!Number.isFinite(payload.enlem) || !Number.isFinite(payload.boylam)) 
+  if (!Number.isFinite(payload.latitude) || !Number.isFinite(payload.longitude)) 
     return setError(errEl, t('pleaseEnterLocation'));
-  if (!payload.olay_turu) 
+  if (!payload.event_type) 
     return setError(errEl, t('pleaseSelectEventType'));
 
   // Grid boundary check (if polygon/grid configured)
   if (APP_CONFIG.polygonTable) {
     try {
-      const chk = await checkPolygonContainment(payload.enlem, payload.boylam);
+      const chk = await checkPolygonContainment(payload.latitude, payload.longitude);
       if (!chk.skip && !chk.found) {
         showGridWarning(editingEventId ? t('updateOutsideGrid') : t('cannotAddOutsideGrid'));
         return;
@@ -6023,7 +6023,7 @@ async function submitOlay(){
   try {
     let r, d;
     if (wasEditing) {
-      r = await fetch(`/api/olay/${editedEventId}`, { 
+      r = await fetch(`/api/event/${editedEventId}`, { 
         method:'PATCH', 
         headers:{'Content-Type':'application/json'}, 
         body:JSON.stringify(payload) 
@@ -6039,7 +6039,7 @@ async function submitOlay(){
       });
       d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.message || d.error || r.status);
-      toast(t('eventAdded', {id: d.olay_id}), 'success');
+      toast(t('eventAdded', {id: d.event_id}), 'success');
     }
     
     photoUrls = []; 
@@ -6070,8 +6070,8 @@ async function submitOlay(){
     document.querySelectorAll('.header-back-btn, .card-back-btn').forEach(btn => btn.remove());
     
     // Zoom to marker and open popup after submit (both new and edit, all roles)
-    const zoomLat = payload.enlem;
-    const zoomLng = payload.boylam;
+    const zoomLat = payload.latitude;
+    const zoomLng = payload.longitude;
     if (Number.isFinite(zoomLat) && Number.isFinite(zoomLng) && map) {
       setTimeout(() => {
         try {
@@ -7819,8 +7819,8 @@ function openImportWizard() {
     const types = tableStates?.types?.data || [];
     types.filter(tp => tp.active !== false).forEach(tp => {
       const opt = document.createElement('option');
-      opt.value = tp.o_id;
-      opt.textContent = tp.o_adi;
+      opt.value = tp.event_type_id;
+      opt.textContent = tp.event_type_name;
       sel.appendChild(opt);
     });
   }
@@ -7976,7 +7976,7 @@ async function importWizardNext() {
     const nextBtn = qs('#import-btn-next');
     if (nextBtn) { nextBtn.disabled = true; nextBtn.textContent = t('importing'); }
 
-    const olay_turu_id = parseInt(qs('#import-event-type')?.value, 10);
+    const event_type_id = parseInt(qs('#import-event-type')?.value, 10);
     const descYes = qs('#import-desc-yes')?.classList.contains('active-choice');
     const description_column = descYes ? qs('#import-desc-column')?.value : null;
 
@@ -7986,7 +7986,7 @@ async function importWizardNext() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           features: __importParsedFeatures,
-          olay_turu_id,
+          event_type_id,
           description_column
         })
       });
@@ -8391,7 +8391,7 @@ async function updateUIWithNewLanguage() {
   
   document.querySelectorAll('#olay-card label').forEach(label => {
     const forAttr = label.getAttribute('for');
-    if (forAttr === 'olay_turu') {
+    if (forAttr === 'event_type') {
       const micBtn = label.querySelector('#btn-stt');
       label.childNodes[0].textContent = t('eventType') + ':';
       if (micBtn) label.appendChild(micBtn);
@@ -8498,7 +8498,7 @@ async function updateUIWithNewLanguage() {
   );
   if (totpLabel) totpLabel.textContent = t('verificationCode') + ':';
   
-  const olayTuruSelect = qs('#olay_turu');
+  const olayTuruSelect = qs('#event_type');
   if (olayTuruSelect && olayTuruSelect.options[0]) {
     olayTuruSelect.options[0].text = `-- ${t('pleaseSelect')} --`;
   }
@@ -8509,8 +8509,8 @@ async function updateUIWithNewLanguage() {
         if (popup.isOpen()) {
           eventIndex.forEach((evt) => {
             const markerLatLng = layer.getLatLng();
-            const evtLat = parseFloat(evt.enlem);
-            const evtLng = parseFloat(evt.boylam);
+            const evtLat = parseFloat(evt.latitude);
+            const evtLng = parseFloat(evt.longitude);
             
             if (Math.abs(markerLatLng.lat - evtLat) < 0.0001 && 
                 Math.abs(markerLatLng.lng - evtLng) < 0.0001) {

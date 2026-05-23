@@ -570,25 +570,25 @@ if ! gs_post_xml "${GS_REST}/workspaces/${WORKSPACE}/datastores" /tmp/gs_datasto
   gs_put_xml "${GS_REST}/workspaces/${WORKSPACE}/datastores/${DATASTORE}" /tmp/gs_datastore.xml
 fi
 
-log "Publishing WFS layer (olay table, active=true only)"
+log "Publishing WFS layer (event table, active=true only)"
 
-OLAY_TABLE="olay"
-OLAY_SCHEMA="${DB_SCHEMA}"
+EVENT_TABLE="event"
+EVENT_SCHEMA="${DB_SCHEMA}"
 
-olay_exists="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -tA -c "SELECT 1 FROM information_schema.tables WHERE table_schema=$(sql_quote_literal "$OLAY_SCHEMA") AND table_name=$(sql_quote_literal "$OLAY_TABLE") LIMIT 1;")"
-[[ "$olay_exists" == "1" ]] || die "Table ${OLAY_SCHEMA}.${OLAY_TABLE} not found"
+event_exists="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -tA -c "SELECT 1 FROM information_schema.tables WHERE table_schema=$(sql_quote_literal "$EVENT_SCHEMA") AND table_name=$(sql_quote_literal "$EVENT_TABLE") LIMIT 1;")"
+[[ "$event_exists" == "1" ]] || die "Table ${EVENT_SCHEMA}.${EVENT_TABLE} not found"
 
-geom_col="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -tA -c "SELECT f_geometry_column FROM geometry_columns WHERE f_table_schema=$(sql_quote_literal "$OLAY_SCHEMA") AND f_table_name=$(sql_quote_literal "$OLAY_TABLE") LIMIT 1;")"
-[[ -n "$geom_col" ]] || die "No geometry column on ${OLAY_SCHEMA}.${OLAY_TABLE}"
+geom_col="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -tA -c "SELECT f_geometry_column FROM geometry_columns WHERE f_table_schema=$(sql_quote_literal "$EVENT_SCHEMA") AND f_table_name=$(sql_quote_literal "$EVENT_TABLE") LIMIT 1;")"
+[[ -n "$geom_col" ]] || die "No geometry column on ${EVENT_SCHEMA}.${EVENT_TABLE}"
 
-srid="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -tA -c "SELECT srid FROM geometry_columns WHERE f_table_schema=$(sql_quote_literal "$OLAY_SCHEMA") AND f_table_name=$(sql_quote_literal "$OLAY_TABLE") AND f_geometry_column=$(sql_quote_literal "$geom_col") LIMIT 1;")"
+srid="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -tA -c "SELECT srid FROM geometry_columns WHERE f_table_schema=$(sql_quote_literal "$EVENT_SCHEMA") AND f_table_name=$(sql_quote_literal "$EVENT_TABLE") AND f_geometry_column=$(sql_quote_literal "$geom_col") LIMIT 1;")"
 [[ -n "$srid" && "$srid" != "0" ]] || srid="4326"
 
-log "Found: ${OLAY_SCHEMA}.${OLAY_TABLE} (geom: ${geom_col}, EPSG:${srid})"
+log "Found: ${EVENT_SCHEMA}.${EVENT_TABLE} (geom: ${geom_col}, EPSG:${srid})"
 
 # ── Use GeoServer SQL View with explicit primary key (prevents duplicate rows) ──
 LAYER_NAME="dide_events"
-SQL_VIEW_BODY="SELECT * FROM ${OLAY_SCHEMA}.${OLAY_TABLE} WHERE active = true"
+SQL_VIEW_BODY="SELECT * FROM ${EVENT_SCHEMA}.${EVENT_TABLE} WHERE active = true"
 
 cat >/tmp/gs_featuretype.xml <<EOF
 <featureType>
@@ -604,7 +604,7 @@ cat >/tmp/gs_featuretype.xml <<EOF
         <name>${LAYER_NAME}</name>
         <sql>${SQL_VIEW_BODY}</sql>
         <escapeSql>false</escapeSql>
-        <keyColumn>olay_id</keyColumn>
+        <keyColumn>event_id</keyColumn>
         <geometry>
           <name>${geom_col}</name>
           <type>Point</type>
@@ -618,7 +618,7 @@ EOF
 
 PUBLISH_ERRORS=0
 if gs_post_xml "${GS_REST}/workspaces/${WORKSPACE}/datastores/${DATASTORE}/featuretypes" /tmp/gs_featuretype.xml; then
-  log "Published: ${LAYER_NAME} (EPSG:${srid}, PK: olay_id)"
+  log "Published: ${LAYER_NAME} (EPSG:${srid}, PK: event_id)"
 else
   echo "WARNING: Failed to publish ${LAYER_NAME}" >&2
   PUBLISH_ERRORS=1

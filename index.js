@@ -125,8 +125,8 @@ ensureDbConnectionWithRetry()
   .then(() => ensureDbSqlHelpers())
   .then(async () => {
     try {
-      await pool.query(`ALTER TABLE public.olay DROP COLUMN IF EXISTS photo_url CASCADE`);
-      await pool.query(`ALTER TABLE public.olay DROP COLUMN IF EXISTS video_url CASCADE`);
+      await pool.query(`ALTER TABLE public.event DROP COLUMN IF EXISTS photo_url CASCADE`);
+      await pool.query(`ALTER TABLE public.event DROP COLUMN IF EXISTS video_url CASCADE`);
       console.log('[DB] legacy photo_url/video_url kolonları varsa temizlendi.');
     } catch (e) {
       console.warn('[DB][WARN] legacy kolon temizlik adımı:', e.message);
@@ -326,12 +326,12 @@ async function distinctUnassignedValues(table, column) {
   table = assertSafeIdent(table,'table');
   column = assertSafeIdent(column,'column');
   const colCheck = await pool.query(
-    `SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND LOWER(table_name)=LOWER($1) AND column_name='olay_turu' LIMIT 1`,
+    `SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND LOWER(table_name)=LOWER($1) AND column_name='event_type' LIMIT 1`,
     [table]
   );
   let q;
   if (colCheck.rows.length > 0) {
-    q = `SELECT DISTINCT ${column} AS v FROM public.${table} WHERE ${column} IS NOT NULL AND olay_turu IS NULL ORDER BY ${column}`;
+    q = `SELECT DISTINCT ${column} AS v FROM public.${table} WHERE ${column} IS NOT NULL AND event_type IS NULL ORDER BY ${column}`;
   } else {
     q = `SELECT DISTINCT ${column} AS v FROM public.${table} WHERE ${column} IS NOT NULL ORDER BY ${column}`;
   }
@@ -341,7 +341,7 @@ async function distinctUnassignedValues(table, column) {
 
 async function ensureTargetHasOlayTuru(table) {
   table = assertSafeIdent(table,'table');
-  await pool.query(`ALTER TABLE public.${table} ADD COLUMN IF NOT EXISTS olay_turu integer`);
+  await pool.query(`ALTER TABLE public.${table} ADD COLUMN IF NOT EXISTS event_type integer`);
 }
 
 function publicGoodBadWhere() {
@@ -396,7 +396,7 @@ app.get('/api/table-columns/:table', mustAuth, mustSupervisor, async (req,res)=>
       SELECT column_name
       FROM information_schema.columns
       WHERE table_schema='public' AND table_name=$1
-        AND column_name NOT IN ('geom','gid','ogc_fid','olay_turu','wkb_geometry','shape')
+        AND column_name NOT IN ('geom','gid','ogc_fid','event_type','wkb_geometry','shape')
         AND data_type NOT IN ('USER-DEFINED')
       ORDER BY ordinal_position;
     `;
@@ -413,18 +413,18 @@ app.get('/api/veri-tipi/list', mustAuth, mustSupervisor, async (req,res)=>{
   try{
     const q = `
       SELECT
-        o_id,
-        COALESCE(NULLIF(katman_tablo,''), 'asis') AS katman_tablo,
-        COALESCE(NULLIF(attribute_column,''), 'o_adi') AS attribute_column,
-        o_adi AS olay_turu,
+        event_type_id,
+        COALESCE(NULLIF(layer_table,''), 'asis') AS layer_table,
+        COALESCE(NULLIF(attribute_column,''), 'event_type_name') AS attribute_column,
+        event_type_name AS event_type,
         CASE WHEN good THEN 'Faydali' ELSE 'Faydasiz' END AS faydali_faydasiz_mi,
         created_by_name AS ekleyen,
         created_by_id,
         created_by_role_name,
         is_point, is_line, is_polygon
-      FROM public.olaylar
+      FROM public.event_type
       WHERE active = TRUE
-      ORDER BY is_point DESC, katman_tablo ASC, attribute_column ASC, o_adi ASC;
+      ORDER BY is_point DESC, layer_table ASC, attribute_column ASC, event_type_name ASC;
     `;
     const { rows } = await pool.query(q);
     return res.json({ ok:true, rows });
@@ -435,7 +435,7 @@ app.get('/api/veri-tipi/list', mustAuth, mustSupervisor, async (req,res)=>{
 
 app.post('/api/veri-tipi/wizard/values', mustAuth, mustSupervisor, async (req,res)=>{
   try{
-    const table = assertSafeIdent(req.body?.katman_tablo,'table');
+    const table = assertSafeIdent(req.body?.layer_table,'table');
     const column = assertSafeIdent(req.body?.attribute_column,'column');
 
     const geomTables = await listGeomTables();
@@ -454,7 +454,7 @@ app.post('/api/veri-tipi/wizard/values', mustAuth, mustSupervisor, async (req,re
 app.post('/api/veri-tipi/wizard/create', mustAuth, mustSupervisor, async (req,res)=>{
   const client = await pool.connect();
   try{
-    const table = assertSafeIdent(req.body?.katman_tablo,'table');
+    const table = assertSafeIdent(req.body?.layer_table,'table');
     const column = assertSafeIdent(req.body?.attribute_column,'column');
     const good = String(req.body?.good) === 'true' || req.body?.good === true;
     const selectAll = String(req.body?.select_all) === 'true' || req.body?.select_all === true;
@@ -472,11 +472,11 @@ app.post('/api/veri-tipi/wizard/create', mustAuth, mustSupervisor, async (req,re
     await client.query('BEGIN');
     await client.query(`SET LOCAL lock_timeout TO '3s'`);
 
-    await client.query(`ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS is_point boolean DEFAULT true`);
-    await client.query(`ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS is_line boolean DEFAULT false`);
-    await client.query(`ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS is_polygon boolean DEFAULT false`);
-    await client.query(`ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS katman_tablo text`);
-    await client.query(`ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS attribute_column text`);
+    await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS is_point boolean DEFAULT true`);
+    await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS is_line boolean DEFAULT false`);
+    await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS is_polygon boolean DEFAULT false`);
+    await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS layer_table text`);
+    await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS attribute_column text`);
 
     await ensureTargetHasOlayTuru(table);
 
@@ -490,23 +490,23 @@ app.post('/api/veri-tipi/wizard/create', mustAuth, mustSupervisor, async (req,re
     const created = [];
     for(const v of values){
       const ins = await client.query(
-        `INSERT INTO public.olaylar
-          (o_adi, good, active, created_by_name, created_by_role_name, created_by_id,
-           is_point, is_line, is_polygon, katman_tablo, attribute_column)
+        `INSERT INTO public.event_type
+          (event_type_name, good, active, created_by_name, created_by_role_name, created_by_id,
+           is_point, is_line, is_polygon, layer_table, attribute_column)
          VALUES
           ($1,$2,TRUE,$3,$4,$5,FALSE,$6,$7,$8,$9)
-         RETURNING o_id`,
+         RETURNING event_type_id`,
         [String(v), good, createdByName, createdByRole, createdById, isLine, isPolygon, table, column]
       );
-      const oId = ins.rows[0].o_id;
+      const oId = ins.rows[0].event_type_id;
 
-      // hedef tabloyu güncelle: seçilen değerlerde olay_turu = o_id
+      // hedef tabloyu güncelle: seçilen değerlerde event_type = event_type_id
       // seçilmemiş değerler NULL
       await client.query(
-        `UPDATE public.${table} SET olay_turu = $1 WHERE ${column} = $2 AND olay_turu IS NULL`,
+        `UPDATE public.${table} SET event_type = $1 WHERE ${column} = $2 AND event_type IS NULL`,
         [oId, v]
       );
-      created.push({ value:v, o_id:oId });
+      created.push({ value:v, event_type_id:oId });
     }
 
     await client.query('COMMIT');
@@ -520,46 +520,46 @@ app.post('/api/veri-tipi/wizard/create', mustAuth, mustSupervisor, async (req,re
 });
 
 // ---------- API: update / delete (LINE/POLYGON) ----------
-app.put('/api/veri-tipi/:o_id', mustAuth, mustSupervisor, async (req,res)=>{
+app.put('/api/veri-tipi/:event_type_id', mustAuth, mustSupervisor, async (req,res)=>{
   try{
-    const oId = Number(req.params.o_id);
+    const oId = Number(req.params.event_type_id);
     const good = String(req.body?.good) === 'true' || req.body?.good === true;
 
-    const { rows } = await pool.query(`SELECT o_id, created_by_id, is_point, is_line, is_polygon FROM public.olaylar WHERE o_id=$1`, [oId]);
+    const { rows } = await pool.query(`SELECT event_type_id, created_by_id, is_point, is_line, is_polygon FROM public.event_type WHERE event_type_id=$1`, [oId]);
     if(!rows.length) return res.status(404).json({ error:'bulunamadi' });
 
     const r = rows[0];
     if(r.is_point) return res.status(400).json({ error:'point_duzenlenemez' });
     if(String(r.created_by_id) !== String(req.user.sub)) return res.status(403).json({ error:'sadece_kendi_kaydi' });
 
-    await pool.query(`UPDATE public.olaylar SET good=$1 WHERE o_id=$2`, [good, oId]);
+    await pool.query(`UPDATE public.event_type SET good=$1 WHERE event_type_id=$2`, [good, oId]);
     return res.json({ ok:true });
   }catch(e){
     return res.status(500).json({ error:'sunucu_hatasi' });
   }
 });
 
-app.delete('/api/veri-tipi/:o_id', mustAuth, mustSupervisor, async (req,res)=>{
+app.delete('/api/veri-tipi/:event_type_id', mustAuth, mustSupervisor, async (req,res)=>{
   try{
-    const oId = Number(req.params.o_id);
+    const oId = Number(req.params.event_type_id);
 
-    const { rows } = await pool.query(`SELECT o_id, created_by_id, is_point, katman_tablo FROM public.olaylar WHERE o_id=$1`, [oId]);
+    const { rows } = await pool.query(`SELECT event_type_id, created_by_id, is_point, layer_table FROM public.event_type WHERE event_type_id=$1`, [oId]);
     if(!rows.length) return res.status(404).json({ error:'bulunamadi' });
 
     const r = rows[0];
     if(r.is_point) return res.status(400).json({ error:'point_silinemez' });
     if(String(r.created_by_id) !== String(req.user.sub)) return res.status(403).json({ error:'sadece_kendi_kaydi' });
 
-    // Reset olay_turu on source table so the value becomes available again
-    if(r.katman_tablo){
+    // Reset event_type on source table so the value becomes available again
+    if(r.layer_table){
       try {
-        const table = assertSafeIdent(r.katman_tablo,'table');
-        await pool.query(`UPDATE public.${table} SET olay_turu = NULL WHERE olay_turu = $1`, [oId]);
+        const table = assertSafeIdent(r.layer_table,'table');
+        await pool.query(`UPDATE public.${table} SET event_type = NULL WHERE event_type = $1`, [oId]);
       } catch(e) { console.warn('[veri-tipi delete] source table update error:', e.message); }
     }
 
-    // Hard delete from olaylar table
-    await pool.query(`DELETE FROM public.olaylar WHERE o_id=$1`, [oId]);
+    // Hard delete from event_type table
+    await pool.query(`DELETE FROM public.event_type WHERE event_type_id=$1`, [oId]);
 
     return res.json({ ok:true });
   }catch(e){
@@ -585,7 +585,7 @@ app.get('/api/geo/:table', mustAuth, async (req,res)=>{
       ) AS fc
       FROM public.${table} t
       WHERE t.${gc} IS NOT NULL
-        AND t.olay_turu IS NOT NULL;
+        AND t.event_type IS NOT NULL;
     `;
     const { rows } = await pool.query(q);
     return res.json(rows[0].fc);
@@ -613,9 +613,9 @@ app.get('/api/public/geo/:table', async (req,res)=>{
         )), '[]'::jsonb)
       ) AS fc
       FROM public.${table} t
-      JOIN public.olaylar o ON o.o_id = t.olay_turu
+      JOIN public.event_type o ON o.event_type_id = t.event_type
       WHERE t.${gc} IS NOT NULL
-        AND t.olay_turu IS NOT NULL
+        AND t.event_type IS NOT NULL
         AND o.active = TRUE
         AND (${whereGoodBad});
     `;
@@ -809,16 +809,16 @@ app.post('/api/polygon/records', async (req, res) => {
     // Spatial join: find all active events whose point falls inside the polygon
     const q = `
       SELECT
-        o.olay_id,
-        o.olay_turu,
-        l.o_adi AS olay_turu_adi,
-        o.aciklama,
+        o.event_id,
+        o.event_type,
+        l.event_type_name AS event_type_name,
+        o.description,
         o.photo_urls,
         o.video_urls,
         o.created_at,
         o.created_by_name
-      FROM olay o
-      LEFT JOIN olaylar l ON l.o_id = o.olay_turu
+      FROM event o
+      LEFT JOIN event_type l ON l.event_type_id = o.event_type
       JOIN public.${table} p ON ST_Contains(p.geom, o.geom)
       WHERE COALESCE(o.active, true) = true
         AND o.geom IS NOT NULL
@@ -829,10 +829,10 @@ app.post('/api/polygon/records', async (req, res) => {
     const { rows } = await pool.query(q, vals);
 
     const records = rows.map(r => ({
-      olay_id: r.olay_id,
-      olay_turu: r.olay_turu,
-      olay_turu_adi: r.olay_turu_adi,
-      aciklama: r.aciklama,
+      event_id: r.event_id,
+      event_type: r.event_type,
+      event_type_name: r.event_type_name,
+      description: r.description,
       photo_urls: parseJsonText(r.photo_urls),
       video_urls: parseJsonText(r.video_urls),
       created_at: r.created_at,
@@ -1000,15 +1000,15 @@ async function ingestQFieldFolder(absRoot) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
   const q = `
-    SELECT olay_id, photo_urls, video_urls
-    FROM public.olay
+    SELECT event_id, photo_urls, video_urls
+    FROM public.event
     WHERE (
             COALESCE(photo_urls,'[]') <> '[]' AND photo_urls NOT LIKE '%/uploads/%'
           )
        OR (
             COALESCE(video_urls,'[]') <> '[]' AND video_urls NOT LIKE '%/uploads/%'
           )
-    ORDER BY olay_id DESC
+    ORDER BY event_id DESC
     LIMIT 500
   `;
   const { rows } = await pool.query(q);
@@ -1033,11 +1033,11 @@ async function ingestQFieldFolder(absRoot) {
 
     if (photosOut.length || videosOut.length) {
       await pool.query(
-        `UPDATE public.olay
+        `UPDATE public.event
            SET photo_urls = $1::text,
                video_urls = $2::text
-         WHERE olay_id = $3`,
-        [_toTextJson(photosOut.length ? photosOut : photosIn), _toTextJson(videosOut.length ? videosOut : videosIn), r.olay_id]
+         WHERE event_id = $3`,
+        [_toTextJson(photosOut.length ? photosOut : photosIn), _toTextJson(videosOut.length ? videosOut : videosIn), r.event_id]
       );
       updated++;
     }
@@ -1320,7 +1320,7 @@ async function seedOlaylarFromEnv(pool) {
   try {
     await c.query('BEGIN');
     for (const name of list) {
-      await c.query('INSERT INTO olaylar (o_adi, active) VALUES ($1, true) ON CONFLICT (o_adi) DO NOTHING', [name]);
+      await c.query('INSERT INTO event_type (event_type_name, active) VALUES ($1, true) ON CONFLICT (event_type_name) DO NOTHING', [name]);
     }
     await c.query('COMMIT');
   } catch (e) {
@@ -1337,17 +1337,17 @@ async function migratePlainTotpOnBoot() {
   const client = await pool.connect();
   try {
     const { rows } = await client.query(
-      `SELECT id, two_factor_secret FROM users
-       WHERE two_factor_secret IS NOT NULL
-         AND two_factor_secret <> ''
-         AND two_factor_secret NOT LIKE 'enc:v1:%'`
+      `SELECT id, two_factor_norm_hash FROM users
+       WHERE two_factor_norm_hash IS NOT NULL
+         AND two_factor_norm_hash <> ''
+         AND two_factor_norm_hash NOT LIKE 'enc:v1:%'`
     );
     for (const r of rows) {
-      const enc = encSecret(r.two_factor_secret);
+      const enc = encSecret(r.two_factor_norm_hash);
       try {
         await client.query('BEGIN');
         await client.query(`SELECT set_config('app.bypass_totp_check','1',true)`);
-        await client.query('UPDATE users SET two_factor_secret=$1, two_factor_enabled=TRUE WHERE id=$2', [enc, r.id]);
+        await client.query('UPDATE users SET two_factor_norm_hash=$1, two_factor_enabled=TRUE WHERE id=$2', [enc, r.id]);
         await client.query('COMMIT');
       } catch (e) {
         try { await client.query('ROLLBACK'); } catch {}
@@ -1409,23 +1409,23 @@ async function ensureDbSqlHelpers() {
   await run('users drop two_factor_hash',   `ALTER TABLE public.users DROP COLUMN IF EXISTS two_factor_hash`);
   await run('users add two_factor_norm_hash', `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS two_factor_norm_hash text`);
 
-  await run('olay add photo_urls',          `ALTER TABLE public.olay ADD COLUMN IF NOT EXISTS photo_urls text`);
-  await run('olay add video_urls',          `ALTER TABLE public.olay ADD COLUMN IF NOT EXISTS video_urls text`);
-  await run('olay photo default',           `ALTER TABLE public.olay ALTER COLUMN photo_urls SET DEFAULT '[]'`);
-  await run('olay photo not null',          `ALTER TABLE public.olay ALTER COLUMN photo_urls SET NOT NULL`);
-  await run('olay video default',           `ALTER TABLE public.olay ALTER COLUMN video_urls SET DEFAULT '[]'`);
-  await run('olay video not null',          `ALTER TABLE public.olay ALTER COLUMN video_urls SET NOT NULL`);
-  await run('olay drop photo',              `ALTER TABLE public.olay DROP COLUMN IF EXISTS photo`);
-  await run('olay drop video',              `ALTER TABLE public.olay DROP COLUMN IF EXISTS video`);
+  await run('event add photo_urls',          `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS photo_urls text`);
+  await run('event add video_urls',          `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS video_urls text`);
+  await run('event photo default',           `ALTER TABLE public.event ALTER COLUMN photo_urls SET DEFAULT '[]'`);
+  await run('event photo not null',          `ALTER TABLE public.event ALTER COLUMN photo_urls SET NOT NULL`);
+  await run('event video default',           `ALTER TABLE public.event ALTER COLUMN video_urls SET DEFAULT '[]'`);
+  await run('event video not null',          `ALTER TABLE public.event ALTER COLUMN video_urls SET NOT NULL`);
+  await run('event drop photo',              `ALTER TABLE public.event DROP COLUMN IF EXISTS photo`);
+  await run('event drop video',              `ALTER TABLE public.event DROP COLUMN IF EXISTS video`);
 
-  await run('olay drop photo_url (legacy single)', `ALTER TABLE public.olay DROP COLUMN IF EXISTS photo_url`);
-  await run('olay drop video_url (legacy single)', `ALTER TABLE public.olay DROP COLUMN IF EXISTS video_url`);
+  await run('event drop photo_url (legacy single)', `ALTER TABLE public.event DROP COLUMN IF EXISTS photo_url`);
+  await run('event drop video_url (legacy single)', `ALTER TABLE public.event DROP COLUMN IF EXISTS video_url`);
 
-  await tx('drop photo_url/video_url on any schema.olay (CASCADE)', async (c) => {
+  await tx('drop photo_url/video_url on any schema.event (CASCADE)', async (c) => {
     const { rows } = await c.query(`
       SELECT table_schema, table_name, column_name
       FROM information_schema.columns
-      WHERE table_name = 'olay'
+      WHERE table_name = 'event'
         AND column_name IN ('photo_url','video_url')
     `);
     for (const r of rows) {
@@ -1439,7 +1439,7 @@ async function ensureDbSqlHelpers() {
     const { rows } = await c.query(`
       SELECT table_schema, table_name, column_name
       FROM information_schema.columns
-      WHERE table_name = 'olay'
+      WHERE table_name = 'event'
         AND column_name IN ('photo_url','video_url')
     `);
     for (const r of rows) {
@@ -1451,16 +1451,16 @@ async function ensureDbSqlHelpers() {
     }
   });
 
-  await run('olay add created_by_name',     `ALTER TABLE public.olay ADD COLUMN IF NOT EXISTS created_by_name text`);
-  await run('olay add created_by_role_name',`ALTER TABLE public.olay ADD COLUMN IF NOT EXISTS created_by_role_name text`);
-  await run('olay add created_by_id',       `ALTER TABLE public.olay ADD COLUMN IF NOT EXISTS created_by_id integer`);
-  await run('olay add active',              `ALTER TABLE public.olay ADD COLUMN IF NOT EXISTS active boolean DEFAULT true`);
+  await run('event add created_by_name',     `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS created_by_name text`);
+  await run('event add created_by_role_name',`ALTER TABLE public.event ADD COLUMN IF NOT EXISTS created_by_role_name text`);
+  await run('event add created_by_id',       `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS created_by_id integer`);
+  await run('event add active',              `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS active boolean DEFAULT true`);
 
   // Drop legacy polygon_pk_values column if exists
-  await run('olay drop polygon_pk_values',  `ALTER TABLE public.olay DROP COLUMN IF EXISTS polygon_pk_values`);
+  await run('event drop polygon_pk_values',  `ALTER TABLE public.event DROP COLUMN IF EXISTS polygon_pk_values`);
   // Drop legacy PK1/PK2 columns if exist
-  await run('olay drop legacy PK1',         `ALTER TABLE public.olay DROP COLUMN IF EXISTS "PK1"`);
-  await run('olay drop legacy PK2',         `ALTER TABLE public.olay DROP COLUMN IF EXISTS "PK2"`);
+  await run('event drop legacy PK1',         `ALTER TABLE public.event DROP COLUMN IF EXISTS "PK1"`);
+  await run('event drop legacy PK2',         `ALTER TABLE public.event DROP COLUMN IF EXISTS "PK2"`);
 
   // Validate Primary_Keys columns against aggregation layer table
   if (POLYGON_TABLE && POLYGON_PKS_INPUT.length > 0) {
@@ -1525,7 +1525,7 @@ async function ensureDbSqlHelpers() {
           }
         }
 
-        // Determine column type for olay table
+        // Determine column type for event table
         const srcType = colInfo.rows[0].data_type;
         let olayColType = 'text';
         if (['integer','bigint','smallint','int','int4','int8','int2'].includes(srcType)) {
@@ -1534,10 +1534,10 @@ async function ensureDbSqlHelpers() {
           olayColType = 'numeric';
         }
 
-        // Create column in olay table with matching type
-        await run(`olay add "${pkName}"`, `ALTER TABLE public.olay ADD COLUMN IF NOT EXISTS "${safePk}" ${olayColType}`);
+        // Create column in event table with matching type
+        await run(`event add "${pkName}"`, `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS "${safePk}" ${olayColType}`);
         validPks.push({ name: pkName, safeName: safePk, type: olayColType });
-        console.log(`[PK] ✓ Column "${pkName}" validated (${olayColType}) and added to olay table`);
+        console.log(`[PK] ✓ Column "${pkName}" validated (${olayColType}) and added to event table`);
 
       } catch(e) {
         console.warn(`[PK] Error validating "${pkName}": ${e.message}`);
@@ -1547,27 +1547,27 @@ async function ensureDbSqlHelpers() {
     console.log('[PK] Validated Primary Keys:', POLYGON_PKS.map(p => p.name));
   }
 
-  await run('olay add deactivated_by_name', `ALTER TABLE public.olay ADD COLUMN IF NOT EXISTS deactivated_by_name text`);
-  await run('olay add deactivated_by_role', `ALTER TABLE public.olay ADD COLUMN IF NOT EXISTS deactivated_by_role_name text`);
-  await run('olay add deactivated_by_id',   `ALTER TABLE public.olay ADD COLUMN IF NOT EXISTS deactivated_by_id integer`);
-  await run('olay add deactivated_at',      `ALTER TABLE public.olay ADD COLUMN IF NOT EXISTS deactivated_at timestamptz`);
-  await run('olay drop created_by legacy',  `ALTER TABLE public.olay DROP COLUMN IF EXISTS created_by`);
+  await run('event add deactivated_by_name', `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS deactivated_by_name text`);
+  await run('event add deactivated_by_role', `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS deactivated_by_role_name text`);
+  await run('event add deactivated_by_id',   `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS deactivated_by_id integer`);
+  await run('event add deactivated_at',      `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS deactivated_at timestamptz`);
+  await run('event drop created_by legacy',  `ALTER TABLE public.event DROP COLUMN IF EXISTS created_by`);
 
-  await run('olaylar add active',             `ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS active boolean DEFAULT true`);
-  await run('olaylar add created_by_name',    `ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS created_by_name text`);
-  await run('olaylar add created_by_role',    `ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS created_by_role_name text`);
-  await run('olaylar add created_by_id',      `ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS created_by_id integer`);
-  await run('olaylar add created_at default', `ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now()`);
-  await run('olaylar add deactivated_at',     `ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS deactivated_at timestamptz`);
-  await run('olaylar drop created_by legacy', `ALTER TABLE public.olaylar DROP COLUMN IF EXISTS created_by`);
-  await run('olaylar add created_at default', `ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now()`);
-  await run('olaylar add deactivated_at',     `ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS deactivated_at timestamptz`);
-  await run('olaylar drop created_by legacy', `ALTER TABLE public.olaylar DROP COLUMN IF EXISTS created_by`);
-  await run('olaylar add good',               `ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS good boolean DEFAULT false`);
+  await run('event_type add active',             `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS active boolean DEFAULT true`);
+  await run('event_type add created_by_name',    `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS created_by_name text`);
+  await run('event_type add created_by_role',    `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS created_by_role_name text`);
+  await run('event_type add created_by_id',      `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS created_by_id integer`);
+  await run('event_type add created_at default', `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now()`);
+  await run('event_type add deactivated_at',     `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS deactivated_at timestamptz`);
+  await run('event_type drop created_by legacy', `ALTER TABLE public.event_type DROP COLUMN IF EXISTS created_by`);
+  await run('event_type add created_at default', `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now()`);
+  await run('event_type add deactivated_at',     `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS deactivated_at timestamptz`);
+  await run('event_type drop created_by legacy', `ALTER TABLE public.event_type DROP COLUMN IF EXISTS created_by`);
+  await run('event_type add good',               `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS good boolean DEFAULT false`);
 
-  await tx('olaylar unique(o_adi)', async (c) => {
+  await tx('event_type unique(event_type_name)', async (c) => {
     try {
-      await c.query(`ALTER TABLE public.olaylar ADD CONSTRAINT olaylar_o_adi_key UNIQUE (o_adi)`);
+      await c.query(`ALTER TABLE public.event_type ADD CONSTRAINT event_type_name_key UNIQUE (event_type_name)`);
     } catch (e) {
       if (!/already exists|duplicate|exists/i.test(e.message)) throw e;
     }
@@ -1578,41 +1578,41 @@ async function ensureDbSqlHelpers() {
     try { await c.query(`ALTER TABLE public.users ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY`); } catch {}
   });
 
-  await tx('olay identity+pk', async (c) => {
-    try { await c.query(`ALTER TABLE public.olay ADD CONSTRAINT olay_pkey PRIMARY KEY (olay_id)`); } catch {}
-    try { await c.query(`ALTER TABLE public.olay ALTER COLUMN olay_id ADD GENERATED BY DEFAULT AS IDENTITY`); } catch {}
+  await tx('event identity+pk', async (c) => {
+    try { await c.query(`ALTER TABLE public.event ADD CONSTRAINT olay_pkey PRIMARY KEY (event_id)`); } catch {}
+    try { await c.query(`ALTER TABLE public.event ALTER COLUMN event_id ADD GENERATED BY DEFAULT AS IDENTITY`); } catch {}
   });
 
-  await tx('olaylar identity+pk', async (c) => {
-    try { await c.query(`ALTER TABLE public.olaylar ADD CONSTRAINT olaylar_pkey PRIMARY KEY (o_id)`); } catch {}
-    try { await c.query(`ALTER TABLE public.olaylar ALTER COLUMN o_id ADD GENERATED BY DEFAULT AS IDENTITY`); } catch {}
+  await tx('event_type identity+pk', async (c) => {
+    try { await c.query(`ALTER TABLE public.event_type ADD CONSTRAINT event_type_pkey PRIMARY KEY (event_type_id)`); } catch {}
+    try { await c.query(`ALTER TABLE public.event_type ALTER COLUMN event_type_id ADD GENERATED BY DEFAULT AS IDENTITY`); } catch {}
   });
 
-  await tx('olay photo_urls ARRAY->text(JSON)', async (c) => {
+  await tx('event photo_urls ARRAY->text(JSON)', async (c) => {
     try {
       const info = await c.query(`
         SELECT data_type FROM information_schema.columns
-        WHERE table_schema='public' AND table_name='olay' AND column_name='photo_urls'
+        WHERE table_schema='public' AND table_name='event' AND column_name='photo_urls'
       `);
     if (info.rows[0]?.data_type === 'ARRAY') {
-        await c.query(`ALTER TABLE public.olay ALTER COLUMN photo_urls TYPE text USING to_json(photo_urls)::text`);
+        await c.query(`ALTER TABLE public.event ALTER COLUMN photo_urls TYPE text USING to_json(photo_urls)::text`);
       }
     } catch (e) {
-      console.warn('[DB][WARN] olay photo_urls type check failed:', e.message);
+      console.warn('[DB][WARN] event photo_urls type check failed:', e.message);
     }
   });
 
-  await tx('olay video_urls ARRAY->text(JSON)', async (c) => {
+  await tx('event video_urls ARRAY->text(JSON)', async (c) => {
     try {
       const info = await c.query(`
         SELECT data_type FROM information_schema.columns
-        WHERE table_schema='public' AND table_name='olay' AND column_name='video_urls'
+        WHERE table_schema='public' AND table_name='event' AND column_name='video_urls'
       `);
       if (info.rows[0]?.data_type === 'ARRAY') {
-        await c.query(`ALTER TABLE public.olay ALTER COLUMN video_urls TYPE text USING to_json(video_urls)::text`);
+        await c.query(`ALTER TABLE public.event ALTER COLUMN video_urls TYPE text USING to_json(video_urls)::text`);
       }
     } catch (e) {
-      console.warn('[DB][WARN] olay video_urls type check failed:', e.message);
+      console.warn('[DB][WARN] event video_urls type check failed:', e.message);
     }
   });
 
@@ -1738,17 +1738,17 @@ async function ensureDbSqlHelpers() {
         RETURN NEW;
       END IF;
 
-      IF NEW.two_factor_secret IS NULL OR NEW.two_factor_secret = '' THEN
+      IF NEW.two_factor_norm_hash IS NULL OR NEW.two_factor_norm_hash = '' THEN
         NEW.two_factor_enabled := false;
         NEW.two_factor_norm_hash := NULL;
         RETURN NEW;
       END IF;
 
-      IF NEW.two_factor_secret LIKE 'enc:v1:%' THEN
+      IF NEW.two_factor_norm_hash LIKE 'enc:v1:%' THEN
         RAISE EXCEPTION 'totp_plain_required' USING ERRCODE='P0003';
       END IF;
 
-      b32 := app_api._normalize_base32(NEW.two_factor_secret);
+      b32 := app_api._normalize_base32(NEW.two_factor_norm_hash);
       IF b32 IS NULL OR b32 = '' THEN
         RAISE EXCEPTION 'invalid_base32' USING ERRCODE='P0003';
       END IF;
@@ -1775,7 +1775,7 @@ async function ensureDbSqlHelpers() {
     RETURNS trigger LANGUAGE plpgsql AS $fn$
     BEGIN
       IF TG_OP='UPDATE' AND COALESCE(OLD.is_active,false)=false AND COALESCE(NEW.is_active,true)=true THEN
-        UPDATE public.olay o
+        UPDATE public.event o
           SET active = TRUE,
               deactivated_by_name = NULL,
               deactivated_by_role_name = NULL,
@@ -1785,7 +1785,7 @@ async function ensureDbSqlHelpers() {
           AND (o.created_by_id = NEW.id OR (o.created_by_id IS NULL AND o.created_by_name = NEW.username));
 
         IF NEW.role = 'supervisor' THEN
-          UPDATE public.olaylar t
+          UPDATE public.event_type t
             SET active = TRUE,
                 deactivated_by_name = NULL,
                 deactivated_by_role_name = NULL,
@@ -1804,9 +1804,9 @@ async function ensureDbSqlHelpers() {
     CREATE OR REPLACE FUNCTION app_api.users_after_ins_upd()
     RETURNS trigger LANGUAGE plpgsql AS $fn$
     BEGIN
-      IF NEW.two_factor_secret IS NOT NULL
-         AND NEW.two_factor_secret <> ''
-         AND NEW.two_factor_secret NOT LIKE 'enc:v1:%' THEN
+      IF NEW.two_factor_norm_hash IS NOT NULL
+         AND NEW.two_factor_norm_hash <> ''
+         AND NEW.two_factor_norm_hash NOT LIKE 'enc:v1:%' THEN
         PERFORM pg_notify('encrypt_totp', NEW.id::text);
       END IF;
       RETURN NEW;
@@ -1832,8 +1832,8 @@ async function ensureDbSqlHelpers() {
     $fn$;
   `);
 
-  await run('fn olaylar_fill_deactivated_meta', `
-    CREATE OR REPLACE FUNCTION app_api.olaylar_fill_deactivated_meta()
+  await run('fn event_type_fill_deactivated_meta', `
+    CREATE OR REPLACE FUNCTION app_api.event_type_fill_deactivated_meta()
     RETURNS trigger LANGUAGE plpgsql AS $fn$
     DECLARE actor_name text := current_setting('app.actor_name', true);
             actor_role text := current_setting('app.actor_role', true);
@@ -1861,7 +1861,7 @@ async function ensureDbSqlHelpers() {
   await run('drop trg_users_guard_reactivate',   `DROP TRIGGER IF EXISTS trg_users_guard_reactivate ON public.users`);
   await run('drop trg_users_enforce_is_active_update', `DROP TRIGGER IF EXISTS trg_users_enforce_is_active_update ON public.users`);
   await run('drop trg_users_after_ins_upd',      `DROP TRIGGER IF EXISTS trg_users_after_ins_upd ON public.users`);
-  await run('drop trg_olay_fill_deactivated',    `DROP TRIGGER IF EXISTS trg_olay_fill_deactivated ON public.olay`);
+  await run('drop trg_olay_fill_deactivated',    `DROP TRIGGER IF EXISTS trg_olay_fill_deactivated ON public.event`);
 
   await run('trg_users_prevent_global_dup', `
     CREATE TRIGGER trg_users_prevent_global_dup
@@ -1877,7 +1877,7 @@ async function ensureDbSqlHelpers() {
 
   await run('trg_users_totp_before', `
     CREATE TRIGGER trg_users_totp_before
-    BEFORE INSERT OR UPDATE OF two_factor_secret, two_factor_enabled, role ON public.users
+    BEFORE INSERT OR UPDATE OF two_factor_norm_hash, two_factor_enabled, role ON public.users
     FOR EACH ROW EXECUTE FUNCTION app_api.users_totp_before()
   `);
 
@@ -1895,13 +1895,13 @@ async function ensureDbSqlHelpers() {
 
   await run('trg_users_after_ins_upd', `
     CREATE TRIGGER trg_users_after_ins_upd
-    AFTER INSERT OR UPDATE OF two_factor_secret ON public.users
+    AFTER INSERT OR UPDATE OF two_factor_norm_hash ON public.users
     FOR EACH ROW EXECUTE FUNCTION app_api.users_after_ins_upd()
   `);
 
   await run('trg_olay_fill_deactivated', `
     CREATE TRIGGER trg_olay_fill_deactivated
-    BEFORE UPDATE OF active ON public.olay
+    BEFORE UPDATE OF active ON public.event
     FOR EACH ROW EXECUTE FUNCTION app_api.olay_fill_deactivated_meta()
   `);
 
@@ -1937,7 +1937,7 @@ async function ensureDbSqlHelpers() {
     RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $fn$
     BEGIN
       UPDATE public.users
-      SET two_factor_secret = NULLIF(p_base32,''),
+      SET two_factor_norm_hash = NULLIF(p_base32,''),
           two_factor_enabled = (p_base32 IS NOT NULL AND p_base32 <> '')
       WHERE id = p_user_id;
     END
@@ -1999,16 +1999,16 @@ async function startTotpListener() {
       const id = parseInt(msg.payload, 10);
       if (!Number.isInteger(id)) return;
       try {
-        const { rows } = await listenClient.query('SELECT two_factor_secret FROM users WHERE id=$1', [id]);
+        const { rows } = await listenClient.query('SELECT two_factor_norm_hash FROM users WHERE id=$1', [id]);
         if (!rows.length) return;
-        const cur = rows[0].two_factor_secret;
+        const cur = rows[0].two_factor_norm_hash;
         if (!cur || String(cur).startsWith('enc:v1:')) return;
         const enc = encSecret(cur);
 
         try {
           await listenClient.query('BEGIN');
           await listenClient.query(`SELECT set_config('app.bypass_totp_check','1',true)`);
-          await listenClient.query('UPDATE users SET two_factor_secret=$1, two_factor_enabled=TRUE WHERE id=$2', [enc, id]);
+          await listenClient.query('UPDATE users SET two_factor_norm_hash=$1, two_factor_enabled=TRUE WHERE id=$2', [enc, id]);
           await listenClient.query('COMMIT');
           console.log(`[2FA] Kullanıcı #${id} için TOTP şifrelendi (NOTIFY).`);
         } catch (e) {
@@ -2221,7 +2221,7 @@ app.post('/api/auth/login', async (req, res) => {
     const input = norm(usernameOrEmail);
     const { rows } = await pool.query(
       `SELECT id, username, password_hash, role, email, email_verified,
-              two_factor_enabled, two_factor_secret,
+              two_factor_enabled, two_factor_norm_hash,
               COALESCE(is_active,true) AS is_active
        FROM users
        WHERE (lower(btrim(username))=lower($1) OR lower(btrim(email))=lower($1))
@@ -2242,10 +2242,10 @@ app.post('/api/auth/login', async (req, res) => {
     if (!u.email_verified) return res.status(403).json({ error: 'email_dogrulanmamış', message: getErrorMessage(req, 'email_dogrulanmamış') });
 
     if (u.two_factor_enabled) {
-      if (!u.two_factor_secret) return res.status(401).json({ error: 'totp_gerekli', message: getErrorMessage(req, 'totp_gerekli') });
+      if (!u.two_factor_norm_hash) return res.status(401).json({ error: 'totp_gerekli', message: getErrorMessage(req, 'totp_gerekli') });
       if (!totp) return res.status(401).json({ error: 'totp_gerekli', message: getErrorMessage(req, 'totp_gerekli') });
 
-      const secretPlain = decSecret(String(u.two_factor_secret));
+      const secretPlain = decSecret(String(u.two_factor_norm_hash));
       const secretNorm = normalizeBase32(secretPlain);
       const secretB32 = padBase32(secretNorm);
       const tokenNorm = String(totp).replace(/\s+/g, '');
@@ -2261,13 +2261,13 @@ app.post('/api/auth/login', async (req, res) => {
 
       if (!verified) return res.status(401).json({ error: 'totp_gecersiz', message: getErrorMessage(req, 'totp_gecersiz') });
 
-      if (u.two_factor_secret && !String(u.two_factor_secret).startsWith('enc:v1:')) {
+      if (u.two_factor_norm_hash && !String(u.two_factor_norm_hash).startsWith('enc:v1:')) {
         const enc = encSecret(secretNorm);
         const client = await pool.connect();
         try {
           await client.query('BEGIN');
           await client.query(`SELECT set_config('app.bypass_totp_check','1',true)`);
-          await client.query('UPDATE users SET two_factor_secret=$1, two_factor_enabled=TRUE WHERE id=$2', [enc, u.id]);
+          await client.query('UPDATE users SET two_factor_norm_hash=$1, two_factor_enabled=TRUE WHERE id=$2', [enc, u.id]);
           await client.query('COMMIT');
         } catch (e) {
           try { await client.query('ROLLBACK'); } catch {}
@@ -2463,30 +2463,30 @@ app.post('/api/auth/forgot/reset', async (req, res) => {
 
 
 /* ===================== Public  ===================== */
-app.get('/api/olaylar', requireAuth, async (req, res) => {
+app.get('/api/event_types', requireAuth, async (req, res) => {
   try {
     const r = await pool.query(`
-      SELECT o_id, o_adi, good, created_by_id, created_by_name,
+      SELECT event_type_id, event_type_name, good, created_by_id, created_by_name,
              is_point, is_line, is_polygon 
-      FROM olaylar 
+      FROM event_type 
       WHERE COALESCE(active,true)=true 
-      ORDER BY o_id
+      ORDER BY event_type_id
     `);
     res.json(r.rows);
   } catch (e) {
-    console.error('GET /api/olaylar error:', e);
+    console.error('GET /api/event_types error:', e);
     res.status(500).json({ error: 'sunucu_hatasi', message: getErrorMessage(req, 'sunucu_hatasi') });
   }
 });
 
-app.get('/api/olaylar_tum', tryAuth, async (req, res) => {
+app.get('/api/events_all', tryAuth, async (req, res) => {
   const isAnon = !req.user;
 
   if (isAnon) {
     const showGood = SHOW_GOOD_EVENTS_ON_LOGIN;
     const showBad = SHOW_BAD_EVENTS_ON_LOGIN;
     
-    console.log('[/api/olaylar_tum] Anonim istek - showGood:', showGood, 'showBad:', showBad);
+    console.log('[/api/events_all] Anonim istek - showGood:', showGood, 'showBad:', showBad);
     
     if (!showGood && !showBad) {
       return res.status(401).json({ error: 'unauthenticated', message: getErrorMessage(req, 'unauthenticated') });
@@ -2500,13 +2500,13 @@ app.get('/api/olaylar_tum', tryAuth, async (req, res) => {
     const r = await pool.query(
       `
       SELECT
-        o.olay_id,
-        o.enlem,
-        o.boylam,
-        o.olay_turu AS olay_turu_id,
-        l.o_adi     AS olay_turu_adi,
-        l.good      AS olay_turu_good,
-        o.aciklama,
+        o.event_id,
+        o.latitude,
+        o.longitude,
+        o.event_type AS event_type_id,
+        l.event_type_name     AS event_type_name,
+        l.good      AS event_type_good,
+        o.description,
         o.created_by_id              AS created_by_id,
         o.created_by_name            AS created_by_username,
         o.created_by_role_name       AS created_by_role_name,
@@ -2515,10 +2515,10 @@ app.get('/api/olaylar_tum', tryAuth, async (req, res) => {
         o.video_urls,
         ${POLYGON_PKS.map(p => `o."${p.safeName}"`).join(',\n        ')}${POLYGON_PKS.length > 0 ? ',' : ''}
         ((o.created_by_id = $1) OR (o.created_by_name = $2)) AS is_mine
-      FROM olay o
-      LEFT JOIN olaylar l ON l.o_id = o.olay_turu
+      FROM event o
+      LEFT JOIN event_type l ON l.event_type_id = o.event_type
       WHERE COALESCE(o.active, true) = true
-      ORDER BY o.olay_id DESC
+      ORDER BY o.event_id DESC
       `,
       [myId, myUser]
     );
@@ -2541,7 +2541,7 @@ app.get('/api/olaylar_tum', tryAuth, async (req, res) => {
       const showBad = SHOW_BAD_EVENTS_ON_LOGIN;
       
       rows = rows.filter(row => {
-        const isGood = row.olay_turu_good === true || row.olay_turu_good === 'true' || row.olay_turu_good === 1;
+        const isGood = row.event_type_good === true || row.event_type_good === 'true' || row.event_type_good === 1;
         
         if (showGood && showBad) return true; 
         if (showGood && isGood) return true;  
@@ -2556,19 +2556,19 @@ app.get('/api/olaylar_tum', tryAuth, async (req, res) => {
         is_mine: false,
       }));
       
-      console.log('[/api/olaylar_tum] Filtreleme sonrası olay sayısı:', rows.length);
+      console.log('[/api/events_all] Filtreleme sonrası event count:', rows.length);
     }
 
     res.json(rows);
   } catch (e) {
-    console.error('GET /api/olaylar_tum error:', e);
+    console.error('GET /api/events_all error:', e);
     res.status(500).json({ error: 'sunucu_hatasi', message: getErrorMessage(req, 'sunucu_hatasi') });
   }
 });
 
 
 /* =============== QField: GeoJSON =============== */
-app.get('/api/qfield/olaylar', tryAuth, async (req, res) => {
+app.get('/api/qfield/events', tryAuth, async (req, res) => {
   const ALLOW_PUBLIC_EVENTS = String(process.env.SHOW_EVENTS_ON_LOGIN || 'false') === 'true';
   const isAnon = !req.user;
   if (isAnon && !ALLOW_PUBLIC_EVENTS) {
@@ -2578,27 +2578,27 @@ app.get('/api/qfield/olaylar', tryAuth, async (req, res) => {
   try {
     const r = await pool.query(`
       SELECT
-        o.olay_id,
-        o.enlem, o.boylam,
-        o.aciklama,
-        o.olay_turu,
-        l.o_adi AS olay_turu_adi,
+        o.event_id,
+        o.latitude, o.longitude,
+        o.description,
+        o.event_type,
+        l.event_type_name AS event_type_name,
         o.photo_urls,
         o.video_urls,
         o.created_by_id,
         o.created_by_name
-      FROM olay o
-      LEFT JOIN olaylar l ON l.o_id = o.olay_turu
+      FROM event o
+      LEFT JOIN event_type l ON l.event_type_id = o.event_type
       WHERE COALESCE(o.active,true)=true
-      ORDER BY o.olay_id DESC
+      ORDER BY o.event_id DESC
     `);
 
     const features = r.rows.map((row) => {
       const baseProps = {
-        olay_id: row.olay_id,
-        olay_turu_id: row.olay_turu,
-        olay_turu_adi: row.olay_turu_adi,
-        aciklama: row.aciklama,
+        event_id: row.event_id,
+        event_type_id: row.event_type,
+        event_type_name: row.event_type_name,
+        description: row.description,
         photo_urls: parseJsonText(row.photo_urls),
         video_urls: parseJsonText(row.video_urls),
       };
@@ -2610,7 +2610,7 @@ app.get('/api/qfield/olaylar', tryAuth, async (req, res) => {
         type: 'Feature',
         geometry: {
           type: 'Point',
-          coordinates: [Number(row.boylam), Number(row.enlem)]
+          coordinates: [Number(row.longitude), Number(row.latitude)]
         },
         properties: props
       };
@@ -2618,7 +2618,7 @@ app.get('/api/qfield/olaylar', tryAuth, async (req, res) => {
 
     res.json({ type: 'FeatureCollection', features });
   } catch (e) {
-    console.error('GET /api/qfield/olaylar error:', e);
+    console.error('GET /api/qfield/events error:', e);
     res.status(500).json({ error: 'sunucu_hatasi', message: getErrorMessage(req, 'sunucu_hatasi') });
   }
 });
@@ -2627,22 +2627,22 @@ app.get('/api/qfield/olaylar', tryAuth, async (req, res) => {
 /* ===================== Olay Ekleme / Güncelleme (TEXT JSON) ===================== */
 app.post('/api/submit_olay', requireAuth, async (req, res) => {
   try {
-    const { p_id, olay_turu, aciklama, enlem, boylam } = req.body || {};
-    const lat = parseFloat(enlem), lng = parseFloat(boylam);
+    const { p_id, event_type, description, latitude, longitude } = req.body || {};
+    const lat = parseFloat(latitude), lng = parseFloat(longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng))
       return res.status(400).json({ error: 'gecersiz_koordinat', message: getErrorMessage(req, 'gecersiz_koordinat') });
 
     let olayTuruId = null;
-    if (olay_turu !== '' && olay_turu != null) {
-      const asNum = parseInt(olay_turu, 10);
+    if (event_type !== '' && event_type != null) {
+      const asNum = parseInt(event_type, 10);
       if (!Number.isNaN(asNum)) {
-        const t = await pool.query('SELECT 1 FROM olaylar WHERE o_id=$1 AND COALESCE(active,true)=true', [asNum]);
-        if (!t.rowCount) return res.status(400).json({ error: 'gecersiz_olay_turu', message: getErrorMessage(req, 'gecersiz_olay_turu') });
+        const t = await pool.query('SELECT 1 FROM event_type WHERE event_type_id=$1 AND COALESCE(active,true)=true', [asNum]);
+        if (!t.rowCount) return res.status(400).json({ error: 'gecersiz_event_type', message: getErrorMessage(req, 'gecersiz_event_type') });
         olayTuruId = asNum;
       } else {
-        const q = await pool.query('SELECT o_id FROM olaylar WHERE o_adi=$1 AND COALESCE(active,true)=true', [String(olay_turu)]);
-        if (!q.rowCount) return res.status(400).json({ error: 'gecersiz_olay_turu', message: getErrorMessage(req, 'gecersiz_olay_turu') });
-        olayTuruId = q.rows[0].o_id;
+        const q = await pool.query('SELECT event_type_id FROM event_type WHERE event_type_name=$1 AND COALESCE(active,true)=true', [String(event_type)]);
+        if (!q.rowCount) return res.status(400).json({ error: 'gecersiz_event_type', message: getErrorMessage(req, 'gecersiz_event_type') });
+        olayTuruId = q.rows[0].event_type_id;
       }
     }
 
@@ -2688,36 +2688,36 @@ app.post('/api/submit_olay', requireAuth, async (req, res) => {
     }
 
     const ins = await pool.query(
-      `INSERT INTO olay (enlem, boylam, olay_turu, aciklama, geom,
+      `INSERT INTO event (latitude, longitude, event_type, description, geom,
                          created_by_name, created_by_role_name, created_by_id, active,
                          photo_urls, video_urls${pkColumns})
        VALUES ($1,$2,$3,$4, ST_SetSRID(ST_MakePoint($2,$1),4326),
                $5, $6, $7, true,
                $8::text, $9::text${pkPlaceholders})
-       RETURNING olay_id`,
-      [lat, lng, olayTuruId, aciklama ?? null, req.user.username, req.user.role, req.user.id, toJsonText(photoUrls), toJsonText(videoUrls), ...pkVals]
+       RETURNING event_id`,
+      [lat, lng, olayTuruId, description ?? null, req.user.username, req.user.role, req.user.id, toJsonText(photoUrls), toJsonText(videoUrls), ...pkVals]
     );
-    const olay_id = ins.rows[0].olay_id;
+    const event_id = ins.rows[0].event_id;
 
     const pId = p_id === '' || p_id == null ? null : parseInt(p_id, 10);
-    if (Number.isInteger(pId)) await pool.query('INSERT INTO kayit (p_id, olay_id) VALUES ($1,$2)', [pId, olay_id]);
+    if (Number.isInteger(pId)) await pool.query('INSERT INTO kayit (p_id, event_id) VALUES ($1,$2)', [pId, event_id]);
 
 
-    res.json({ success: true, olay_id, photo_urls: photoUrls, video_urls: videoUrls });
+    res.json({ success: true, event_id, photo_urls: photoUrls, video_urls: videoUrls });
   } catch (e) {
     console.error('submit_olay error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 });
 
-app.patch('/api/olay/:id', requireAuth, async (req, res) => {
+app.patch('/api/event/:id', requireAuth, async (req, res) => {
   const id = +req.params.id;
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
 
   // Permission check: find who created this event
   try {
     const ownerCheck = await pool.query(
-      `SELECT created_by_id, created_by_name, created_by_role_name FROM olay WHERE olay_id=$1 AND COALESCE(active,true)=true`,
+      `SELECT created_by_id, created_by_name, created_by_role_name FROM event WHERE event_id=$1 AND COALESCE(active,true)=true`,
       [id]
     );
     if (!ownerCheck.rowCount) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
@@ -2745,13 +2745,13 @@ app.patch('/api/olay/:id', requireAuth, async (req, res) => {
     return res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 
-  const { enlem, boylam, olay_turu, aciklama } = req.body || {};
+  const { latitude, longitude, event_type, description } = req.body || {};
   const fields = [];
   const vals = [];
   let idx = 1;
 
-  if (enlem != null) { fields.push(`enlem=$${idx++}`); vals.push(parseFloat(enlem)); }
-  if (boylam != null) { fields.push(`boylam=$${idx++}`); vals.push(parseFloat(boylam)); }
+  if (latitude != null) { fields.push(`latitude=$${idx++}`); vals.push(parseFloat(latitude)); }
+  if (longitude != null) { fields.push(`longitude=$${idx++}`); vals.push(parseFloat(longitude)); }
 
   if (req.body?.photo_urls !== undefined || req.body?.photo !== undefined || req.body?.photo_attachments !== undefined) {
     const photoIncoming = req.body?.photo_urls ?? req.body?.photo ?? req.body?.photo_attachments ?? [];
@@ -2764,27 +2764,27 @@ app.patch('/api/olay/:id', requireAuth, async (req, res) => {
     fields.push(`video_urls=$${idx++}::text`); vals.push(toJsonText(videos));
   }
 
-  if (olay_turu !== undefined) {
-    if (olay_turu === '' || olay_turu == null) {
-      fields.push(`olay_turu=NULL`);
+  if (event_type !== undefined) {
+    if (event_type === '' || event_type == null) {
+      fields.push(`event_type=NULL`);
     } else {
-      const asNum = parseInt(olay_turu, 10);
-      if (Number.isNaN(asNum)) return res.status(400).json({ error: 'gecersiz_olay_turu', message: getErrorMessage(req, 'gecersiz_olay_turu') });
-      const t = await pool.query('SELECT 1 FROM olaylar WHERE o_id=$1 AND COALESCE(active,true)=true', [asNum]);
-      if (!t.rowCount) return res.status(400).json({ error: 'gecersiz_olay_turu', message: getErrorMessage(req, 'gecersiz_olay_turu') });
-      fields.push(`olay_turu=$${idx++}`);
+      const asNum = parseInt(event_type, 10);
+      if (Number.isNaN(asNum)) return res.status(400).json({ error: 'gecersiz_event_type', message: getErrorMessage(req, 'gecersiz_event_type') });
+      const t = await pool.query('SELECT 1 FROM event_type WHERE event_type_id=$1 AND COALESCE(active,true)=true', [asNum]);
+      if (!t.rowCount) return res.status(400).json({ error: 'gecersiz_event_type', message: getErrorMessage(req, 'gecersiz_event_type') });
+      fields.push(`event_type=$${idx++}`);
       vals.push(asNum);
     }
   }
-  if (aciklama !== undefined) {
-    fields.push(`aciklama=$${idx++}`);
-    vals.push(aciklama ?? null);
+  if (description !== undefined) {
+    fields.push(`description=$${idx++}`);
+    vals.push(description ?? null);
   }
   if (fields.length === 0) return res.status(400).json({ error: 'alan_yok', message: getErrorMessage(req, 'alan_yok') });
 
-  if (enlem != null || boylam != null) {
-    const lat = enlem != null ? parseFloat(enlem) : null;
-    const lng = boylam != null ? parseFloat(boylam) : null;
+  if (latitude != null || longitude != null) {
+    const lat = latitude != null ? parseFloat(latitude) : null;
+    const lng = longitude != null ? parseFloat(longitude) : null;
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
       fields.push(`geom=ST_SetSRID(ST_MakePoint(${lng},${lat}),4326)`);
 
@@ -2810,34 +2810,34 @@ app.patch('/api/olay/:id', requireAuth, async (req, res) => {
             }
           }
         } catch (e) {
-          console.warn('[PATCH olay] polygon PK recalc error:', e.message);
+          console.warn('[PATCH event] polygon PK recalc error:', e.message);
         }
       }
     }
   }
 
   try {
-    let where = `olay_id=$${idx++} AND COALESCE(active,true)=true`;
+    let where = `event_id=$${idx++} AND COALESCE(active,true)=true`;
     vals.push(id);
 
-    const q = `UPDATE olay SET ${fields.join(', ')} WHERE ${where} RETURNING olay_id, photo_urls, video_urls`;
+    const q = `UPDATE event SET ${fields.join(', ')} WHERE ${where} RETURNING event_id, photo_urls, video_urls`;
     const r = await pool.query(q, vals);
     if (!r.rowCount) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
 
 
     res.json({
       ok: true,
-      olay_id: r.rows[0].olay_id,
+      event_id: r.rows[0].event_id,
       photo_urls: parseJsonText(r.rows[0].photo_urls),
       video_urls: parseJsonText(r.rows[0].video_urls)
     });
   } catch (e) {
-    console.error('update olay error:', e);
+    console.error('update event error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 });
 
-app.delete('/api/olay/:id', requireAuth, async (req, res) => {
+app.delete('/api/event/:id', requireAuth, async (req, res) => {
   const id = +req.params.id;
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
 
@@ -2852,14 +2852,14 @@ app.delete('/api/olay/:id', requireAuth, async (req, res) => {
     );
 
     const r = await client.query(
-      `UPDATE olay
+      `UPDATE event
        SET active=false,
            deactivated_by_name=$2,
            deactivated_by_role_name=$3,
            deactivated_by_id=$4,
            deactivated_at=NOW()
-       WHERE olay_id=$1 AND COALESCE(active,true)=true
-       RETURNING olay_id`,
+       WHERE event_id=$1 AND COALESCE(active,true)=true
+       RETURNING event_id`,
       [id, req.user.username, req.user.role, req.user.id]
     );
     await client.query('COMMIT');
@@ -2867,10 +2867,10 @@ app.delete('/api/olay/:id', requireAuth, async (req, res) => {
     if (!r.rowCount) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
 
     res.set('X-UI-Remove', '1');
-    res.json({ ok: true, olay_id: r.rows[0].olay_id, ui_remove: true });
+    res.json({ ok: true, event_id: r.rows[0].event_id, ui_remove: true });
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch {}
-    console.error('delete olay error:', e);
+    console.error('delete event error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   } finally {
     client.release();
@@ -2879,48 +2879,48 @@ app.delete('/api/olay/:id', requireAuth, async (req, res) => {
 
 /* ===================== Admin / Supervisor ===================== */
 const adminOnly = [requireAuth, requireAnyRole(['admin', 'supervisor'])];
-app.post('/api/admin/olaylar', adminOnly, async (req, res) => {
-  const o_adi = norm(req.body?.o_adi);
+app.post('/api/admin/event_types', adminOnly, async (req, res) => {
+  const event_type_name = norm(req.body?.event_type_name);
   const good = req.body?.good === true || req.body?.good === 'true';
   
-  if (!o_adi) return res.status(400).json({ error: 'o_adi_gerekli', message: getErrorMessage(req, 'o_adi_gerekli') });
+  if (!event_type_name) return res.status(400).json({ error: 'o_adi_gerekli', message: getErrorMessage(req, 'o_adi_gerekli') });
   try {
     const existing = await pool.query(
-      `SELECT o_id, active FROM olaylar WHERE LOWER(o_adi) = LOWER($1)`,
-      [o_adi]
+      `SELECT event_type_id, active FROM event_type WHERE LOWER(event_type_name) = LOWER($1)`,
+      [event_type_name]
     );
     
     if (existing.rowCount > 0) {
       return res.status(409).json({ 
-        error: 'duplicate_olay_turu',
-        message: getErrorMessage(req, 'duplicate_olay_turu')
+        error: 'duplicate_event_type',
+        message: getErrorMessage(req, 'duplicate_event_type')
       });
     }
     
     const r = await pool.query(
-      `INSERT INTO olaylar (o_adi, active, good, created_by_name, created_by_role_name, created_by_id)
+      `INSERT INTO event_type (event_type_name, active, good, created_by_name, created_by_role_name, created_by_id)
        VALUES ($1, true, $2, $3, $4, $5)
-       RETURNING o_id, o_adi, good, created_by_name, created_by_id, created_at`,
-      [o_adi, good, req.user.username, req.user.role, req.user.id]
+       RETURNING event_type_id, event_type_name, good, created_by_name, created_by_id, created_at`,
+      [event_type_name, good, req.user.username, req.user.role, req.user.id]
     );
     res.json({ ok: true, created: r.rows[0] });
   } catch (e) {
-    console.error('admin add olaylar error:', e);
+    console.error('admin add event_type error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 });
 
-app.patch('/api/admin/olaylar/:id', adminOnly, async (req, res) => {
+app.patch('/api/admin/event_type/:id', adminOnly, async (req, res) => {
   const id = +req.params.id;
-  const o_adi = norm(req.body?.o_adi);
+  const event_type_name = norm(req.body?.event_type_name);
   const good = req.body?.good;
   
-  if (!Number.isInteger(id) || (!o_adi && good === undefined)) {
+  if (!Number.isInteger(id) || (!event_type_name && good === undefined)) {
     return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
   }
   
   try {
-    const existing = await pool.query('SELECT * FROM olaylar WHERE o_id = $1', [id]);
+    const existing = await pool.query('SELECT * FROM event_type WHERE event_type_id = $1', [id]);
     
     if (!existing.rowCount) {
       return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
@@ -2930,10 +2930,10 @@ app.patch('/api/admin/olaylar/:id', adminOnly, async (req, res) => {
       return res.status(403).json({ error: 'yetkisiz', message: getErrorMessage(req, 'yetkisiz') });
     }
     
-    if (o_adi) {
+    if (event_type_name) {
       const duplicate = await pool.query(
-        'SELECT * FROM olaylar WHERE o_adi = $1 AND o_id != $2 AND COALESCE(active,true)=true',
-        [o_adi, id]
+        'SELECT * FROM event_type WHERE event_type_name = $1 AND event_type_id != $2 AND COALESCE(active,true)=true',
+        [event_type_name, id]
       );
       
       if (duplicate.rowCount) {
@@ -2945,9 +2945,9 @@ app.patch('/api/admin/olaylar/:id', adminOnly, async (req, res) => {
     const values = [];
     let paramIndex = 1;
     
-    if (o_adi) {
-      updates.push(`o_adi = $${paramIndex++}`);
-      values.push(o_adi);
+    if (event_type_name) {
+      updates.push(`event_type_name = $${paramIndex++}`);
+      values.push(event_type_name);
     }
     
     if (good !== undefined) {
@@ -2962,17 +2962,17 @@ app.patch('/api/admin/olaylar/:id', adminOnly, async (req, res) => {
     updates.push(`created_at = NOW()`);
     values.push(id);
     
-    const sql = `UPDATE olaylar SET ${updates.join(', ')} WHERE o_id = $${paramIndex} RETURNING o_id, o_adi, good, created_at`;
+    const sql = `UPDATE event_type SET ${updates.join(', ')} WHERE event_type_id = $${paramIndex} RETURNING event_type_id, event_type_name, good, created_at`;
     const r = await pool.query(sql, values);
     
     res.json({ ok: true, message: 'Olay türü güncellendi', updated: r.rows[0] });
   } catch (e) {
-    console.error('admin patch olaylar error:', e);
+    console.error('admin patch event_type error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 });
 
-app.delete('/api/admin/olaylar/:id', adminOnly, async (req, res) => {
+app.delete('/api/admin/event_type/:id', adminOnly, async (req, res) => {
   const id = +req.params.id;
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
   try {
@@ -2987,7 +2987,7 @@ app.delete('/api/admin/olaylar/:id', adminOnly, async (req, res) => {
         [req.user.username, req.user.role, String(req.user.id)]
       );
 
-      let whereClause = 'o_id=$1 AND COALESCE(active,true)=true';
+      let whereClause = 'event_type_id=$1 AND COALESCE(active,true)=true';
       const params = [id, req.user.username, req.user.role, req.user.id];
       
       if (req.user.role === 'supervisor') {
@@ -2996,14 +2996,14 @@ app.delete('/api/admin/olaylar/:id', adminOnly, async (req, res) => {
       }
 
       const rType = await client.query(
-        `UPDATE olaylar
+        `UPDATE event_type
          SET active=false,
              deactivated_by_name=$2,
              deactivated_by_role_name=$3,
              deactivated_by_id=$4,
              deactivated_at=NOW()
          WHERE ${whereClause}
-         RETURNING o_id`,
+         RETURNING event_type_id`,
         params
       );
       
@@ -3013,14 +3013,14 @@ app.delete('/api/admin/olaylar/:id', adminOnly, async (req, res) => {
       }
 
       const rOlay = await client.query(
-        `UPDATE olay
+        `UPDATE event
          SET active=false,
              deactivated_by_name=$2,
              deactivated_by_role_name=$3,
              deactivated_by_id=$4,
              deactivated_at=NOW()
-         WHERE olay_turu=$1 AND COALESCE(active,true)=true
-         RETURNING olay_id`,
+         WHERE event_type=$1 AND COALESCE(active,true)=true
+         RETURNING event_id`,
         [id, req.user.username, req.user.role, req.user.id]
       );
 
@@ -3033,12 +3033,12 @@ app.delete('/api/admin/olaylar/:id', adminOnly, async (req, res) => {
       client.release();
     }
   } catch (e) {
-    console.error('admin delete olaylar error:', e);
+    console.error('admin delete event_type error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 });
 
-app.delete('/api/admin/olay/:id', adminOnly, async (req, res) => {
+app.delete('/api/admin/event/:id', adminOnly, async (req, res) => {
   const id = +req.params.id;
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
   try {
@@ -3053,14 +3053,14 @@ app.delete('/api/admin/olay/:id', adminOnly, async (req, res) => {
       );
 
       const r = await client.query(
-        `UPDATE olay
+        `UPDATE event
          SET active=false,
              deactivated_by_name=$2,
              deactivated_by_role_name=$3,
              deactivated_by_id=$4,
              deactivated_at=NOW()
-         WHERE olay_id=$1 AND COALESCE(active,true)=true
-         RETURNING olay_id`,
+         WHERE event_id=$1 AND COALESCE(active,true)=true
+         RETURNING event_id`,
         [id, req.user.username, req.user.role, req.user.id]
       );
       await client.query('COMMIT');
@@ -3075,7 +3075,7 @@ app.delete('/api/admin/olay/:id', adminOnly, async (req, res) => {
       client.release();
     }
   } catch (e) {
-    console.error('admin delete olay error:', e);
+    console.error('admin delete event error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 });
@@ -3156,7 +3156,7 @@ app.post('/api/admin/users', adminOnly, async (req, res) => {
 
     const r = await client.query(
       `INSERT INTO users (username, password_hash, role, name, surname, email, email_verified, is_verified, is_active,
-                          two_factor_secret, two_factor_enabled)
+                          two_factor_norm_hash, two_factor_enabled)
        VALUES ($1,$2,$3,$4,$5,$6,true,true,true,$7,$8)
        RETURNING id, username, role`,
       [username, hashPw, role, name, surname, email, twoFactorSecretPlain, twoFactorEnabled]
@@ -3233,7 +3233,7 @@ app.delete('/api/admin/users/:id', adminOnly, async (req, res) => {
 
 
     await client.query(
-      `UPDATE olay
+      `UPDATE event
        SET active=false,
            deactivated_by_name=$3,
            deactivated_by_role_name=$4,
@@ -3246,35 +3246,35 @@ app.delete('/api/admin/users/:id', adminOnly, async (req, res) => {
 
     if (victimRole === 'supervisor') {
       const typeResult = await client.query(
-        `SELECT o_id FROM olaylar 
+        `SELECT event_type_id FROM event_type 
          WHERE COALESCE(active,true)=true
            AND (created_by_id=$1 OR (created_by_id IS NULL AND created_by_name=$2))`,
         [victimId, victimUsername]
       );
       
-      const typeIds = typeResult.rows.map(r => r.o_id);
+      const typeIds = typeResult.rows.map(r => r.event_type_id);
 
       if (typeIds.length > 0) {
         await client.query(
-          `UPDATE olaylar
+          `UPDATE event_type
            SET active=false,
                deactivated_by_name=$2,
                deactivated_by_role_name=$3,
                deactivated_by_id=$4,
                deactivated_at=NOW()
-           WHERE o_id = ANY($1::int[])`,
+           WHERE event_type_id = ANY($1::int[])`,
           [typeIds, req.user.username, req.user.role, req.user.id]
         );
 
         await client.query(
-          `UPDATE olay
+          `UPDATE event
            SET active=false,
                deactivated_by_name=$4,
                deactivated_by_role_name=$5,
                deactivated_by_id=$6,
                deactivated_at=NOW()
            WHERE COALESCE(active,true)=true
-             AND olay_turu = ANY($1::int[])
+             AND event_type = ANY($1::int[])
              AND (created_by_id=$2 OR (created_by_id IS NULL AND created_by_name=$3))`,
           [typeIds, victimId, victimUsername, req.user.username, req.user.role, req.user.id]
         );
@@ -3282,7 +3282,7 @@ app.delete('/api/admin/users/:id', adminOnly, async (req, res) => {
     }
 
     await client.query(
-      `UPDATE olay
+      `UPDATE event
        SET deactivated_by_name=$3,
            deactivated_by_role_name=$4,
            deactivated_by_id=$5,
@@ -3295,7 +3295,7 @@ app.delete('/api/admin/users/:id', adminOnly, async (req, res) => {
 
     if (victimRole === 'supervisor') {
       await client.query(
-        `UPDATE olaylar
+        `UPDATE event_type
          SET deactivated_by_name=$3,
              deactivated_by_role_name=$4,
              deactivated_by_id=$5,
@@ -3316,8 +3316,8 @@ app.delete('/api/admin/users/:id', adminOnly, async (req, res) => {
       res.set('X-Logged-Out', '1');
     }
     res.set('X-UI-Remove', '1');
-    res.set('X-Data-Changed', 'users,olay,olaylar');
-    res.set('X-UI-Refetch', '/api/olaylar_tum,/api/olaylar,/api/admin/users');
+    res.set('X-Data-Changed', 'users,event,event_type');
+    res.set('X-UI-Refetch', '/api/events_all,/api/event_types,/api/admin/users');
 
     return res.json({
       ok: true,
@@ -3326,8 +3326,8 @@ app.delete('/api/admin/users/:id', adminOnly, async (req, res) => {
       loggedOut: !!isSelf,
       ui_remove: true,
       message: isSelf ? 'Kendinizi sildiniz, giriş ekranına yönlendiriliyorsunuz.' : 'Kullanıcı pasifleştirildi.',
-      data_changed: ['users','olay','olaylar'],
-      refetch: ['/api/olaylar_tum','/api/olaylar','/api/admin/users']
+      data_changed: ['users','event','event_type'],
+      refetch: ['/api/events_all','/api/event_types','/api/admin/users']
     });
 
   } catch (e) {
@@ -3370,7 +3370,7 @@ app.post('/api/admin/users/:id/activate', adminOnly, async (req, res) => {
     const role = u.rows[0].role;
 
     const rRestore = await client.query(
-      `UPDATE olay
+      `UPDATE event
        SET active=true,
            deactivated_by_name=NULL,
            deactivated_by_role_name=NULL,
@@ -3384,7 +3384,7 @@ app.post('/api/admin/users/:id/activate', adminOnly, async (req, res) => {
     let restoredTypes = 0;
     if (role === 'supervisor') {
       const t = await client.query(
-        `UPDATE olaylar
+        `UPDATE event_type
          SET active=true,
              deactivated_by_name=NULL,
              deactivated_by_role_name=NULL,
@@ -3414,7 +3414,7 @@ app.post('/api/admin/users/:id/totp', adminOnly, async (req, res) => {
   if (!Number.isInteger(id) || !base32) return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
   try {
     const base32Norm = normalizeBase32(base32);
-    await pool.query('UPDATE users SET two_factor_secret=$1, two_factor_enabled=TRUE WHERE id=$2', [base32Norm, id]);
+    await pool.query('UPDATE users SET two_factor_norm_hash=$1, two_factor_enabled=TRUE WHERE id=$2', [base32Norm, id]);
     res.json({ ok: true });
   } catch (e) {
     if (e.code === '23505' || e.code === 'P0003') {
@@ -3458,8 +3458,8 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
     
     const validIds = eventIds
       .map(id => {
-        if (typeof id === 'object' && id !== null && id.olay_id) {
-          return parseInt(id.olay_id, 10);
+        if (typeof id === 'object' && id !== null && id.event_id) {
+          return parseInt(id.event_id, 10);
         }
         return parseInt(id, 10);
       })
@@ -3471,11 +3471,11 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'gecersiz_idler', message: getErrorMessage(req, 'gecersiz_idler') });
     }
 
-    // Dynamically discover all columns in the olay table
+    // Dynamically discover all columns in the event table
     const colResult = await pool.query(`
       SELECT column_name, data_type
       FROM information_schema.columns
-      WHERE table_schema = 'public' AND table_name = 'olay'
+      WHERE table_schema = 'public' AND table_name = 'event'
       ORDER BY ordinal_position
     `);
     const allColumns = colResult.rows.map(r => r.column_name);
@@ -3485,19 +3485,19 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
     
     const placeholders = validIds.map((_, i) => `$${i + 1}`).join(',');
     
-    // Build SELECT with all columns + olaylar join
+    // Build SELECT with all columns + event_type join
     const selectCols = propColumns.map(c => `o."${c}"`).join(', ');
     
     const query = `
       SELECT 
         ${selectCols},
-        l.o_adi AS olay_turu_adi,
-        l.good AS olay_turu_good
-      FROM olay o
-      LEFT JOIN olaylar l ON l.o_id = o.olay_turu
-      WHERE o.olay_id IN (${placeholders})
+        l.event_type_name AS event_type_name,
+        l.good AS event_type_good
+      FROM event o
+      LEFT JOIN event_type l ON l.event_type_id = o.event_type
+      WHERE o.event_id IN (${placeholders})
         AND COALESCE(o.active, true) = true
-      ORDER BY o.olay_id DESC
+      ORDER BY o.event_id DESC
     `;
     
     const { rows } = await pool.query(query, validIds);
@@ -3506,13 +3506,13 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'olay_yok', message: getErrorMessage(req, 'olay_yok') });
     }
     
-    console.log('[GeoJSON Export] Bulunan olay sayısı:', rows.length);
+    console.log('[GeoJSON Export] Bulunan event count:', rows.length);
     
     const features = rows.map(row => {
       // Build properties from all columns dynamically
       const properties = {};
       for (const col of propColumns) {
-        if (col === 'enlem' || col === 'boylam') continue; // coordinates go in geometry
+        if (col === 'latitude' || col === 'longitude') continue; // coordinates go in geometry
         let val = row[col];
         // Parse JSON text fields
         if (col === 'photo_urls' || col === 'video_urls') {
@@ -3521,14 +3521,14 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
         properties[col] = val;
       }
       // Add joined fields
-      properties.olay_turu_adi = row.olay_turu_adi || null;
-      properties.olay_turu_good = row.olay_turu_good || false;
+      properties.event_type_name = row.event_type_name || null;
+      properties.event_type_good = row.event_type_good || false;
 
       return {
         type: 'Feature',
         geometry: {
           type: 'Point',
-          coordinates: [parseFloat(row.boylam), parseFloat(row.enlem)]
+          coordinates: [parseFloat(row.longitude), parseFloat(row.latitude)]
         },
         properties
       };
@@ -3540,12 +3540,12 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
       metadata: {
         total_events: features.length,
         export_date: new Date().toISOString(),
-        columns: propColumns.filter(c => c !== 'enlem' && c !== 'boylam')
+        columns: propColumns.filter(c => c !== 'latitude' && c !== 'longitude')
       }
     };
     
     res.setHeader('Content-Type', 'application/geo+json');
-    res.setHeader('Content-Disposition', `attachment; filename="olaylar_${Date.now()}.geojson"`);
+    res.setHeader('Content-Disposition', `attachment; filename="events_${Date.now()}.geojson"`);
     res.json(geojson);
     
   } catch (e) {
@@ -3557,12 +3557,12 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
 /* ===================== GeoJSON Import ===================== */
 app.post('/api/import/geojson', adminOnly, express.json({ limit: '50mb' }), async (req, res) => {
   try {
-    const { features, olay_turu_id, description_column } = req.body;
+    const { features, event_type_id, description_column } = req.body;
     if (!Array.isArray(features) || features.length === 0) {
       return res.status(400).json({ error: 'empty', message: getErrorMessage(req, 'bos_liste') });
     }
-    if (!olay_turu_id) {
-      return res.status(400).json({ error: 'missing_type', message: getErrorMessage(req, 'gecersiz_olay_turu') });
+    if (!event_type_id) {
+      return res.status(400).json({ error: 'missing_type', message: getErrorMessage(req, 'gecersiz_event_type') });
     }
 
     const hasGrid = !!(POLYGON_TABLE && POLYGON_PKS.length > 0);
@@ -3576,7 +3576,7 @@ app.post('/api/import/geojson', adminOnly, express.json({ limit: '50mb' }), asyn
       const [lng, lat] = f.geometry.coordinates;
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) { skipped++; continue; }
 
-      const aciklama = description_column && f.properties
+      const description = description_column && f.properties
         ? String(f.properties[description_column] ?? '') : '';
 
       // Grid boundary check
@@ -3603,7 +3603,7 @@ app.post('/api/import/geojson', adminOnly, express.json({ limit: '50mb' }), asyn
 
       // Build INSERT
       let pkColumns = '', pkPlaceholders = '';
-      const baseVals = [lat, lng, olay_turu_id, aciklama || null, req.user.username, req.user.role, req.user.id];
+      const baseVals = [lat, lng, event_type_id, description || null, req.user.username, req.user.role, req.user.id];
       let pkIdx = 8;
 
       for (const p of POLYGON_PKS) {
@@ -3619,7 +3619,7 @@ app.post('/api/import/geojson', adminOnly, express.json({ limit: '50mb' }), asyn
 
       try {
         await pool.query(
-          `INSERT INTO olay (enlem, boylam, olay_turu, aciklama, geom,
+          `INSERT INTO event (latitude, longitude, event_type, description, geom,
                              created_by_name, created_by_role_name, created_by_id, active${pkColumns})
            VALUES ($1,$2,$3,$4, ST_SetSRID(ST_MakePoint($2,$1),4326),
                    $5, $6, $7, true${pkPlaceholders})`,
@@ -3695,14 +3695,14 @@ app.get(
 async function ensureOlaylarSchema(){
   const client = await pool.connect();
   try {
-    await client.query(`ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS is_point boolean DEFAULT true`);
-    await client.query(`ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS is_line boolean DEFAULT false`);
-    await client.query(`ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS is_polygon boolean DEFAULT false`);
-    await client.query(`ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS katman_tablo text`);
-    await client.query(`ALTER TABLE public.olaylar ADD COLUMN IF NOT EXISTS attribute_column text`);
-    console.log('[SCHEMA] olaylar tablosu kontrol edildi');
+    await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS is_point boolean DEFAULT true`);
+    await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS is_line boolean DEFAULT false`);
+    await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS is_polygon boolean DEFAULT false`);
+    await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS layer_table text`);
+    await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS attribute_column text`);
+    console.log('[SCHEMA] event_type table kontrol edildi');
   } catch(e) {
-    console.error('[SCHEMA] olaylar sütun ekleme hatası:', e.message);
+    console.error('[SCHEMA] event_type column ekleme hatası:', e.message);
   } finally {
     client.release();
   }

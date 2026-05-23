@@ -1,7 +1,7 @@
 --1. Obtaining the base32 password code in the terminal:
 node generate-2fa-secret.js
 
---2. Adding a supervisor in PostgreSQL. The resulting base32 code will be added to "two_factor_secret":
+--2. Adding a supervisor in PostgreSQL. The resulting base32 code will be added to "two_factor_norm_hash":
 -- There can be multiple supervisors.
 -- A separate base32 code must be generated for each.
 INSERT INTO public.users (
@@ -14,7 +14,7 @@ INSERT INTO public.users (
     email_verified,
     is_verified,
     is_active,
-    two_factor_secret,
+    two_factor_norm_hash,
     two_factor_enabled
 ) VALUES (
     'HU_supervisor',
@@ -43,7 +43,7 @@ INSERT INTO public.users (
     email_verified,
     is_verified,
     is_active,
-    two_factor_secret,
+    two_factor_norm_hash,
     two_factor_enabled
 ) VALUES (
     'afad_supervisor',

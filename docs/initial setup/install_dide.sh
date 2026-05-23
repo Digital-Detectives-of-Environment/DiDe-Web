@@ -95,8 +95,7 @@ read_env_vars() {
   PORT="$(get_env_value PORT "$ENV_FILE")"
 
   POLYGON_FILE="$(get_env_value AGGREGATION_LAYER "$ENV_FILE")"
-  POLYGON_PK1="$(get_env_value PK1 "$ENV_FILE")"
-  POLYGON_PK2="$(get_env_value PK2 "$ENV_FILE")"
+  PRIMARY_KEYS="$(get_env_value Primary_Keys "$ENV_FILE")"
 
   PGDATABASE="${PGDATABASE}"
   PGPASSWORD="${PGPASSWORD}"
@@ -111,8 +110,7 @@ read_env_vars() {
   echo "DB_PORT       = $PGPORT"
   echo "APP_PORT      = $PORT"
   echo "POLYGON_FILE  = ${POLYGON_FILE:-<not set>}"
-  echo "POLYGON_PK1   = ${POLYGON_PK1:-<not set>}"
-  echo "POLYGON_PK2   = ${POLYGON_PK2:-<not set>}"
+  echo "PRIMARY_KEYS  = ${PRIMARY_KEYS:-<not set>}"
 }
 
 configure_postgres() {
@@ -164,11 +162,30 @@ import_polygon_file() {
     exit 1
   fi
 
-  if [ -z "${POLYGON_PK1:-}" ]; then
-    echo " POLYGON_PK1 is not set in .env."
-    echo " You must define at least one primary key column."
-    exit 1
+  if [ -z "${PRIMARY_KEYS:-}" ]; then
+    log "Primary_Keys is not set in .env, skipping PK column validation."
+  else
+    # Parse semicolon-separated PK list
+    IFS=';' read -ra PK_ARRAY <<< "$PRIMARY_KEYS"
+    for PK_COL in "${PK_ARRAY[@]}"; do
+      PK_COL="$(echo "$PK_COL" | tr -d '[:space:]')"
+      [ -z "$PK_COL" ] && continue
+      COL_EXISTS=$(sudo -u postgres psql -tAc \
+        "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='${POLY_TABLE}' AND column_name='${PK_COL}'" \
+        "$PGDATABASE" || true)
+      if [ "$COL_EXISTS" != "1" ]; then
+        echo " WARNING: Primary Key column '${PK_COL}' not found in table '${POLY_TABLE}'."
+        echo " Available columns:"
+        sudo -u postgres psql -tAc \
+          "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${POLY_TABLE}' ORDER BY ordinal_position" \
+          "$PGDATABASE"
+      else
+        echo " ✓ Primary Key column '${PK_COL}' found in table '${POLY_TABLE}'"
+      fi
+    done
   fi
+
+  log "Polygon table '${POLY_TABLE}' is ready (Primary_Keys=${PRIMARY_KEYS:-<not set>})"
 
   # Derive table name from filename (lowercase, no extension)
   local POLY_BASENAME
@@ -210,24 +227,6 @@ import_polygon_file() {
   sudo -u postgres psql -d "$PGDATABASE" -c \
     "CREATE INDEX IF NOT EXISTS idx_${POLY_TABLE}_geom ON public.${POLY_TABLE} USING GIST (geom);" \
     2>/dev/null || true
-
-  # Validate that PK columns exist in the imported table
-  for PK_COL in "$POLYGON_PK1" ${POLYGON_PK2:+"$POLYGON_PK2"}; do
-    COL_EXISTS=$(sudo -u postgres psql -tAc \
-      "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='${POLY_TABLE}' AND column_name='${PK_COL}'" \
-      "$PGDATABASE" || true)
-    if [ "$COL_EXISTS" != "1" ]; then
-      echo " WARNING: PK column '${PK_COL}' not found in table '${POLY_TABLE}'."
-      echo " Available columns:"
-      sudo -u postgres psql -tAc \
-        "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${POLY_TABLE}' ORDER BY ordinal_position" \
-        "$PGDATABASE"
-      echo ""
-      echo " Please check POLYGON_PK1 / POLYGON_PK2 values in .env"
-    fi
-  done
-
-  log "Polygon table '${POLY_TABLE}' is ready (PK1=${POLYGON_PK1}${POLYGON_PK2:+, PK2=${POLYGON_PK2}})"
 }
 
 install_project_deps() {
