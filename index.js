@@ -495,7 +495,7 @@ app.post('/api/veri-tipi/wizard/create', mustAuth, mustSupervisor, async (req,re
       // hedef tabloyu güncelle: seçilen değerlerde olay_turu = o_id
       // seçilmemiş değerler NULL
       await client.query(
-        `UPDATE public.${table} SET olay_turu = $1 WHERE ${column} = $2`,
+        `UPDATE public.${table} SET olay_turu = $1 WHERE ${column} = $2 AND olay_turu IS NULL`,
         [oId, v]
       );
       created.push({ value:v, o_id:oId });
