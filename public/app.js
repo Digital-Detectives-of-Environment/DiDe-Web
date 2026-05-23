@@ -3041,9 +3041,14 @@ function applyFilters(tableKey) {
   });
   
   state.currentPage = 1; 
-  // Clear row selections when filters change
-  if (tableKey === 'events') __eventsSelectedRows.clear();
-  if (tableKey === 'regions') __regionsSelectedRows.clear();
+  // Clear row selections and map highlights when filters change
+  if (tableKey === 'events') {
+    if (typeof __eventsSelectedRows !== 'undefined') __eventsSelectedRows.clear();
+  }
+  if (tableKey === 'regions') {
+    if (__regionsSelectedRows) __regionsSelectedRows.clear();
+    try { if (regionsHighlightLayer) regionsHighlightLayer.clearLayers(); } catch {}
+  }
   renderTable(tableKey);
 }
 
@@ -4241,7 +4246,16 @@ function renderPagination(tableKey) {
   controlsEl.querySelectorAll('button[data-page]').forEach(btn => {
     btn.addEventListener('click', () => {
       const page = parseInt(btn.getAttribute('data-page'), 10);
-      if (page >= 1 && page <= totalPages) {
+      if (page >= 1 && page <= totalPages && page !== state.currentPage) {
+        // Clear row selections and map highlights when changing page
+        if (tableKey === 'regions') {
+          if (__regionsSelectedRows) __regionsSelectedRows.clear();
+          try { if (regionsHighlightLayer) regionsHighlightLayer.clearLayers(); } catch {}
+        }
+        if (tableKey === 'events') {
+          if (typeof __eventsSelectedRows !== 'undefined' && __eventsSelectedRows) __eventsSelectedRows.clear();
+        }
+
         state.currentPage = page;
         renderTable(tableKey);
       }
