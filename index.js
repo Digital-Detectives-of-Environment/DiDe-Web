@@ -36,17 +36,25 @@ const QFIELD_SYNC_ROOT = process.env.QFIELD_SYNC_ROOT || '';
 const QFIELD_INGEST_INTERVAL_MS = parseInt(process.env.QFIELD_INGEST_INTERVAL_MS, 10);
 
 const POLYGON_FILE  = process.env.AGGREGATION_LAYER || '';
-const POLYGON_PK1   = process.env.PK1 || '';
-const POLYGON_PK2   = process.env.PK2 || '';
+const PRIMARY_KEYS_RAW = (process.env.Primary_Keys || process.env.PRIMARY_KEYS || '').trim();
 const DEFAULT_LANG  = (process.env.DEFAULT_LANG || 'TR').toUpperCase();
 const POLYGON_TABLE = POLYGON_FILE
   ? path.basename(POLYGON_FILE).replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9_]/g, '_')
   : '';
 
+// Parse Primary_Keys: "h3_id;fid;gid" → ['h3_id','fid','gid']
+const POLYGON_PKS_INPUT = PRIMARY_KEYS_RAW ? PRIMARY_KEYS_RAW.split(';').map(s => s.trim()).filter(Boolean) : [];
+// Validated PKs will be populated after DB connection (only UNIQUE+NOT NULL columns)
+let POLYGON_PKS = [];
+
+// Backward compatibility helpers
+const POLYGON_PK1 = POLYGON_PKS_INPUT[0] || '';
+const POLYGON_PK2 = POLYGON_PKS_INPUT[1] || '';
+
 console.log('[POLYGON CONFIG]', {
   POLYGON_FILE,
-  POLYGON_PK1,
-  POLYGON_PK2: POLYGON_PK2 || '(not set)',
+  PRIMARY_KEYS_RAW,
+  POLYGON_PKS_INPUT,
   POLYGON_TABLE: POLYGON_TABLE || '(empty — polygon features disabled)'
 });
 
@@ -670,17 +678,16 @@ app.get(/^\/raster\/(.+)$/, (req, res) => {
 
 // GET /api/polygon-layer  –  Serve the env-configured polygon layer as GeoJSON
 app.get('/api/polygon-layer', async (req, res) => {
-  console.log('[polygon-layer] POLYGON_TABLE =', POLYGON_TABLE, '| POLYGON_PK1 =', POLYGON_PK1);
+  console.log('[polygon-layer] POLYGON_TABLE =', POLYGON_TABLE, '| POLYGON_PKS =', POLYGON_PKS.map(p=>p.name));
   if (!POLYGON_TABLE) {
     return res.json({ type: 'FeatureCollection', features: [] });
   }
   try {
     const table = assertSafeIdent(POLYGON_TABLE, 'table');
-    const cols = [POLYGON_PK1];
-    if (POLYGON_PK2) cols.push(POLYGON_PK2);
-    cols.forEach(c => assertSafeIdent(c, 'column'));
+    const cols = POLYGON_PKS.length > 0 ? POLYGON_PKS.map(p => p.safeName) : [];
 
-    const propCols = cols.map(c => `t.${c}`).join(', ');
+    const propParts = cols.map(c => `'${c}', t.${c}`).join(', ');
+    const propObj = cols.length > 0 ? `jsonb_build_object(${propParts})` : `'{}'::jsonb`;
 
     const q = `
       SELECT jsonb_build_object(
@@ -688,9 +695,7 @@ app.get('/api/polygon-layer', async (req, res) => {
         'features', COALESCE(jsonb_agg(jsonb_build_object(
           'type','Feature',
           'geometry', ST_AsGeoJSON(t.geom)::jsonb,
-          'properties', jsonb_build_object(
-            ${cols.map(c => `'${c}', t.${c}`).join(', ')}
-          )
+          'properties', ${propObj}
         )), '[]'::jsonb)
       ) AS fc
       FROM public.${table} t
@@ -706,22 +711,21 @@ app.get('/api/polygon-layer', async (req, res) => {
 
 // GET /api/polygon/grid-data  –  Return all polygon grid rows with PK columns for admin region tab
 app.get('/api/polygon/grid-data', requireAuth, async (req, res) => {
-  if (!POLYGON_TABLE || (!POLYGON_PK1 && !POLYGON_PK2)) {
-    return res.json({ ok: true, rows: [], pk1: null, pk2: null });
+  if (!POLYGON_TABLE || POLYGON_PKS.length === 0) {
+    return res.json({ ok: true, rows: [], pks: [], pk1: null, pk2: null });
   }
   try {
     const table = assertSafeIdent(POLYGON_TABLE, 'table');
-    const cols = [];
-    if (POLYGON_PK1) cols.push(assertSafeIdent(POLYGON_PK1, 'column'));
-    if (POLYGON_PK2) cols.push(assertSafeIdent(POLYGON_PK2, 'column'));
+    const cols = POLYGON_PKS.map(p => p.safeName);
     const selectCols = cols.map(c => `t.${c}`).join(', ');
     const q = `SELECT ${selectCols}, ST_AsGeoJSON(ST_Centroid(t.geom))::jsonb AS centroid, ST_AsGeoJSON(t.geom)::jsonb AS geojson FROM public.${table} t WHERE t.geom IS NOT NULL ORDER BY ${cols[0]} ASC`;
     const { rows } = await pool.query(q);
     return res.json({
       ok: true,
       rows,
-      pk1: POLYGON_PK1 || null,
-      pk2: POLYGON_PK2 || null,
+      pks: POLYGON_PKS.map(p => p.name),
+      pk1: POLYGON_PKS[0]?.name || null,
+      pk2: POLYGON_PKS[1]?.name || null,
       tableName: POLYGON_TABLE
     });
   } catch (e) {
@@ -741,14 +745,12 @@ app.post('/api/polygon/find', async (req, res) => {
     }
 
     const table = assertSafeIdent(POLYGON_TABLE, 'table');
-    const cols = [POLYGON_PK1];
-    if (POLYGON_PK2) cols.push(POLYGON_PK2);
-    cols.forEach(c => assertSafeIdent(c, 'column'));
+    const cols = POLYGON_PKS.map(p => p.safeName);
 
-    const selectCols = cols.map(c => `t.${c}`).join(', ');
+    const selectCols = cols.length > 0 ? cols.map(c => `t.${c}`).join(', ') + ',' : '';
 
     const q = `
-      SELECT ${selectCols}, ST_AsGeoJSON(t.geom)::jsonb AS geojson
+      SELECT ${selectCols} ST_AsGeoJSON(t.geom)::jsonb AS geojson
       FROM public.${table} t
       WHERE ST_Contains(t.geom, ST_SetSRID(ST_MakePoint($1, $2), 4326))
       LIMIT 1;
@@ -761,7 +763,7 @@ app.post('/api/polygon/find', async (req, res) => {
 
     const row = rows[0];
     const pkValues = {};
-    for (const c of cols) pkValues[c] = row[c];
+    for (const p of POLYGON_PKS) pkValues[p.name] = row[p.safeName];
 
     return res.json({
       ok: true,
@@ -787,21 +789,17 @@ app.post('/api/polygon/records', async (req, res) => {
     }
 
     const table = assertSafeIdent(POLYGON_TABLE, 'table');
-    const pk1Col = assertSafeIdent(POLYGON_PK1, 'column');
 
-    // Build WHERE to identify the polygon row
+    // Build WHERE to identify the polygon row using dynamic PKs
     const polyConditions = [];
     const vals = [];
     let idx = 1;
 
-    if (POLYGON_PK1 && pkValues[POLYGON_PK1] != null) {
-      polyConditions.push(`p.${pk1Col} = $${idx++}`);
-      vals.push(String(pkValues[POLYGON_PK1]));
-    }
-    if (POLYGON_PK2 && pkValues[POLYGON_PK2] != null) {
-      const pk2Col = assertSafeIdent(POLYGON_PK2, 'column');
-      polyConditions.push(`p.${pk2Col} = $${idx++}`);
-      vals.push(String(pkValues[POLYGON_PK2]));
+    for (const p of POLYGON_PKS) {
+      if (pkValues[p.name] != null) {
+        polyConditions.push(`p.${p.safeName} = $${idx++}`);
+        vals.push(String(pkValues[p.name]));
+      }
     }
 
     if (!polyConditions.length) {
@@ -1460,13 +1458,93 @@ async function ensureDbSqlHelpers() {
 
   // Drop legacy polygon_pk_values column if exists
   await run('olay drop polygon_pk_values',  `ALTER TABLE public.olay DROP COLUMN IF EXISTS polygon_pk_values`);
+  // Drop legacy PK1/PK2 columns if exist
+  await run('olay drop legacy PK1',         `ALTER TABLE public.olay DROP COLUMN IF EXISTS "PK1"`);
+  await run('olay drop legacy PK2',         `ALTER TABLE public.olay DROP COLUMN IF EXISTS "PK2"`);
 
-  // Dynamic PK1/PK2 integer columns based on .env
-  if (POLYGON_PK1) {
-    await run('olay add PK1',               `ALTER TABLE public.olay ADD COLUMN IF NOT EXISTS "PK1" integer`);
-  }
-  if (POLYGON_PK2) {
-    await run('olay add PK2',               `ALTER TABLE public.olay ADD COLUMN IF NOT EXISTS "PK2" integer`);
+  // Validate Primary_Keys columns against aggregation layer table
+  if (POLYGON_TABLE && POLYGON_PKS_INPUT.length > 0) {
+    const validPks = [];
+    for (const pkName of POLYGON_PKS_INPUT) {
+      try {
+        const safePk = assertSafeIdent(pkName, 'column');
+        // Check if column exists, is NOT NULL, and is UNIQUE in the aggregation layer table
+        const colInfo = await pool.query(`
+          SELECT c.data_type, c.is_nullable
+          FROM information_schema.columns c
+          WHERE c.table_schema='public' AND LOWER(c.table_name)=LOWER($1) AND LOWER(c.column_name)=LOWER($2)
+        `, [POLYGON_TABLE, pkName]);
+        
+        if (colInfo.rows.length === 0) {
+          console.warn(`[PK] Column "${pkName}" not found in ${POLYGON_TABLE}, skipping`);
+          continue;
+        }
+
+        // Check NOT NULL
+        const isNullable = colInfo.rows[0].is_nullable === 'YES';
+        // Check UNIQUE (unique constraint or primary key)
+        const uniqCheck = await pool.query(`
+          SELECT 1 FROM information_schema.table_constraints tc
+          JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
+          WHERE tc.table_schema='public' AND LOWER(tc.table_name)=LOWER($1)
+            AND LOWER(ccu.column_name)=LOWER($2)
+            AND tc.constraint_type IN ('UNIQUE','PRIMARY KEY')
+          LIMIT 1
+        `, [POLYGON_TABLE, pkName]);
+
+        // Also check unique indexes
+        const idxCheck = await pool.query(`
+          SELECT 1 FROM pg_indexes
+          WHERE LOWER(tablename)=LOWER($1)
+            AND indexdef ILIKE '%UNIQUE%'
+            AND LOWER(indexdef) LIKE '%' || LOWER($2) || '%'
+          LIMIT 1
+        `, [POLYGON_TABLE, pkName]);
+
+        const isUnique = uniqCheck.rows.length > 0 || idxCheck.rows.length > 0;
+
+        if (isNullable) {
+          // Check if actually has NULLs
+          const safeTable = assertSafeIdent(POLYGON_TABLE, 'table');
+          const nullCount = await pool.query(`SELECT COUNT(*) as cnt FROM public.${safeTable} WHERE ${safePk} IS NULL`);
+          if (parseInt(nullCount.rows[0].cnt) > 0) {
+            console.warn(`[PK] Column "${pkName}" in ${POLYGON_TABLE} has NULL values, skipping`);
+            continue;
+          }
+        }
+
+        if (!isUnique) {
+          // Check if values are actually unique
+          const safeTable = assertSafeIdent(POLYGON_TABLE, 'table');
+          const dupCheck = await pool.query(`
+            SELECT ${safePk}, COUNT(*) FROM public.${safeTable} GROUP BY ${safePk} HAVING COUNT(*) > 1 LIMIT 1
+          `);
+          if (dupCheck.rows.length > 0) {
+            console.warn(`[PK] Column "${pkName}" in ${POLYGON_TABLE} has duplicate values, skipping`);
+            continue;
+          }
+        }
+
+        // Determine column type for olay table
+        const srcType = colInfo.rows[0].data_type;
+        let olayColType = 'text';
+        if (['integer','bigint','smallint','int','int4','int8','int2'].includes(srcType)) {
+          olayColType = 'integer';
+        } else if (['numeric','real','double precision','float4','float8'].includes(srcType)) {
+          olayColType = 'numeric';
+        }
+
+        // Create column in olay table with matching type
+        await run(`olay add "${pkName}"`, `ALTER TABLE public.olay ADD COLUMN IF NOT EXISTS "${safePk}" ${olayColType}`);
+        validPks.push({ name: pkName, safeName: safePk, type: olayColType });
+        console.log(`[PK] ✓ Column "${pkName}" validated (${olayColType}) and added to olay table`);
+
+      } catch(e) {
+        console.warn(`[PK] Error validating "${pkName}": ${e.message}`);
+      }
+    }
+    POLYGON_PKS = validPks;
+    console.log('[PK] Validated Primary Keys:', POLYGON_PKS.map(p => p.name));
   }
 
   await run('olay add deactivated_by_name', `ALTER TABLE public.olay ADD COLUMN IF NOT EXISTS deactivated_by_name text`);
@@ -1969,8 +2047,9 @@ app.get('/api/config', (_req, res) => {
     showGoodEventsOnLogin: SHOW_GOOD_EVENTS_ON_LOGIN,
     showBadEventsOnLogin: SHOW_BAD_EVENTS_ON_LOGIN,
     polygonTable: POLYGON_TABLE || null,
-    polygonPk1: POLYGON_PK1 || null,
-    polygonPk2: POLYGON_PK2 || null,
+    polygonPk1: POLYGON_PKS[0]?.name || null,
+    polygonPk2: POLYGON_PKS[1]?.name || null,
+    polygonPks: POLYGON_PKS.map(p => p.name),
     defaultLang: DEFAULT_LANG.toLowerCase(),
   });
 });
@@ -2434,8 +2513,7 @@ app.get('/api/olaylar_tum', tryAuth, async (req, res) => {
         o.created_at,
         o.photo_urls,
         o.video_urls,
-        ${POLYGON_PK1 ? `o."PK1",` : ''}
-        ${POLYGON_PK2 ? `o."PK2",` : ''}
+        ${POLYGON_PKS.map(p => `o."${p.safeName}"`).join(',\n        ')}${POLYGON_PKS.length > 0 ? ',' : ''}
         ((o.created_by_id = $1) OR (o.created_by_name = $2)) AS is_mine
       FROM olay o
       LEFT JOIN olaylar l ON l.o_id = o.olay_turu
@@ -2445,14 +2523,18 @@ app.get('/api/olaylar_tum', tryAuth, async (req, res) => {
       [myId, myUser]
     );
 
-    let rows = r.rows.map((row) => ({
-
-      ...row,
-      photo_urls: parseJsonText(row.photo_urls),
-      video_urls: parseJsonText(row.video_urls),
-      PK1: POLYGON_PK1 ? (row.PK1 ?? null) : undefined,
-      PK2: POLYGON_PK2 ? (row.PK2 ?? null) : undefined,
-    }));
+    let rows = r.rows.map((row) => {
+      const mapped = {
+        ...row,
+        photo_urls: parseJsonText(row.photo_urls),
+        video_urls: parseJsonText(row.video_urls),
+      };
+      // Add dynamic PK values
+      for (const p of POLYGON_PKS) {
+        mapped[p.name] = row[p.safeName] ?? null;
+      }
+      return mapped;
+    });
 
     if (isAnon) {
       const showGood = SHOW_GOOD_EVENTS_ON_LOGIN;
@@ -2570,39 +2652,38 @@ app.post('/api/submit_olay', requireAuth, async (req, res) => {
     const photoUrls = normalizeIncomingToUrlArray(photoIncoming, 'photo');
     const videoUrls = normalizeIncomingToUrlArray(videoIncoming, 'video');
 
-    // Build dynamic PK columns based on .env config
+    // Build dynamic PK columns based on validated Primary_Keys
     let pkColumns = '';
     let pkPlaceholders = '';
     const pkVals = [];
-    let pkIdx = 10; // next placeholder index after $9 (photo_urls=$8, video_urls=$9)
+    let pkIdx = 10; // next placeholder index after $9
 
-    if (POLYGON_PK1) {
+    if (POLYGON_PKS.length > 0 && POLYGON_TABLE) {
       // Find which polygon contains this point and get its PK values
-      let foundPk1 = null;
-      let foundPk2 = null;
+      const foundPkValues = {};
       try {
         const polyTable = assertSafeIdent(POLYGON_TABLE, 'table');
-        const pk1Col = assertSafeIdent(POLYGON_PK1, 'column');
-        const selectCols = [pk1Col];
-        if (POLYGON_PK2) selectCols.push(assertSafeIdent(POLYGON_PK2, 'column'));
+        const selectCols = POLYGON_PKS.map(p => p.safeName);
         const polyQ = `SELECT ${selectCols.join(', ')} FROM public.${polyTable} WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)) LIMIT 1`;
         const polyR = await pool.query(polyQ, [lng, lat]);
         if (polyR.rows.length > 0) {
-          foundPk1 = polyR.rows[0][POLYGON_PK1];
-          if (POLYGON_PK2) foundPk2 = polyR.rows[0][POLYGON_PK2];
+          for (const p of POLYGON_PKS) {
+            foundPkValues[p.name] = polyR.rows[0][p.safeName];
+          }
         }
       } catch (e) {
         console.warn('[submit_olay] polygon PK lookup error:', e.message);
       }
 
-      pkColumns += `, "PK1"`;
-      pkPlaceholders += `, $${pkIdx++}`;
-      pkVals.push(foundPk1 != null ? parseInt(foundPk1, 10) : null);
-
-      if (POLYGON_PK2) {
-        pkColumns += `, "PK2"`;
+      for (const p of POLYGON_PKS) {
+        pkColumns += `, "${p.safeName}"`;
         pkPlaceholders += `, $${pkIdx++}`;
-        pkVals.push(foundPk2 != null ? parseInt(foundPk2, 10) : null);
+        const val = foundPkValues[p.name];
+        if (p.type === 'integer') {
+          pkVals.push(val != null ? parseInt(val, 10) : null);
+        } else {
+          pkVals.push(val != null ? String(val) : null);
+        }
       }
     }
 
@@ -2708,24 +2789,25 @@ app.patch('/api/olay/:id', requireAuth, async (req, res) => {
       fields.push(`geom=ST_SetSRID(ST_MakePoint(${lng},${lat}),4326)`);
 
       // Recalculate PK1/PK2 based on new position
-      if (POLYGON_TABLE && POLYGON_PK1) {
+      if (POLYGON_TABLE && POLYGON_PKS.length > 0) {
         try {
           const polyTable = assertSafeIdent(POLYGON_TABLE, 'table');
-          const pk1Col = assertSafeIdent(POLYGON_PK1, 'column');
-          const selectCols = [pk1Col];
-          if (POLYGON_PK2) selectCols.push(assertSafeIdent(POLYGON_PK2, 'column'));
+          const selectCols = POLYGON_PKS.map(p => p.safeName);
           const polyQ = `SELECT ${selectCols.join(', ')} FROM public.${polyTable} WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)) LIMIT 1`;
           const polyR = await pool.query(polyQ, [lng, lat]);
           if (polyR.rows.length > 0) {
-            fields.push(`"PK1"=$${idx++}`);
-            vals.push(parseInt(polyR.rows[0][POLYGON_PK1], 10));
-            if (POLYGON_PK2) {
-              fields.push(`"PK2"=$${idx++}`);
-              vals.push(parseInt(polyR.rows[0][POLYGON_PK2], 10));
+            for (const p of POLYGON_PKS) {
+              fields.push(`"${p.safeName}"=$${idx++}`);
+              if (p.type === 'integer') {
+                vals.push(parseInt(polyR.rows[0][p.safeName], 10));
+              } else {
+                vals.push(String(polyR.rows[0][p.safeName]));
+              }
             }
           } else {
-            fields.push(`"PK1"=NULL`);
-            if (POLYGON_PK2) fields.push(`"PK2"=NULL`);
+            for (const p of POLYGON_PKS) {
+              fields.push(`"${p.safeName}"=NULL`);
+            }
           }
         } catch (e) {
           console.warn('[PATCH olay] polygon PK recalc error:', e.message);
@@ -3483,7 +3565,7 @@ app.post('/api/import/geojson', adminOnly, express.json({ limit: '50mb' }), asyn
       return res.status(400).json({ error: 'missing_type', message: getErrorMessage(req, 'gecersiz_olay_turu') });
     }
 
-    const hasGrid = !!(POLYGON_TABLE && POLYGON_PK1);
+    const hasGrid = !!(POLYGON_TABLE && POLYGON_PKS.length > 0);
     let inserted = 0, skipped = 0;
 
     for (const f of features) {
@@ -3498,21 +3580,20 @@ app.post('/api/import/geojson', adminOnly, express.json({ limit: '50mb' }), asyn
         ? String(f.properties[description_column] ?? '') : '';
 
       // Grid boundary check
-      let foundPk1 = null, foundPk2 = null;
+      const foundPkValues = {};
       if (hasGrid) {
         try {
           const polyTable = assertSafeIdent(POLYGON_TABLE, 'table');
-          const pk1Col = assertSafeIdent(POLYGON_PK1, 'column');
-          const selectCols = [pk1Col];
-          if (POLYGON_PK2) selectCols.push(assertSafeIdent(POLYGON_PK2, 'column'));
+          const selectCols = POLYGON_PKS.map(p => p.safeName);
           const polyQ = `SELECT ${selectCols.join(', ')} FROM public.${polyTable} WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)) LIMIT 1`;
           const polyR = await pool.query(polyQ, [lng, lat]);
           if (polyR.rows.length === 0) {
             skipped++;
             continue; // outside grid
           }
-          foundPk1 = polyR.rows[0][POLYGON_PK1];
-          if (POLYGON_PK2) foundPk2 = polyR.rows[0][POLYGON_PK2];
+          for (const p of POLYGON_PKS) {
+            foundPkValues[p.name] = polyR.rows[0][p.safeName];
+          }
         } catch (e) {
           console.warn('[import] polygon check error:', e.message);
           skipped++;
@@ -3525,14 +3606,14 @@ app.post('/api/import/geojson', adminOnly, express.json({ limit: '50mb' }), asyn
       const baseVals = [lat, lng, olay_turu_id, aciklama || null, req.user.username, req.user.role, req.user.id];
       let pkIdx = 8;
 
-      if (POLYGON_PK1) {
-        pkColumns += `, "PK1"`;
+      for (const p of POLYGON_PKS) {
+        pkColumns += `, "${p.safeName}"`;
         pkPlaceholders += `, $${pkIdx++}`;
-        baseVals.push(foundPk1 != null ? parseInt(foundPk1, 10) : null);
-        if (POLYGON_PK2) {
-          pkColumns += `, "PK2"`;
-          pkPlaceholders += `, $${pkIdx++}`;
-          baseVals.push(foundPk2 != null ? parseInt(foundPk2, 10) : null);
+        const val = foundPkValues[p.name];
+        if (p.type === 'integer') {
+          baseVals.push(val != null ? parseInt(val, 10) : null);
+        } else {
+          baseVals.push(val != null ? String(val) : null);
         }
       }
 

@@ -76,7 +76,8 @@ let APP_CONFIG = {
   showBadEventsOnLogin: null,
   polygonTable: null,
   polygonPk1: null,
-  polygonPk2: null
+  polygonPk2: null,
+  polygonPks: []
 };
 
 async function loadAppConfig() {
@@ -823,11 +824,13 @@ function showPolygonConfirmCard(pkValues) {
 
   const info = qs('#polygon-confirm-info');
   if (info) {
-    const pk1 = APP_CONFIG.polygonPk1;
-    const pk2 = APP_CONFIG.polygonPk2;
+    const pks = APP_CONFIG.polygonPks || [];
     let text = '';
-    if (pk1 && pkValues[pk1] != null) text += pk1 + ': ' + pkValues[pk1];
-    if (pk2 && pkValues[pk2] != null) text += (text ? '  |  ' : '') + pk2 + ': ' + pkValues[pk2];
+    pks.forEach(pk => {
+      if (pkValues[pk] != null) {
+        text += (text ? '  |  ' : '') + pk + ': ' + pkValues[pk];
+      }
+    });
     info.textContent = text;
   }
 
@@ -3030,8 +3033,7 @@ function applyFilters(tableKey) {
           if (column === 'date') itemValue = formatDate(item.created_at || item.eklenme_tarihi);
           break;
         case 'regions':
-          if (column === 'pk1') itemValue = String(item._pk1Val ?? '');
-          if (column === 'pk2') itemValue = String(item._pk2Val ?? '');
+          { const _pkI = parseInt(column.replace('pk', ''), 10); if (!isNaN(_pkI) && __regionsPks[_pkI]) { itemValue = String(item._pkVals?.[__regionsPks[_pkI]] ?? ''); } }
           break;
       }
       
@@ -3157,8 +3159,7 @@ function buildFilterDropdown(tableKey, column, data) {
         if (column === 'video') value = (Array.isArray(item.video_urls) && item.video_urls.length > 0) ? t('available') : t('notAvailable');
         break;
       case 'regions':
-        if (column === 'pk1') value = String(item._pk1Val ?? '');
-        if (column === 'pk2') value = String(item._pk2Val ?? '');
+        { const _pkI = parseInt(column.replace('pk', ''), 10); if (!isNaN(_pkI) && __regionsPks[_pkI]) { value = String(item._pkVals?.[__regionsPks[_pkI]] ?? ''); } }
         break;
     }
     
@@ -3176,7 +3177,7 @@ function buildFilterDropdown(tableKey, column, data) {
       }
     }
     // Numeric sort for regions pk columns
-    if (tableKey === 'regions' && (column === 'pk1' || column === 'pk2')) {
+    if (tableKey === 'regions' && column.startsWith('pk')) {
       const na = parseFloat(a), nb = parseFloat(b);
       if (!isNaN(na) && !isNaN(nb)) return na - nb;
     }
@@ -3206,8 +3207,7 @@ function buildFilterDropdown(tableKey, column, data) {
         if (column === 'video') value = (Array.isArray(item.video_urls) && item.video_urls.length > 0) ? t('available') : t('notAvailable');
         break;
       case 'regions':
-        if (column === 'pk1') value = String(item._pk1Val ?? '');
-        if (column === 'pk2') value = String(item._pk2Val ?? '');
+        { const _pkI = parseInt(column.replace('pk', ''), 10); if (!isNaN(_pkI) && __regionsPks[_pkI]) { value = String(item._pkVals?.[__regionsPks[_pkI]] ?? ''); } }
         break;
     }
     
@@ -3259,8 +3259,7 @@ function buildFilterDropdown(tableKey, column, data) {
           if (column === 'video') itemValue = (Array.isArray(item.video_urls) && item.video_urls.length > 0) ? t('available') : t('notAvailable');
           break;
         case 'regions':
-          if (column === 'pk1') itemValue = String(item._pk1Val ?? '');
-          if (column === 'pk2') itemValue = String(item._pk2Val ?? '');
+          { const _pkI = parseInt(column.replace('pk', ''), 10); if (!isNaN(_pkI) && __regionsPks[_pkI]) { itemValue = String(item._pkVals?.[__regionsPks[_pkI]] ?? ''); } }
           break;
       }
       
@@ -3268,9 +3267,11 @@ function buildFilterDropdown(tableKey, column, data) {
     });
     
     // For regions: override count with event count per grid
-    if (tableKey === 'regions' && (column === 'pk1' || column === 'pk2')) {
+    if (tableKey === 'regions' && column.startsWith('pk')) {
+      const _pkI = parseInt(column.replace('pk', ''), 10);
       const matchRow = state.data.find(r => {
-        const v = column === 'pk1' ? String(r._pk1Val ?? '') : String(r._pk2Val ?? '');
+        const pkName = __regionsPks[_pkI];
+        const v = pkName ? String(r._pkVals?.[pkName] ?? '') : '';
         return v === value;
       });
       if (matchRow) filteredCount = matchRow._eventCount || 0;
@@ -4518,6 +4519,7 @@ let regionsMarkersLayer = null;
 let __regionsGeomLayers = [];
 let __regionsPk1 = null;
 let __regionsPk2 = null;
+let __regionsPks = []; // dynamic PK column names
 let __regionsSelectedRows = new Set();
 let __eventsSelectedRows = new Set();
 
@@ -4527,47 +4529,39 @@ async function loadRegionData() {
     if (!r.ok) return;
     const data = await r.json();
     if (!data.ok) return;
+    __regionsPks = data.pks || [];
     __regionsPk1 = data.pk1;
     __regionsPk2 = data.pk2;
 
     const tabBtn = qs('#btn-regions-tab');
     if (tabBtn) {
-      tabBtn.style.display = (__regionsPk1 || __regionsPk2) ? '' : 'none';
+      tabBtn.style.display = __regionsPks.length > 0 ? '' : 'none';
     }
 
-    if (!__regionsPk1 && !__regionsPk2) return;
+    if (__regionsPks.length === 0) return;
 
-    // Build table header dynamically — only PK columns
+    // Build table header dynamically — all PK columns
     const thead = qs('#regions-thead-row');
     if (thead) {
       let headerHtml = '';
-      if (__regionsPk1) {
+      __regionsPks.forEach((pkName, i) => {
         headerHtml += `<th>
-          <span>${__regionsPk1}</span>
-          <span class="filter-icon" data-column="pk1" data-i18n-title="search">▼</span>
-          <div class="filter-dropdown" data-column="pk1"></div>
+          <span>${pkName}</span>
+          <span class="filter-icon" data-column="pk${i}" data-i18n-title="search">▼</span>
+          <div class="filter-dropdown" data-column="pk${i}"></div>
         </th>`;
-      }
-      if (__regionsPk2) {
-        headerHtml += `<th>
-          <span>${__regionsPk2}</span>
-          <span class="filter-icon" data-column="pk2" data-i18n-title="search">▼</span>
-          <div class="filter-dropdown" data-column="pk2"></div>
-        </th>`;
-      }
+      });
       thead.innerHTML = headerHtml;
     }
 
-    // Get all events and match to grids using PK1/PK2 columns
+    // Get all events and match to grids using dynamic PK columns
     const allEvents = tableStates.events?.data || [];
-    // Determine which PK key to use for matching
-    const pkKey = __regionsPk1 || __regionsPk2;
+    const firstPk = __regionsPks[0];
 
-    // Build a map: pkValue → [events]
+    // Build a map: firstPkValue → [events]
     const gridEventsMap = {};
     allEvents.forEach(evt => {
-      // Match using PK1/PK2 columns directly from event data
-      const matchVal = evt.PK1 != null ? evt.PK1 : evt.PK2;
+      const matchVal = firstPk ? evt[firstPk] : null;
       if (matchVal == null) return;
       const key = String(matchVal);
       if (!gridEventsMap[key]) gridEventsMap[key] = [];
@@ -4576,12 +4570,13 @@ async function loadRegionData() {
 
     // Enrich grid rows with event info
     const rows = data.rows.map((row, idx) => {
-      const pk1Val = __regionsPk1 ? row[__regionsPk1] : null;
-      const pk2Val = __regionsPk2 ? row[__regionsPk2] : null;
-      const matchKey = String(pk1Val ?? pk2Val ?? '');
+      // Store all PK values
+      const pkVals = {};
+      __regionsPks.forEach(pk => { pkVals[pk] = row[pk] ?? null; });
+      
+      const matchKey = firstPk ? String(row[firstPk] ?? '') : '';
       const events = gridEventsMap[matchKey] || [];
 
-      // Count types
       const typeCounts = {};
       const creatorCounts = {};
       events.forEach(e => {
@@ -4594,8 +4589,9 @@ async function loadRegionData() {
       return {
         ...row,
         _idx: idx,
-        _pk1Val: pk1Val,
-        _pk2Val: pk2Val,
+        _pk1Val: pkVals[__regionsPks[0]] ?? null,
+        _pk2Val: pkVals[__regionsPks[1]] ?? null,
+        _pkVals: pkVals,
         _events: events,
         _eventCount: events.length,
         _typeCounts: typeCounts,
@@ -4620,24 +4616,19 @@ function renderRegionTableRows(data) {
   if (!tb) return;
   tb.innerHTML = '';
   if (!data.length) {
-    const colCount = (__regionsPk1 ? 1 : 0) + (__regionsPk2 ? 1 : 0);
-    tb.innerHTML = `<tr><td colspan="${colCount || 1}" style="text-align:center;padding:20px;color:var(--muted);">${t('noRegionData')}</td></tr>`;
+    const colCount = __regionsPks.length || 1;
+    tb.innerHTML = `<tr><td colspan="${colCount}" style="text-align:center;padding:20px;color:var(--muted);">${t('noRegionData')}</td></tr>`;
     return;
   }
   data.forEach(row => {
     const tr = document.createElement('tr');
     const isSelected = __regionsSelectedRows.has(row._idx);
     if (isSelected) tr.classList.add('table-row-selected');
-    if (__regionsPk1) {
+    __regionsPks.forEach(pkName => {
       const td = document.createElement('td');
-      td.textContent = row._pk1Val ?? '';
+      td.textContent = row._pkVals?.[pkName] ?? row[pkName] ?? '';
       tr.appendChild(td);
-    }
-    if (__regionsPk2) {
-      const td = document.createElement('td');
-      td.textContent = row._pk2Val ?? '';
-      tr.appendChild(td);
-    }
+    });
     tr.addEventListener('click', (e) => {
       if (e.target.closest('button, a, input, select')) return;
       toggleRegionRowSelection(row, tr);
