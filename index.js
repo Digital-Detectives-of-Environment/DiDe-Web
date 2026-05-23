@@ -51,12 +51,94 @@ let POLYGON_PKS = [];
 const POLYGON_PK1 = POLYGON_PKS_INPUT[0] || '';
 const POLYGON_PK2 = POLYGON_PKS_INPUT[1] || '';
 
-console.log('[POLYGON CONFIG]', {
-  POLYGON_FILE,
-  PRIMARY_KEYS_RAW,
-  POLYGON_PKS_INPUT,
-  POLYGON_TABLE: POLYGON_TABLE || '(empty — polygon features disabled)'
-});
+async function validateAggregationConfig() {
+  if (!POLYGON_FILE) {
+    console.log('[CONFIG] AGGREGATION_LAYER is empty — grid features disabled, running without spatial grid.');
+    return;
+  }
+
+  // 1) Check if table exists in DB
+  const tableCheck = await pool.query(
+    `SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND LOWER(table_name)=LOWER($1) LIMIT 1`,
+    [POLYGON_TABLE]
+  );
+
+  if (tableCheck.rows.length === 0) {
+    console.error(`\n=== STARTUP ERROR ===`);
+    console.error(`AGGREGATION_LAYER="${POLYGON_FILE}" is set, but the table "${POLYGON_TABLE}" does NOT exist in the database.`);
+    console.error(`Please import your aggregation layer table into the database first.`);
+    if (!PRIMARY_KEYS_RAW) {
+      console.error(`Also, Primary_Keys parameter is empty — when AGGREGATION_LAYER is set, Primary_Keys must also be configured.`);
+    }
+    console.error(`System cannot start. Exiting.\n`);
+    process.exit(1);
+  }
+
+  // 2) Check if Primary_Keys is set
+  if (!PRIMARY_KEYS_RAW) {
+    console.error(`\n=== STARTUP ERROR ===`);
+    console.error(`AGGREGATION_LAYER="${POLYGON_FILE}" is set and table "${POLYGON_TABLE}" exists in the database.`);
+    console.error(`However, Primary_Keys is empty. When AGGREGATION_LAYER is configured, you must also set Primary_Keys`);
+    console.error(`with at least one primary key column of this table (e.g. Primary_Keys=h3_id or Primary_Keys=gid;fid).`);
+    console.error(`System cannot start. Exiting.\n`);
+    process.exit(1);
+  }
+
+  // 3) Validate each PK column
+  for (const pkName of POLYGON_PKS_INPUT) {
+    const safePk = assertSafeIdent(pkName, 'column');
+    const safeTable = assertSafeIdent(POLYGON_TABLE, 'table');
+
+    // Check column exists
+    const colCheck = await pool.query(
+      `SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema='public' AND LOWER(table_name)=LOWER($1) AND LOWER(column_name)=LOWER($2)`,
+      [POLYGON_TABLE, pkName]
+    );
+    if (colCheck.rows.length === 0) {
+      console.error(`\n=== STARTUP ERROR ===`);
+      console.error(`AGGREGATION_LAYER="${POLYGON_FILE}" — column "${pkName}" does NOT exist in table "${POLYGON_TABLE}".`);
+      console.error(`Please check your Primary_Keys configuration and ensure the column name is correct.`);
+      console.error(`System cannot start. Exiting.\n`);
+      process.exit(1);
+    }
+
+    // Check PK/UNIQUE constraint
+    const constraintCheck = await pool.query(`
+      SELECT 1 FROM information_schema.table_constraints tc
+      JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
+      WHERE tc.table_schema='public' AND LOWER(tc.table_name)=LOWER($1) AND LOWER(ccu.column_name)=LOWER($2)
+        AND tc.constraint_type IN ('UNIQUE','PRIMARY KEY')
+      LIMIT 1`, [POLYGON_TABLE, pkName]);
+    const idxCheck = await pool.query(`
+      SELECT 1 FROM pg_indexes
+      WHERE LOWER(tablename)=LOWER($1) AND indexdef ILIKE '%UNIQUE%' AND LOWER(indexdef) LIKE '%' || LOWER($2) || '%'
+      LIMIT 1`, [POLYGON_TABLE, pkName]);
+
+    const hasConstraint = constraintCheck.rows.length > 0 || idxCheck.rows.length > 0;
+
+    // Check for NULLs
+    const nullCheck = await pool.query(`SELECT COUNT(*) as cnt FROM public.${safeTable} WHERE ${safePk} IS NULL`);
+    const hasNulls = parseInt(nullCheck.rows[0].cnt) > 0;
+
+    // Check for duplicates
+    const dupCheck = await pool.query(`SELECT ${safePk}, COUNT(*) FROM public.${safeTable} GROUP BY ${safePk} HAVING COUNT(*) > 1 LIMIT 1`);
+    const hasDups = dupCheck.rows.length > 0;
+
+    if (!hasConstraint || hasNulls || hasDups) {
+      console.error(`\n=== STARTUP ERROR ===`);
+      console.error(`AGGREGATION_LAYER="${POLYGON_FILE}" — column "${pkName}" exists in table "${POLYGON_TABLE}",`);
+      console.error(`but it does NOT meet Primary Key requirements:`);
+      if (hasNulls) console.error(`  ✗ Column "${pkName}" contains NULL values`);
+      if (hasDups) console.error(`  ✗ Column "${pkName}" contains duplicate values`);
+      if (!hasConstraint) console.error(`  ✗ Column "${pkName}" has no PRIMARY KEY or UNIQUE constraint`);
+      console.error(`Primary_Keys must reference columns that are unique, not-null, and suitable as identifiers.`);
+      console.error(`System cannot start. Exiting.\n`);
+      process.exit(1);
+    }
+  }
+
+  console.log(`[✓] AGGREGATION_LAYER="${POLYGON_FILE}" — table "${POLYGON_TABLE}" validated with Primary Keys: [${POLYGON_PKS_INPUT.join(', ')}]`);
+}
 
 
 
@@ -108,13 +190,13 @@ async function ensureDbConnectionWithRetry(retry = 6, delayMs = 1500) {
   for (let i = 0; i < retry; i++) {
     try {
       await pool.query('SELECT 1');
-      console.log('[DB] bağlantı başarılı.');
+      console.log('[✓] Database connection established.');
       return;
     } catch (e) {
       const last = i === retry - 1;
-      console.error(`[DB] bağlantı hatası (deneme ${i + 1}/${retry}):`, e.message || e);
+      console.warn(`[DB] connection retry (attempt ${i + 1}/${retry}):`, e.message || e);
       if (last) {
-        console.error('[DB] bağlantı kurulamadı, uygulama yine de başlıyor (istek geldiğinde tekrar denenecek).');
+        console.warn('[DB] Could not connect, will retry on first request.');
         return;
       }
       await new Promise((r) => setTimeout(r, delayMs));
@@ -127,13 +209,13 @@ ensureDbConnectionWithRetry()
     try {
       await pool.query(`ALTER TABLE public.event DROP COLUMN IF EXISTS photo_url CASCADE`);
       await pool.query(`ALTER TABLE public.event DROP COLUMN IF EXISTS video_url CASCADE`);
-      console.log('[DB] legacy photo_url/video_url kolonları varsa temizlendi.');
+      
     } catch (e) {
       console.warn('[DB][WARN] legacy kolon temizlik adımı:', e.message);
     }
   })
   .catch((e) => {
-    console.error('[DB] açılış/migration hatası:', e && e.message ? e.message : e);
+    console.error('[DB] Migration error:', e?.message || e);
   });
 
 
@@ -678,7 +760,7 @@ app.get(/^\/raster\/(.+)$/, (req, res) => {
 
 // GET /api/polygon-layer  –  Serve the env-configured polygon layer as GeoJSON
 app.get('/api/polygon-layer', async (req, res) => {
-  console.log('[polygon-layer] POLYGON_TABLE =', POLYGON_TABLE, '| POLYGON_PKS =', POLYGON_PKS.map(p=>p.name));
+  
   if (!POLYGON_TABLE) {
     return res.json({ type: 'FeatureCollection', features: [] });
   }
@@ -1053,7 +1135,7 @@ async function _ingestTick() {
   _ingestBusy = true;
   try {
     const result = await ingestQFieldFolder(QFIELD_SYNC_ROOT);
-    if (result?.updated) console.log(`[QFIELD] ingest: ${result.updated} kayıt güncellendi.`);
+    
   } catch (e) {
     console.warn('[QFIELD] ingest hata:', e.message || e);
   } finally {
@@ -1063,10 +1145,10 @@ async function _ingestTick() {
 
 function startQFieldIngestLoop() {
   if (!QFIELD_SYNC_ROOT) {
-    console.log('[QFIELD] QFIELD_SYNC_ROOT tanımlı değil; arka plan ingest devre dışı.');
+    
     return;
   }
-  console.log(`[QFIELD] arka plan ingest aktif. Kök: ${QFIELD_SYNC_ROOT} | interval: ${QFIELD_INGEST_INTERVAL_MS}ms`);
+  
   setInterval(_ingestTick, QFIELD_INGEST_INTERVAL_MS);
 
   _ingestTick();
@@ -1354,7 +1436,6 @@ async function migratePlainTotpOnBoot() {
         throw e;
       }
     }
-    if (rows.length) console.log(`[2FA] ${rows.length} kullanıcı için TOTP secret şifrelendi.`);
   } catch (e) {
     console.error('[2FA] Açılışta şifreleme hatası:', e);
   } finally {
@@ -1365,14 +1446,14 @@ migratePlainTotpOnBoot();
 
 /* ===================== DB Şema + Triggerlar (TEXT JSON) ===================== */
 async function ensureDbSqlHelpers() {
-  console.log('[DB] SQL helpers kurulumu başlıyor...');
+  
 
   async function run(name, sql) {
     try {
       await pool.query(sql);
-      console.log(`[DB][OK] ${name}`);
+      
     } catch (e) {
-      console.warn(`[DB][WARN] ${name} step failed: ${e.message}`);
+      
     }
   }
 
@@ -1382,10 +1463,10 @@ async function ensureDbSqlHelpers() {
       await c.query('BEGIN');
       await fn(c);
       await c.query('COMMIT');
-      console.log(`[DB][OK] ${name}`);
+      
     } catch (e) {
       try { await c.query('ROLLBACK'); } catch {}
-      console.warn(`[DB][WARN] ${name} step failed: ${e.message}`);
+      
     } finally {
       c.release();
     }
@@ -1538,14 +1619,14 @@ async function ensureDbSqlHelpers() {
         // Create column in event table with matching type
         await run(`event add "${pkName}"`, `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS "${safePk}" ${olayColType}`);
         validPks.push({ name: pkName, safeName: safePk, type: olayColType });
-        console.log(`[PK] ✓ Column "${pkName}" validated (${olayColType}) and added to event table`);
+        
 
       } catch(e) {
         console.warn(`[PK] Error validating "${pkName}": ${e.message}`);
       }
     }
     POLYGON_PKS = validPks;
-    console.log('[PK] Validated Primary Keys:', POLYGON_PKS.map(p => p.name));
+    
   }
 
   await run('event add deactivated_by_name', `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS deactivated_by_name text`);
@@ -1989,7 +2070,7 @@ async function ensureDbSqlHelpers() {
       WHERE role='supervisor' AND two_factor_norm_hash IS NOT NULL
   `);
 
-  console.log('[DB] SQL helpers + TEXT(JSON) attachments kuruldu/migre edildi (adım adım).');
+  
 }
 
 
@@ -2013,7 +2094,7 @@ async function startTotpListener() {
           await listenClient.query(`SELECT set_config('app.bypass_totp_check','1',true)`);
           await listenClient.query('UPDATE users SET two_factor_secret=$1, two_factor_enabled=TRUE WHERE id=$2', [enc, id]);
           await listenClient.query('COMMIT');
-          console.log(`[2FA] Kullanıcı #${id} için TOTP şifrelendi (NOTIFY).`);
+          
         } catch (e) {
           try { await listenClient.query('ROLLBACK'); } catch {}
           console.error('[2FA] NOTIFY işleme hatası:', e);
@@ -2026,7 +2107,7 @@ async function startTotpListener() {
       console.error('[LISTEN] bağlantı hatası:', e);
       setTimeout(startTotpListener, 2000);
     });
-    console.log('[LISTEN] encrypt_totp kanalına abone olundu.');
+    
   } catch (e) {
     console.error('[LISTEN] kanal başlatılamadı:', e);
   }
@@ -2489,7 +2570,7 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
     const showGood = SHOW_GOOD_EVENTS_ON_LOGIN;
     const showBad = SHOW_BAD_EVENTS_ON_LOGIN;
     
-    console.log('[/api/events_all] Anonim istek - showGood:', showGood, 'showBad:', showBad);
+    
     
     if (!showGood && !showBad) {
       return res.status(401).json({ error: 'unauthenticated', message: getErrorMessage(req, 'unauthenticated') });
@@ -2559,7 +2640,7 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
         is_mine: false,
       }));
       
-      console.log('[/api/events_all] Filtreleme sonrası event count:', rows.length);
+      
     }
 
     res.json(rows);
@@ -3452,8 +3533,8 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
   try {
     let eventIds = req.body?.eventIds || req.body?.events || [];
     
-    console.log('[GeoJSON Export] Gelen body:', JSON.stringify(req.body).substring(0, 200));
-    console.log('[GeoJSON Export] eventIds tipi:', typeof eventIds, 'Array mi?', Array.isArray(eventIds));
+    
+    
     
     if (!Array.isArray(eventIds) || eventIds.length === 0) {
       return res.status(400).json({ error: 'bos_liste', message: getErrorMessage(req, 'bos_liste') });
@@ -3468,7 +3549,7 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
       })
       .filter(id => !isNaN(id) && id > 0);
     
-    console.log('[GeoJSON Export] Geçerli ID sayısı:', validIds.length);
+    
     
     if (validIds.length === 0) {
       return res.status(400).json({ error: 'gecersiz_idler', message: getErrorMessage(req, 'gecersiz_idler') });
@@ -3509,7 +3590,7 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'olay_yok', message: getErrorMessage(req, 'olay_yok') });
     }
     
-    console.log('[GeoJSON Export] Bulunan event count:', rows.length);
+    
     
     const features = rows.map(row => {
       // Build properties from all columns dynamically
@@ -3703,16 +3784,24 @@ async function ensureOlaylarSchema(){
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS is_polygon boolean DEFAULT false`);
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS layer_table text`);
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS attribute_column text`);
-    console.log('[SCHEMA] event_type table kontrol edildi');
+    
   } catch(e) {
-    console.error('[SCHEMA] event_type column ekleme hatası:', e.message);
+    
   } finally {
     client.release();
   }
 }
 
-ensureOlaylarSchema().then(() => {
-  const server = app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
+ensureOlaylarSchema().then(async () => {
+  // Validate AGGREGATION_LAYER + Primary_Keys before starting
+  try {
+    await validateAggregationConfig();
+  } catch (e) {
+    console.error('[STARTUP] Aggregation config validation error:', e.message);
+    process.exit(1);
+  }
+
+  const server = app.listen(PORT, () => console.log(`[✓] Server running at http://localhost:${PORT}`));
 
   // Yuk altinda baglanti kopmasini onle
   server.keepAliveTimeout = 65000;

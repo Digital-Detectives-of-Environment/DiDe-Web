@@ -910,8 +910,8 @@ input[type="password"]{
 }
 
 
-#olay_turu,
-select#olay_turu{
+#event_type,
+select#event_type{
   height: auto !important;
   max-height: 120px !important; 
   overflow-y: auto !important;
@@ -919,11 +919,11 @@ select#olay_turu{
   padding: clamp(6px, 1.2vw, 10px);
 }
 
-#olay_turu::-webkit-scrollbar{ 
+#event_type::-webkit-scrollbar{ 
   width: 8px; 
 }
 
-#olay_turu::-webkit-scrollbar-thumb{ 
+#event_type::-webkit-scrollbar-thumb{ 
   background:#d1d5db; 
   border-radius:6px; 
   border:1px solid #fff; 
@@ -931,12 +931,12 @@ select#olay_turu{
 
 
 @media (max-width: 576px){
-  #olay_turu,
-  select#olay_turu{
+  #event_type,
+  select#event_type{
     max-height: 100px !important;
   }
   
-  #olay_turu::-webkit-scrollbar{ 
+  #event_type::-webkit-scrollbar{ 
     width: 6px;
   }
 }
