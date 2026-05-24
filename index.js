@@ -51,94 +51,7 @@ let POLYGON_PKS = [];
 const POLYGON_PK1 = POLYGON_PKS_INPUT[0] || '';
 const POLYGON_PK2 = POLYGON_PKS_INPUT[1] || '';
 
-async function validateAggregationConfig() {
-  if (!POLYGON_FILE) {
-    console.log('[CONFIG] AGGREGATION_LAYER is empty — grid features disabled, running without spatial grid.');
-    return;
-  }
-
-  // 1) Check if table exists in DB
-  const tableCheck = await pool.query(
-    `SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND LOWER(table_name)=LOWER($1) LIMIT 1`,
-    [POLYGON_TABLE]
-  );
-
-  if (tableCheck.rows.length === 0) {
-    console.error(`\n=== STARTUP ERROR ===`);
-    console.error(`AGGREGATION_LAYER="${POLYGON_FILE}" is set, but the table "${POLYGON_TABLE}" does NOT exist in the database.`);
-    console.error(`Please import your aggregation layer table into the database first.`);
-    if (!PRIMARY_KEYS_RAW) {
-      console.error(`Also, Primary_Keys parameter is empty — when AGGREGATION_LAYER is set, Primary_Keys must also be configured.`);
-    }
-    console.error(`System cannot start. Exiting.\n`);
-    process.exit(1);
-  }
-
-  // 2) Check if Primary_Keys is set
-  if (!PRIMARY_KEYS_RAW) {
-    console.error(`\n=== STARTUP ERROR ===`);
-    console.error(`AGGREGATION_LAYER="${POLYGON_FILE}" is set and table "${POLYGON_TABLE}" exists in the database.`);
-    console.error(`However, Primary_Keys is empty. When AGGREGATION_LAYER is configured, you must also set Primary_Keys`);
-    console.error(`with at least one primary key column of this table (e.g. Primary_Keys=h3_id or Primary_Keys=gid;fid).`);
-    console.error(`System cannot start. Exiting.\n`);
-    process.exit(1);
-  }
-
-  // 3) Validate each PK column
-  for (const pkName of POLYGON_PKS_INPUT) {
-    const safePk = assertSafeIdent(pkName, 'column');
-    const safeTable = assertSafeIdent(POLYGON_TABLE, 'table');
-
-    // Check column exists
-    const colCheck = await pool.query(
-      `SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema='public' AND LOWER(table_name)=LOWER($1) AND LOWER(column_name)=LOWER($2)`,
-      [POLYGON_TABLE, pkName]
-    );
-    if (colCheck.rows.length === 0) {
-      console.error(`\n=== STARTUP ERROR ===`);
-      console.error(`AGGREGATION_LAYER="${POLYGON_FILE}" — column "${pkName}" does NOT exist in table "${POLYGON_TABLE}".`);
-      console.error(`Please check your Primary_Keys configuration and ensure the column name is correct.`);
-      console.error(`System cannot start. Exiting.\n`);
-      process.exit(1);
-    }
-
-    // Check PK/UNIQUE constraint
-    const constraintCheck = await pool.query(`
-      SELECT 1 FROM information_schema.table_constraints tc
-      JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
-      WHERE tc.table_schema='public' AND LOWER(tc.table_name)=LOWER($1) AND LOWER(ccu.column_name)=LOWER($2)
-        AND tc.constraint_type IN ('UNIQUE','PRIMARY KEY')
-      LIMIT 1`, [POLYGON_TABLE, pkName]);
-    const idxCheck = await pool.query(`
-      SELECT 1 FROM pg_indexes
-      WHERE LOWER(tablename)=LOWER($1) AND indexdef ILIKE '%UNIQUE%' AND LOWER(indexdef) LIKE '%' || LOWER($2) || '%'
-      LIMIT 1`, [POLYGON_TABLE, pkName]);
-
-    const hasConstraint = constraintCheck.rows.length > 0 || idxCheck.rows.length > 0;
-
-    // Check for NULLs
-    const nullCheck = await pool.query(`SELECT COUNT(*) as cnt FROM public.${safeTable} WHERE ${safePk} IS NULL`);
-    const hasNulls = parseInt(nullCheck.rows[0].cnt) > 0;
-
-    // Check for duplicates
-    const dupCheck = await pool.query(`SELECT ${safePk}, COUNT(*) FROM public.${safeTable} GROUP BY ${safePk} HAVING COUNT(*) > 1 LIMIT 1`);
-    const hasDups = dupCheck.rows.length > 0;
-
-    if (!hasConstraint || hasNulls || hasDups) {
-      console.error(`\n=== STARTUP ERROR ===`);
-      console.error(`AGGREGATION_LAYER="${POLYGON_FILE}" — column "${pkName}" exists in table "${POLYGON_TABLE}",`);
-      console.error(`but it does NOT meet Primary Key requirements:`);
-      if (hasNulls) console.error(`  ✗ Column "${pkName}" contains NULL values`);
-      if (hasDups) console.error(`  ✗ Column "${pkName}" contains duplicate values`);
-      if (!hasConstraint) console.error(`  ✗ Column "${pkName}" has no PRIMARY KEY or UNIQUE constraint`);
-      console.error(`Primary_Keys must reference columns that are unique, not-null, and suitable as identifiers.`);
-      console.error(`System cannot start. Exiting.\n`);
-      process.exit(1);
-    }
-  }
-
-  console.log(`[✓] AGGREGATION_LAYER="${POLYGON_FILE}" — table "${POLYGON_TABLE}" validated with Primary Keys: [${POLYGON_PKS_INPUT.join(', ')}]`);
-}
+// Config loaded silently — validation happens in ensureDbSqlHelpers()
 
 
 
@@ -190,13 +103,13 @@ async function ensureDbConnectionWithRetry(retry = 6, delayMs = 1500) {
   for (let i = 0; i < retry; i++) {
     try {
       await pool.query('SELECT 1');
-      console.log('[✓] Database connection established.');
+      // DB connected
       return;
     } catch (e) {
       const last = i === retry - 1;
-      console.warn(`[DB] connection retry (attempt ${i + 1}/${retry}):`, e.message || e);
+      console.error(`[DB] bağlantı hatası (deneme ${i + 1}/${retry}):`, e.message || e);
       if (last) {
-        console.warn('[DB] Could not connect, will retry on first request.');
+        console.error('[DB] bağlantı kurulamadı, uygulama yine de başlıyor (istek geldiğinde tekrar denenecek).');
         return;
       }
       await new Promise((r) => setTimeout(r, delayMs));
@@ -209,13 +122,12 @@ ensureDbConnectionWithRetry()
     try {
       await pool.query(`ALTER TABLE public.event DROP COLUMN IF EXISTS photo_url CASCADE`);
       await pool.query(`ALTER TABLE public.event DROP COLUMN IF EXISTS video_url CASCADE`);
-      
     } catch (e) {
-      console.warn('[DB][WARN] legacy kolon temizlik adımı:', e.message);
+      // ignore
     }
   })
   .catch((e) => {
-    console.error('[DB] Migration error:', e?.message || e);
+    console.error('[FATAL] Database startup error:', e && e.message ? e.message : e);
   });
 
 
@@ -760,7 +672,6 @@ app.get(/^\/raster\/(.+)$/, (req, res) => {
 
 // GET /api/polygon-layer  –  Serve the env-configured polygon layer as GeoJSON
 app.get('/api/polygon-layer', async (req, res) => {
-  
   if (!POLYGON_TABLE) {
     return res.json({ type: 'FeatureCollection', features: [] });
   }
@@ -1135,7 +1046,7 @@ async function _ingestTick() {
   _ingestBusy = true;
   try {
     const result = await ingestQFieldFolder(QFIELD_SYNC_ROOT);
-    
+    if (result?.updated) console.log(`[QFIELD] ingest: ${result.updated} kayıt güncellendi.`);
   } catch (e) {
     console.warn('[QFIELD] ingest hata:', e.message || e);
   } finally {
@@ -1145,10 +1056,9 @@ async function _ingestTick() {
 
 function startQFieldIngestLoop() {
   if (!QFIELD_SYNC_ROOT) {
-    
     return;
   }
-  
+  console.log(`[QFIELD] arka plan ingest aktif. Kök: ${QFIELD_SYNC_ROOT} | interval: ${QFIELD_INGEST_INTERVAL_MS}ms`);
   setInterval(_ingestTick, QFIELD_INGEST_INTERVAL_MS);
 
   _ingestTick();
@@ -1446,14 +1356,14 @@ migratePlainTotpOnBoot();
 
 /* ===================== DB Şema + Triggerlar (TEXT JSON) ===================== */
 async function ensureDbSqlHelpers() {
-  
-
   async function run(name, sql) {
     try {
       await pool.query(sql);
-      
     } catch (e) {
-      
+      // Only warn on unexpected errors, not "already exists" type
+      if (!e.message.includes('already exists') && !e.message.includes('does not exist')) {
+        console.warn(`[DB][WARN] ${name}: ${e.message}`);
+      }
     }
   }
 
@@ -1463,10 +1373,11 @@ async function ensureDbSqlHelpers() {
       await c.query('BEGIN');
       await fn(c);
       await c.query('COMMIT');
-      
     } catch (e) {
       try { await c.query('ROLLBACK'); } catch {}
-      
+      if (!e.message.includes('already exists') && !e.message.includes('does not exist')) {
+        console.warn(`[DB][WARN] ${name}: ${e.message}`);
+      }
     } finally {
       c.release();
     }
@@ -1544,13 +1455,41 @@ async function ensureDbSqlHelpers() {
   await run('event drop legacy PK1',         `ALTER TABLE public.event DROP COLUMN IF EXISTS "PK1"`);
   await run('event drop legacy PK2',         `ALTER TABLE public.event DROP COLUMN IF EXISTS "PK2"`);
 
-  // Validate Primary_Keys columns against aggregation layer table
-  if (POLYGON_TABLE && POLYGON_PKS_INPUT.length > 0) {
+  // ==================== AGGREGATION_LAYER & Primary_Keys VALIDATION ====================
+  if (POLYGON_TABLE) {
+    // Step 1: Check if the table exists in the database
+    const tableCheck = await pool.query(`
+      SELECT 1 FROM information_schema.tables 
+      WHERE table_schema='public' AND LOWER(table_name)=LOWER($1) LIMIT 1
+    `, [POLYGON_TABLE]);
+
+    if (tableCheck.rows.length === 0) {
+      console.error(`\n[FATAL] AGGREGATION_LAYER="${POLYGON_FILE}" → table "${POLYGON_TABLE}" does NOT exist in the database.`);
+      console.error(`        Please import your aggregation layer table into the database first.`);
+      if (POLYGON_PKS_INPUT.length === 0) {
+        console.error(`        Also, when AGGREGATION_LAYER is set, Primary_Keys parameter is required (e.g. Primary_Keys=h3_id).`);
+      }
+      console.error(`        System cannot start. Exiting.\n`);
+      process.exit(1);
+    }
+
+    // Step 2: Check if Primary_Keys is provided
+    if (POLYGON_PKS_INPUT.length === 0) {
+      console.error(`\n[FATAL] AGGREGATION_LAYER="${POLYGON_FILE}" → table "${POLYGON_TABLE}" exists in the database.`);
+      console.error(`        However, Primary_Keys parameter is EMPTY.`);
+      console.error(`        When AGGREGATION_LAYER is set, you must also set Primary_Keys with at least one column`);
+      console.error(`        that uniquely identifies each row (e.g. Primary_Keys=h3_id).`);
+      console.error(`        System cannot start. Exiting.\n`);
+      process.exit(1);
+    }
+
+    // Step 3: Validate each Primary_Key column
     const validPks = [];
     for (const pkName of POLYGON_PKS_INPUT) {
       try {
         const safePk = assertSafeIdent(pkName, 'column');
-        // Check if column exists, is NOT NULL, and is UNIQUE in the aggregation layer table
+        
+        // Check column exists
         const colInfo = await pool.query(`
           SELECT c.data_type, c.is_nullable
           FROM information_schema.columns c
@@ -1558,76 +1497,56 @@ async function ensureDbSqlHelpers() {
         `, [POLYGON_TABLE, pkName]);
         
         if (colInfo.rows.length === 0) {
-          console.warn(`[PK] Column "${pkName}" not found in ${POLYGON_TABLE}, skipping`);
-          continue;
+          console.error(`\n[FATAL] Primary_Keys column "${pkName}" does NOT exist in table "${POLYGON_TABLE}".`);
+          console.error(`        Available columns can be checked in your database. System cannot start. Exiting.\n`);
+          process.exit(1);
         }
 
-        // Check NOT NULL
-        const isNullable = colInfo.rows[0].is_nullable === 'YES';
-        // Check UNIQUE (unique constraint or primary key)
-        const uniqCheck = await pool.query(`
-          SELECT 1 FROM information_schema.table_constraints tc
-          JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
-          WHERE tc.table_schema='public' AND LOWER(tc.table_name)=LOWER($1)
-            AND LOWER(ccu.column_name)=LOWER($2)
-            AND tc.constraint_type IN ('UNIQUE','PRIMARY KEY')
-          LIMIT 1
-        `, [POLYGON_TABLE, pkName]);
-
-        // Also check unique indexes
-        const idxCheck = await pool.query(`
-          SELECT 1 FROM pg_indexes
-          WHERE LOWER(tablename)=LOWER($1)
-            AND indexdef ILIKE '%UNIQUE%'
-            AND LOWER(indexdef) LIKE '%' || LOWER($2) || '%'
-          LIMIT 1
-        `, [POLYGON_TABLE, pkName]);
-
-        const isUnique = uniqCheck.rows.length > 0 || idxCheck.rows.length > 0;
-
-        if (isNullable) {
-          // Check if actually has NULLs
-          const safeTable = assertSafeIdent(POLYGON_TABLE, 'table');
-          const nullCount = await pool.query(`SELECT COUNT(*) as cnt FROM public.${safeTable} WHERE ${safePk} IS NULL`);
-          if (parseInt(nullCount.rows[0].cnt) > 0) {
-            console.warn(`[PK] Column "${pkName}" in ${POLYGON_TABLE} has NULL values, skipping`);
-            continue;
-          }
+        // Check for NULL values in actual data
+        const safeTable = assertSafeIdent(POLYGON_TABLE, 'table');
+        const nullCount = await pool.query(`SELECT COUNT(*) as cnt FROM public.${safeTable} WHERE ${safePk} IS NULL`);
+        if (parseInt(nullCount.rows[0].cnt) > 0) {
+          console.error(`\n[FATAL] Primary_Keys column "${pkName}" in table "${POLYGON_TABLE}" contains NULL values.`);
+          console.error(`        A Primary Key column must have NO null values. This column has ${nullCount.rows[0].cnt} null(s).`);
+          console.error(`        System cannot start. Exiting.\n`);
+          process.exit(1);
         }
 
-        if (!isUnique) {
-          // Check if values are actually unique
-          const safeTable = assertSafeIdent(POLYGON_TABLE, 'table');
-          const dupCheck = await pool.query(`
-            SELECT ${safePk}, COUNT(*) FROM public.${safeTable} GROUP BY ${safePk} HAVING COUNT(*) > 1 LIMIT 1
-          `);
-          if (dupCheck.rows.length > 0) {
-            console.warn(`[PK] Column "${pkName}" in ${POLYGON_TABLE} has duplicate values, skipping`);
-            continue;
-          }
+        // Check for duplicate values in actual data
+        const dupCheck = await pool.query(`
+          SELECT ${safePk}, COUNT(*) FROM public.${safeTable} GROUP BY ${safePk} HAVING COUNT(*) > 1 LIMIT 1
+        `);
+        if (dupCheck.rows.length > 0) {
+          console.error(`\n[FATAL] Primary_Keys column "${pkName}" in table "${POLYGON_TABLE}" contains DUPLICATE values.`);
+          console.error(`        A Primary Key column must have all UNIQUE values.`);
+          console.error(`        System cannot start. Exiting.\n`);
+          process.exit(1);
         }
 
-        // Determine column type for event table
+        // Column passed validation — determine type
         const srcType = colInfo.rows[0].data_type;
-        let olayColType = 'text';
+        let eventColType = 'text';
         if (['integer','bigint','smallint','int','int4','int8','int2'].includes(srcType)) {
-          olayColType = 'integer';
+          eventColType = 'integer';
         } else if (['numeric','real','double precision','float4','float8'].includes(srcType)) {
-          olayColType = 'numeric';
+          eventColType = 'numeric';
         }
 
-        // Create column in event table with matching type
-        await run(`event add "${pkName}"`, `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS "${safePk}" ${olayColType}`);
-        validPks.push({ name: pkName, safeName: safePk, type: olayColType });
-        
+        // Add column to event table
+        await run(`event add "${pkName}"`, `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS "${safePk}" ${eventColType}`);
+        validPks.push({ name: pkName, safeName: safePk, type: eventColType });
 
       } catch(e) {
-        console.warn(`[PK] Error validating "${pkName}": ${e.message}`);
+        if (e.message?.includes('Exiting')) throw e; // re-throw exit errors
+        console.error(`\n[FATAL] Error validating Primary_Keys column "${pkName}": ${e.message}`);
+        console.error(`        System cannot start. Exiting.\n`);
+        process.exit(1);
       }
     }
     POLYGON_PKS = validPks;
-    
+    console.log(`[OK] Aggregation layer "${POLYGON_TABLE}" validated with Primary Keys: [${POLYGON_PKS.map(p => p.name).join(', ')}]`);
   }
+  // ==================== END VALIDATION ====================
 
   await run('event add deactivated_by_name', `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS deactivated_by_name text`);
   await run('event add deactivated_by_role', `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS deactivated_by_role_name text`);
@@ -2070,7 +1989,6 @@ async function ensureDbSqlHelpers() {
       WHERE role='supervisor' AND two_factor_norm_hash IS NOT NULL
   `);
 
-  
 }
 
 
@@ -2094,7 +2012,6 @@ async function startTotpListener() {
           await listenClient.query(`SELECT set_config('app.bypass_totp_check','1',true)`);
           await listenClient.query('UPDATE users SET two_factor_secret=$1, two_factor_enabled=TRUE WHERE id=$2', [enc, id]);
           await listenClient.query('COMMIT');
-          
         } catch (e) {
           try { await listenClient.query('ROLLBACK'); } catch {}
           console.error('[2FA] NOTIFY işleme hatası:', e);
@@ -2107,7 +2024,6 @@ async function startTotpListener() {
       console.error('[LISTEN] bağlantı hatası:', e);
       setTimeout(startTotpListener, 2000);
     });
-    
   } catch (e) {
     console.error('[LISTEN] kanal başlatılamadı:', e);
   }
@@ -2571,7 +2487,6 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
     const showBad = SHOW_BAD_EVENTS_ON_LOGIN;
     
     
-    
     if (!showGood && !showBad) {
       return res.status(401).json({ error: 'unauthenticated', message: getErrorMessage(req, 'unauthenticated') });
     }
@@ -2639,7 +2554,6 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
         created_by_username: null,
         is_mine: false,
       }));
-      
       
     }
 
@@ -3534,8 +3448,6 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
     let eventIds = req.body?.eventIds || req.body?.events || [];
     
     
-    
-    
     if (!Array.isArray(eventIds) || eventIds.length === 0) {
       return res.status(400).json({ error: 'bos_liste', message: getErrorMessage(req, 'bos_liste') });
     }
@@ -3548,7 +3460,6 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
         return parseInt(id, 10);
       })
       .filter(id => !isNaN(id) && id > 0);
-    
     
     
     if (validIds.length === 0) {
@@ -3589,7 +3500,6 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({ error: 'olay_yok', message: getErrorMessage(req, 'olay_yok') });
     }
-    
     
     
     const features = rows.map(row => {
@@ -3784,24 +3694,15 @@ async function ensureOlaylarSchema(){
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS is_polygon boolean DEFAULT false`);
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS layer_table text`);
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS attribute_column text`);
-    
   } catch(e) {
-    
+    console.error('[SCHEMA] event_type column ekleme hatası:', e.message);
   } finally {
     client.release();
   }
 }
 
-ensureOlaylarSchema().then(async () => {
-  // Validate AGGREGATION_LAYER + Primary_Keys before starting
-  try {
-    await validateAggregationConfig();
-  } catch (e) {
-    console.error('[STARTUP] Aggregation config validation error:', e.message);
-    process.exit(1);
-  }
-
-  const server = app.listen(PORT, () => console.log(`[✓] Server running at http://localhost:${PORT}`));
+ensureOlaylarSchema().then(() => {
+  const server = app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
 
   // Yuk altinda baglanti kopmasini onle
   server.keepAliveTimeout = 65000;

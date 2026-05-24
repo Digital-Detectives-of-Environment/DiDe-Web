@@ -148,36 +148,66 @@ This creates the `users`, `olaylar` (event types), and `olay` (events) tables. F
 Create a `.env` file in the project root directory. For all parameters, see [Environment Variables](#environment-variables). Minimum configuration for local development:
 
 ```env
+# ── SERVER ──
 PORT=3000
 CORS_ORIGIN=http://localhost:3000
 
+# ── POSTGRESQL DATABASE ──
 PGHOST=127.0.0.1
 PGPORT=5432
 PGUSER=postgres
-PGPASSWORD=
-PGDATABASE=
+PGPASSWORD=your_password
+PGDATABASE=dide_db
+PGPOOL_MAX=150
 
+# ── JWT SECURITY ──
 JWT_SECRET=dev-secret
 JWT_EXPIRES=7d
 
+# ── COOKIE SETTINGS ──
 COOKIE_SAMESITE=lax
-COOKIE_SECURE=false
+COOKIE_SECURE=false                     # Set to true in production
 
-FORCE_EMAIL_VERIFY=false
+# ── EMAIL VERIFICATION ──
+VERIFY_EMAIL_TEXT=terms_conditions.html
 
+# ── SMTP EMAIL ──
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your@gmail.com
+SMTP_PASS=app_password
+SMTP_FROM_NAME=DiDe
+SMTP_FROM_EMAIL=your@gmail.com
+
+# ── SITE SETTINGS ──
 SITE_TITLE=DiDe
 SITE_LOGO_URL=/DiDe-Logo.png
 
+# ── ALLOWED EMAIL DOMAINS FOR REGISTRATION ──
+ALLOWED_EMAIL_DOMAIN=gmail.com;outlook.com
+
+# ── TABLE PAGINATION ──
+TABLE_PAGE_SIZE_EVENTS=25
+TABLE_PAGE_SIZE_TYPES=20
+TABLE_PAGE_SIZE_USERS=30
+
+# ── MAP SETTINGS ──
 MAP_INITIAL_LAT=45.4642
 MAP_INITIAL_LNG=9.1900
 MAP_INITIAL_ZOOM=6
 MAP_MIN_ZOOM=2
 
-DEFAULT_LANG=TR
+# ── EVENT VISIBILITY (LOGGED-OUT USERS) ──
+SHOW_GOOD_EVENTS_ON_LOGIN=true
+SHOW_BAD_EVENTS_ON_LOGIN=false
 
-AGGREGATION_LAYER=
-PK1=
-PK2=
+# ── LANGUAGE SETTING ──
+DEFAULT_LANG=TR                         # TR, EN, IT, etc. (file name in i18n/)
+
+# ── GIS / AGGREGATION SETTINGS ──
+AGGREGATION_LAYER=                      # e.g. h3_milan
+Primary_Keys= 
 ```
 
 ### Step 7: Start the Application
@@ -279,8 +309,7 @@ psql -U postgres -d dide_db -f case_study/Milano/aggregation_layer/h3_milan.sql
 2. Update the `.env` file:
 ```env
 AGGREGATION_LAYER=h3_milan
-PK1=h3_index
-PK2=
+Primary_Keys=h3_index
 ```
 
 3. Restart the application (`npm start` or `pm2 restart dide`).
@@ -444,10 +473,10 @@ PGPORT=5432
 PGUSER=postgres
 PGPASSWORD=your_password
 PGDATABASE=dide_db
-PGPOOL_MAX=10
+PGPOOL_MAX=150
 
 # ── JWT SECURITY ──
-JWT_SECRET=change-this-secret-key
+JWT_SECRET=dev-secret
 JWT_EXPIRES=7d
 
 # ── COOKIE SETTINGS ──
@@ -455,7 +484,6 @@ COOKIE_SAMESITE=lax
 COOKIE_SECURE=false                     # Set to true in production
 
 # ── EMAIL VERIFICATION ──
-FORCE_EMAIL_VERIFY=true
 VERIFY_EMAIL_TEXT=terms_conditions.html
 
 # ── SMTP EMAIL ──
@@ -494,8 +522,7 @@ DEFAULT_LANG=TR                         # TR, EN, IT, etc. (file name in i18n/)
 
 # ── GIS / AGGREGATION SETTINGS ──
 AGGREGATION_LAYER=                      # e.g. h3_milan
-PK1=                                    # Primary key column (fill in at least one)
-PK2=                                    # Secondary key column (optional)
+Primary_Keys=                                                                     
 ```
 
 > **For Gmail users:** Enable 2-Step Verification in your Google Account, then generate an App Password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) and use it as `SMTP_PASS`.
