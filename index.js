@@ -341,8 +341,8 @@ async function ensureTargetHasOlayTuru(table) {
 function publicGoodBadWhere() {
   // env: showGoodEventsOnLogin / showBadEventsOnLogin
   if (SHOW_GOOD_EVENTS_ON_LOGIN && SHOW_BAD_EVENTS_ON_LOGIN) return `TRUE`;
-  if (SHOW_GOOD_EVENTS_ON_LOGIN && !SHOW_BAD_EVENTS_ON_LOGIN) return `o."public" = TRUE`;
-  if (!SHOW_GOOD_EVENTS_ON_LOGIN && SHOW_BAD_EVENTS_ON_LOGIN) return `o."public" = FALSE`;
+  if (SHOW_GOOD_EVENTS_ON_LOGIN && !SHOW_BAD_EVENTS_ON_LOGIN) return `o."public_" = TRUE`;
+  if (!SHOW_GOOD_EVENTS_ON_LOGIN && SHOW_BAD_EVENTS_ON_LOGIN) return `o."public_" = FALSE`;
   return `FALSE`;
 }
 
@@ -411,7 +411,7 @@ app.get('/api/veri-tipi/list', mustAuth, mustSupervisor, async (req,res)=>{
         COALESCE(NULLIF(layer_table,''), 'asis') AS layer_table,
         COALESCE(NULLIF(attribute_column,''), 'event_type_name') AS attribute_column,
         event_type_name AS event_type,
-        CASE WHEN "public" THEN 'Faydali' ELSE 'Faydasiz' END AS faydali_faydasiz_mi,
+        CASE WHEN "public_" THEN 'Faydali' ELSE 'Faydasiz' END AS faydali_faydasiz_mi,
         created_by_name AS ekleyen,
         created_by_id,
         created_by_role_name,
@@ -485,7 +485,7 @@ app.post('/api/veri-tipi/wizard/create', mustAuth, mustSupervisor, async (req,re
     for(const v of values){
       const ins = await client.query(
         `INSERT INTO public.event_type
-          (event_type_name, "public", active, created_by_name, created_by_role_name, created_by_id,
+          (event_type_name, "public_", active, created_by_name, created_by_role_name, created_by_id,
            is_point, is_line, is_polygon, layer_table, attribute_column)
          VALUES
           ($1,$2,TRUE,$3,$4,$5,FALSE,$6,$7,$8,$9)
@@ -526,7 +526,7 @@ app.put('/api/veri-tipi/:event_type_id', mustAuth, mustSupervisor, async (req,re
     if(r.is_point) return res.status(400).json({ error:'point_duzenlenemez' });
     if(String(r.created_by_id) !== String(req.user.sub)) return res.status(403).json({ error:'sadece_kendi_kaydi' });
 
-    await pool.query(`UPDATE public.event_type SET "public"=$1 WHERE event_type_id=$2`, [isPublic, oId]);
+    await pool.query(`UPDATE public.event_type SET "public_"=$1 WHERE event_type_id=$2`, [isPublic, oId]);
     return res.json({ ok:true });
   }catch(e){
     return res.status(500).json({ error:'sunucu_hatasi' });
@@ -1590,6 +1590,29 @@ async function ensureDbSqlHelpers() {
   await run('event_type drop created_by legacy', `ALTER TABLE public.event_type DROP COLUMN IF EXISTS created_by`);
   await run('event_type add public',               `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS "public" boolean DEFAULT false`);
 
+  // Rename event_type."public" → "public_"  (idempotent: handles new & existing installs)
+  await tx('event_type rename public to public_', async (c) => {
+    const has_public = await c.query(
+      `SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='event_type' AND column_name='public' LIMIT 1`
+    );
+    if (has_public.rows.length > 0) {
+      await c.query(`ALTER TABLE public.event_type RENAME COLUMN "public" TO "public_"`);
+    }
+    // If neither exists yet (fresh install path where add above was also skipped), ensure public_ exists
+    const has_public_ = await c.query(
+      `SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='event_type' AND column_name='public_' LIMIT 1`
+    );
+    if (has_public_.rows.length === 0) {
+      await c.query(`ALTER TABLE public.event_type ADD COLUMN "public_" boolean DEFAULT false`);
+    }
+  });
+
+  // event: update tracking columns
+  await run('event add updated_by_name',      `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS updated_by_name text`);
+  await run('event add updated_by_role_name', `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS updated_by_role_name text`);
+  await run('event add updated_by_id',        `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS updated_by_id integer`);
+  await run('event add updated_at',           `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS updated_at timestamptz`);
+
   await tx('event_type unique(event_type_name)', async (c) => {
     try {
       await c.query(`ALTER TABLE public.event_type ADD CONSTRAINT event_type_name_key UNIQUE (event_type_name)`);
@@ -2491,7 +2514,7 @@ app.post('/api/auth/forgot/reset', async (req, res) => {
 app.get('/api/event_types', requireAuth, async (req, res) => {
   try {
     const r = await pool.query(`
-      SELECT event_type_id, event_type_name, "public", created_by_id, created_by_name,
+      SELECT event_type_id, event_type_name, "public_" AS "public", created_by_id, created_by_name,
              is_point, is_line, is_polygon 
       FROM event_type 
       WHERE COALESCE(active,true)=true 
@@ -2529,7 +2552,7 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
         o.longitude,
         o.event_type AS event_type_id,
         l.event_type_name     AS event_type_name,
-        l."public"      AS event_type_public,
+        l."public_"      AS event_type_public,
         o.description,
         o.created_by_id              AS created_by_id,
         o.created_by_name            AS created_by_username,
@@ -2843,6 +2866,12 @@ app.patch('/api/event/:id', requireAuth, async (req, res) => {
     let where = `event_id=$${idx++} AND COALESCE(active,true)=true`;
     vals.push(id);
 
+    // Güncelleme takip alanları
+    fields.push(`updated_by_name=$${idx++}`);     vals.push(req.user.username || null);
+    fields.push(`updated_by_role_name=$${idx++}`); vals.push(req.user.role || null);
+    fields.push(`updated_by_id=$${idx++}`);        vals.push(req.user.id || null);
+    fields.push(`updated_at=NOW()`);
+
     const q = `UPDATE event SET ${fields.join(', ')} WHERE ${where} RETURNING event_id, photo_urls, video_urls`;
     const r = await pool.query(q, vals);
     if (!r.rowCount) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
@@ -2921,9 +2950,9 @@ app.post('/api/admin/event_types', adminOnly, async (req, res) => {
     }
     
     const r = await pool.query(
-      `INSERT INTO event_type (event_type_name, active, "public", created_by_name, created_by_role_name, created_by_id)
+      `INSERT INTO event_type (event_type_name, active, "public_", created_by_name, created_by_role_name, created_by_id)
        VALUES ($1, true, $2, $3, $4, $5)
-       RETURNING event_type_id, event_type_name, "public", created_by_name, created_by_id, created_at`,
+       RETURNING event_type_id, event_type_name, "public_" AS "public", created_by_name, created_by_id, created_at`,
       [event_type_name, isPublic, req.user.username, req.user.role, req.user.id]
     );
     res.json({ ok: true, created: r.rows[0] });
@@ -2974,7 +3003,7 @@ app.patch('/api/admin/event_type/:id', adminOnly, async (req, res) => {
     }
     
     if (isPublic !== undefined) {
-      updates.push(`"public" = $${paramIndex++}`);
+      updates.push(`"public_" = $${paramIndex++}`);
       values.push(isPublic === true || isPublic === 'true');
     }
     
@@ -2985,7 +3014,7 @@ app.patch('/api/admin/event_type/:id', adminOnly, async (req, res) => {
     updates.push(`created_at = NOW()`);
     values.push(id);
     
-    const sql = `UPDATE event_type SET ${updates.join(', ')} WHERE event_type_id = $${paramIndex} RETURNING event_type_id, event_type_name, "public", created_at`;
+    const sql = `UPDATE event_type SET ${updates.join(', ')} WHERE event_type_id = $${paramIndex} RETURNING event_type_id, event_type_name, "public_" AS "public", created_at`;
     const r = await pool.query(sql, values);
     
     res.json({ ok: true, message: 'Olay türü güncellendi', updated: r.rows[0] });
@@ -3515,7 +3544,7 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
       SELECT 
         ${selectCols},
         l.event_type_name AS event_type_name,
-        l."public" AS event_type_public
+        l."public_" AS event_type_public
       FROM event o
       LEFT JOIN event_type l ON l.event_type_id = o.event_type
       WHERE o.event_id IN (${placeholders})
@@ -3546,8 +3575,8 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
       }
       // "event" → event_type_name join'inden (okunabilir tip adı)
       properties.event = row.event_type_name || null;
-      // "public" → event_type tablosundaki public flag'inden
-      properties.public = row.event_type_public || false;
+      // "public_" → event_type tablosundaki public_ flag'inden
+      properties.public_ = row.event_type_public || false;
 
       return {
         type: 'Feature',
@@ -3568,7 +3597,7 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
         columns: [
           ...propColumns.filter(c => c !== 'latitude' && c !== 'longitude'),
           'event',
-          'public'
+          'public_'
         ]
       }
     };

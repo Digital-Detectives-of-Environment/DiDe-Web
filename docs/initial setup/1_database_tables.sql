@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS public.event_type (
   created_by_role_name     text,
   created_by_id            integer,
   created_at               timestamptz DEFAULT now(),
-  "public"                 boolean,
+  "public_"                boolean,
   deactivated_by_name      text,
   deactivated_by_role_name text,
   deactivated_by_id        integer,
@@ -69,6 +69,10 @@ CREATE TABLE IF NOT EXISTS public.event (
   deactivated_by_id        integer,
   deactivated_at           timestamptz,
   created_at               timestamptz DEFAULT now(),
+  updated_by_name          text,
+  updated_by_role_name     text,
+  updated_by_id            integer,
+  updated_at               timestamptz,
   photo_urls               text NOT NULL DEFAULT '[]',
   video_urls               text NOT NULL DEFAULT '[]'
 );
