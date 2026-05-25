@@ -1625,10 +1625,10 @@ async function vt_refreshTable(){
       <td>${escapeHtml(rw.layer_table || '')}</td>
       <td>${escapeHtml(rw.attribute_column || '')}</td>
       <td>${escapeHtml(rw.event_type || '')}</td>
-      <td>${rw.faydali_faydasiz_mi === 'Faydali' || rw.faydali_faydasiz_mi === 'Faydalı' ? t('beneficial') : t('notBeneficial')}</td>
+      <td>${rw.faydali_faydasiz_mi === 'Faydali' || rw.faydali_faydasiz_mi === 'Faydalı' ? 'Public' : 'Private'}</td>
       <td>${escapeHtml(rw.ekleyen || '')}</td>
       <td style="display:flex; gap:8px;">
-        <button class="btn ghost" ${canEdit ? '' : 'disabled'} data-act="upd" data-id="${rw.event_type_id}">${t('update')}</button>
+        <button class="btn ghost" ${canEdit ? '' : 'disabled'} data-act="upd" data-id="${rw.event_type_id}" data-public="${rw.faydali_faydasiz_mi === 'Faydali' || rw.faydali_faydasiz_mi === 'Faydalı' ? 'true' : 'false'}">${t('update')}</button>
         <button class="btn danger" ${canEdit ? '' : 'disabled'} data-act="del" data-id="${rw.event_type_id}">${t('delete')}</button>
       </td>
     `;
@@ -1640,17 +1640,8 @@ async function vt_refreshTable(){
         if(!canEdit) return;
 
         if(act === 'upd'){
-          // sadece good değiştir
-          const good = confirm('FAYDALI yapmak için OK, FAYDASIZ için Cancel');
-          const rr = await fetch(`/api/veri-tipi/${id}`, {
-            method:'PUT',
-            headers:{ 'Content-Type':'application/json' },
-            body: JSON.stringify({ good })
-          });
-          if(rr.ok) toast('Güncellendi');
-          else toast('Güncellenemedi','error');
-          vt_refreshTable();
-          loadOlayTypes();
+          const currentPublic = b.getAttribute('data-public') === 'true';
+          openVtUpdateModal(id, currentPublic);
         }
 
         if(act === 'del'){
@@ -1669,6 +1660,64 @@ async function vt_refreshTable(){
 
   wrap.innerHTML = '';
   wrap.appendChild(table);
+}
+
+/* ==================== VT UPDATE MODAL (Existing Data) ==================== */
+function openVtUpdateModal(typeId, currentPublic) {
+  const modal = qs('#vt-update-modal');
+  const radioYes = qs('#vt-update-public-yes');
+  const radioNo  = qs('#vt-update-public-no');
+  const saveBtn  = qs('#vt-update-save-btn');
+  const cancelBtn = qs('#vt-update-cancel-btn');
+
+  if (!modal || !radioYes || !radioNo || !saveBtn || !cancelBtn) {
+    console.error('[openVtUpdateModal] Modal elements not found');
+    return;
+  }
+
+  radioYes.checked = !!currentPublic;
+  radioNo.checked  = !currentPublic;
+  showModal(modal);
+
+  // Eski listener'ları temizle
+  const newSave   = saveBtn.cloneNode(true);
+  const newCancel = cancelBtn.cloneNode(true);
+  saveBtn.parentNode.replaceChild(newSave, saveBtn);
+  cancelBtn.parentNode.replaceChild(newCancel, cancelBtn);
+
+  newCancel.onclick = () => closeModal(modal);
+
+  newSave.onclick = async () => {
+    const isPublic = qs('#vt-update-public-yes')?.checked ?? false;
+
+    if (isPublic === currentPublic) {
+      toast(t('noChanges') || 'No changes', 'error');
+      closeModal(modal);
+      return;
+    }
+
+    newSave.disabled = true;
+    try {
+      const rr = await fetch(`/api/veri-tipi/${typeId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ "public": isPublic })
+      });
+      const data = await rr.json().catch(() => ({}));
+      if (rr.ok) {
+        toast(t('typeUpdated') || 'Updated', 'success');
+        closeModal(modal);
+        vt_refreshTable();
+        loadOlayTypes();
+      } else {
+        toast((t('updateFailed') || 'Update failed') + ': ' + (data.message || data.error || rr.status), 'error');
+      }
+    } catch (e) {
+      toast((t('updateError') || 'Error') + ': ' + e.message, 'error');
+    } finally {
+      newSave.disabled = false;
+    }
+  };
 }
 
 async function vt_startWizard(){
@@ -1955,11 +2004,11 @@ function vt_renderStep(){
     body.innerHTML = `
       <label style="display:flex; gap:10px; align-items:center; margin:8px 0;">
         <input type="radio" name="vt-public" value="true" ${__veriTipiState.isPublic ? 'checked' : ''} />
-        <span>${t('beneficial')}</span>
+        <span>Public</span>
       </label>
       <label style="display:flex; gap:10px; align-items:center; margin:8px 0;">
         <input type="radio" name="vt-public" value="false" ${!__veriTipiState.isPublic ? 'checked' : ''} />
-        <span>${t('notBeneficial')}</span>
+        <span>Private</span>
       </label>
 
       <div class="muted" style="margin-top:10px;">
@@ -5089,7 +5138,7 @@ function openUpdateTypeModal(typeId, currentName, currentPublic) {
       const resp = await fetch('/api/admin/event_type/' + typeId, {
         method: 'PATCH',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({event_type_name: newName, good: newGood})
+        body: JSON.stringify({event_type_name: newName, "public": newGood})
       });
       const data = await resp.json().catch(() => ({}));
       
@@ -5504,7 +5553,7 @@ qs('#btn-add-type')?.addEventListener('click', async () => {
     const r = await fetch('/api/admin/event_types', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({event_type_name: name, good: good})
+      body: JSON.stringify({event_type_name: name, "public": good})
     });
     const data = await r.json().catch(() => ({}));
     

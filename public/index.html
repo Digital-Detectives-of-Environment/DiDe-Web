@@ -534,14 +534,14 @@
                 <input id="new-type-name" type="text" data-i18n-placeholder="newEventTypeNamePlaceholder" style="width:100%;" />
               </div>
               <div style="margin-bottom:8px;">
-                <label style="display:block; margin-bottom:6px; font-weight:500;" data-i18n="isBeneficial">Is it beneficial to citizens?</label>
+                <label style="display:block; margin-bottom:6px; font-weight:500;">Public / Private</label>
                 <label style="display:inline-flex; align-items:center; gap:4px; margin-right:16px;">
                   <input type="radio" name="new-type-good" id="new-type-good-yes" value="true" checked style="margin:0;" />
-                  <span data-i18n="beneficial">Beneficial</span>
+                  <span>Public</span>
                 </label>
                 <label style="display:inline-flex; align-items:center; gap:4px;">
                   <input type="radio" name="new-type-good" id="new-type-good-no" value="false" style="margin:0;" />
-                  <span data-i18n="notBeneficial">Not Beneficial</span>
+                  <span>Private</span>
                 </label>
               </div>
               <div>
@@ -776,18 +776,42 @@
         <input id="update-type-input" type="text" data-i18n-placeholder="typeNamePlaceholder" autocomplete="off" />
       </div>
       <div style="margin:12px 0;">
-        <label style="display:block; margin-bottom:6px; font-weight:500;" data-i18n="isBeneficial">Is it beneficial to citizens?</label>
+        <label style="display:block; margin-bottom:6px; font-weight:500;">Public / Private</label>
         <label style="display:inline-flex; align-items:center; gap:4px; margin-right:16px;">
           <input type="radio" name="update-type-good" id="update-type-good-yes" value="true" style="margin:0;" />
-          <span data-i18n="beneficial">Beneficial</span>
+          <span>Public</span>
         </label>
         <label style="display:inline-flex; align-items:center; gap:4px;">
           <input type="radio" name="update-type-good" id="update-type-good-no" value="false" style="margin:0;" />
-          <span data-i18n="notBeneficial">Not Beneficial</span>
+          <span>Private</span>
         </label>
       </div>
       <div class="row gap6" style="margin-top:8px;">
         <button id="update-type-save-btn" class="btn primary" type="button" data-i18n="save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VT UPDATE MODAL (Existing Data tab) -->
+  <div id="vt-update-modal" class="modal" aria-hidden="true">
+    <div class="box">
+      <div class="head">
+        <h4 data-i18n="update">Update</h4>
+        <button id="vt-update-cancel-btn" class="btn ghost" type="button" data-i18n="cancel">Cancel</button>
+      </div>
+      <div style="margin:12px 0;">
+        <label style="display:block; margin-bottom:6px; font-weight:500;">Public / Private</label>
+        <label style="display:inline-flex; align-items:center; gap:4px; margin-right:16px;">
+          <input type="radio" name="vt-update-public" id="vt-update-public-yes" value="true" style="margin:0;" />
+          <span>Public</span>
+        </label>
+        <label style="display:inline-flex; align-items:center; gap:4px;">
+          <input type="radio" name="vt-update-public" id="vt-update-public-no" value="false" style="margin:0;" />
+          <span>Private</span>
+        </label>
+      </div>
+      <div class="row gap6" style="margin-top:8px;">
+        <button id="vt-update-save-btn" class="btn primary" type="button" data-i18n="save">Save</button>
       </div>
     </div>
   </div>
