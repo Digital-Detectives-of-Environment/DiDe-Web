@@ -1,5 +1,5 @@
 -- =========================================================
--- Disaster Management – PostgreSQL full installation script
+-- DiDe – PostgreSQL full installation script
 -- =========================================================
 
 -- 0) Required plugins
