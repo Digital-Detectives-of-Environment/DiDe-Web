@@ -1601,8 +1601,8 @@ async function vt_refreshTable(){
       <tr>
         <th data-i18n="vtLayerTable">${t('vtLayerTable')}</th>
         <th data-i18n="vtAttributeColumn">${t('vtAttributeColumn')}</th>
-        <th data-i18n="vtEventType">${t('vtEventType')}</th>
-        <th data-i18n="good">${t('good')}</th>
+        <th data-i18n="vtAttributeColumnData">${t('vtAttributeColumnData')}</th>
+        <th data-i18n="publicPrivate">${t('publicPrivate')}</th>
         <th data-i18n="addedBy">${t('addedBy')}</th>
         <th data-i18n="actions">${t('actions')}</th>
       </tr>
@@ -1757,7 +1757,7 @@ function vt_renderStep(){
           <span>${t('vtBulkNone')}</span>
         </label>
         <label style="display:flex; gap:8px; align-items:center; margin:4px 0;">
-          <input type="radio" name="vt-bulk" value="good" />
+          <input type="radio" name="vt-bulk" value="public" />
           <span>${t('vtBulkPublic')}</span>
         </label>
         <label style="display:flex; gap:8px; align-items:center; margin:4px 0;">
@@ -1799,15 +1799,15 @@ function vt_renderStep(){
       __veriTipiState.values = dd.values || [];
       __veriTipiState.geomType = dd.geomType || null;
 
-      if(bulkVal === 'good' || bulkVal === 'bad'){
+      if(bulkVal === 'public' || bulkVal === 'bad'){
         __veriTipiState.select_all = true;
-        __veriTipiState.good = bulkVal === 'good';
+        __veriTipiState.isPublic = bulkVal === 'public';
         const payload = {
           layer_table: __veriTipiState.layer_table,
           attribute_column: __veriTipiState.attribute_column,
           select_all: true,
           values: [],
-          good: __veriTipiState.good
+          "public": __veriTipiState.isPublic
         };
         const cr = await fetch('/api/veri-tipi/wizard/create', {
           method:'POST',
@@ -1948,17 +1948,17 @@ function vt_renderStep(){
 
   // STEP 3: good/bad + kaydet
   if(__veriTipiState.step === 3){
-    title.textContent = '4) ' + t('good');
+    title.textContent = '4) ' + t('publicPrivate');
     btnBack.disabled = false;
     btnNext.textContent = t('save') || 'Save';
 
     body.innerHTML = `
       <label style="display:flex; gap:10px; align-items:center; margin:8px 0;">
-        <input type="radio" name="vt-good" value="true" ${__veriTipiState.good ? 'checked' : ''} />
+        <input type="radio" name="vt-public" value="true" ${__veriTipiState.isPublic ? 'checked' : ''} />
         <span>${t('beneficial')}</span>
       </label>
       <label style="display:flex; gap:10px; align-items:center; margin:8px 0;">
-        <input type="radio" name="vt-good" value="false" ${!__veriTipiState.good ? 'checked' : ''} />
+        <input type="radio" name="vt-public" value="false" ${!__veriTipiState.isPublic ? 'checked' : ''} />
         <span>${t('notBeneficial')}</span>
       </label>
 
@@ -1967,8 +1967,8 @@ function vt_renderStep(){
       </div>
     `;
 
-    body.querySelectorAll('input[name="vt-good"]').forEach(r=>{
-      r.onchange = ()=> __veriTipiState.good = r.value === 'true';
+    body.querySelectorAll('input[name="vt-public"]').forEach(r=>{
+      r.onchange = ()=> __veriTipiState.isPublic = r.value === 'true';
     });
 
     btnNext.onclick = async ()=>{
@@ -1977,7 +1977,7 @@ function vt_renderStep(){
         attribute_column: __veriTipiState.attribute_column,
         select_all: __veriTipiState.select_all,
         values: __veriTipiState.select_all ? [] : (__veriTipiState.selectedValues||[]),
-        good: __veriTipiState.good
+        "public": __veriTipiState.isPublic
       };
 
       const rr = await fetch('/api/veri-tipi/wizard/create', {
@@ -3021,7 +3021,7 @@ function applyFilters(tableKey) {
       switch(tableKey) {
         case 'types':
           if (column === 'name') itemValue = item.event_type_name || '';
-          if (column === 'good') itemValue = (item.good === true || item.good === 'true' || item.good === 1) ? t('beneficial') : t('notBeneficial');
+          if (column === 'public') itemValue = (item.public === true || item.public === 'true' || item.public === 1) ? t('beneficial') : t('notBeneficial');
           if (column === 'creator') itemValue = item.created_by_name || '-';
           break;
         case 'users':
@@ -3148,7 +3148,7 @@ function buildFilterDropdown(tableKey, column, data) {
     switch(tableKey) {
       case 'types':
         if (column === 'name') value = item.event_type_name || '';
-        if (column === 'good') value = (item.good === true || item.good === 'true' || item.good === 1) ? t('beneficial') : t('notBeneficial');
+        if (column === 'public') value = (item.public === true || item.public === 'true' || item.public === 1) ? t('beneficial') : t('notBeneficial');
         if (column === 'creator') value = item.created_by_name || '-';
         break;
       case 'users':
@@ -3196,7 +3196,7 @@ function buildFilterDropdown(tableKey, column, data) {
     switch(tableKey) {
       case 'types':
         if (column === 'name') value = item.event_type_name || '';
-        if (column === 'good') value = (item.good === true || item.good === 'true' || item.good === 1) ? t('beneficial') : t('notBeneficial');
+        if (column === 'public') value = (item.public === true || item.public === 'true' || item.public === 1) ? t('beneficial') : t('notBeneficial');
         if (column === 'creator') value = item.created_by_name || '-';
         break;
       case 'users':
@@ -3248,7 +3248,7 @@ function buildFilterDropdown(tableKey, column, data) {
       switch(tableKey) {
         case 'types':
           if (column === 'name') itemValue = item.event_type_name || '';
-          if (column === 'good') itemValue = (item.good === true || item.good === 'true' || item.good === 1) ? t('beneficial') : t('notBeneficial');
+          if (column === 'public') itemValue = (item.public === true || item.public === 'true' || item.public === 1) ? t('beneficial') : t('notBeneficial');
           if (column === 'creator') itemValue = item.created_by_name || '-';
           break;
         case 'users':
@@ -3309,7 +3309,7 @@ function buildEventTypeFilterDropdown(data, state) {
   state.data.forEach(item => {
     const typeName = item.event_type_name || '-';
     const typeId = item.event_type_id;
-    const isGood = item.event_type_good === true || item.event_type_good === 'true' || item.event_type_good === 1;
+    const isGood = item.event_type_public === true || item.event_type_public === 'true' || item.event_type_public === 1;
     
     if (!typeMap.has(typeName)) {
       typeMap.set(typeName, { name: typeName, id: typeId, isGood: isGood, count: 0 });
@@ -3326,7 +3326,7 @@ function buildEventTypeFilterDropdown(data, state) {
   let goodCount = 0;
   let badCount = 0;
   state.filtered.forEach(item => {
-    const isGood = item.event_type_good === true || item.event_type_good === 'true' || item.event_type_good === 1;
+    const isGood = item.event_type_public === true || item.event_type_public === 'true' || item.event_type_public === 1;
     if (isGood) goodCount++;
     else badCount++;
   });
@@ -3538,7 +3538,7 @@ function applyEventTypeGoodBadFilters(tableKey) {
   
   state.filtered = state.data.filter(item => {
     const typeName = item.event_type_name || '-';
-    const isGood = item.event_type_good === true || item.event_type_good === 'true' || item.event_type_good === 1;
+    const isGood = item.event_type_public === true || item.event_type_public === 'true' || item.event_type_public === 1;
     
     if (selectedTypes.length > 0 && !selectedTypes.includes(typeName)) {
       return false;
@@ -3675,7 +3675,7 @@ function attachFilterEvents(tableKey) {
               } else {
                 const typeData = state.data.find(item => (item.event_type_name || '-') === typeName);
                 if (typeData) {
-                  const isGood = typeData.event_type_good === true || typeData.event_type_good === 'true' || typeData.event_type_good === 1;
+                  const isGood = typeData.event_type_public === true || typeData.event_type_public === 'true' || typeData.event_type_public === 1;
                   
                   if (specialFilters.typeGood === false && isGood) {
                     cb.checked = false;
@@ -3948,7 +3948,7 @@ function attachFilterEvents(tableKey) {
                 const typeName = cb.value;
                 const typeData = state.data.find(item => (item.event_type_name || '-') === typeName);
                 if (typeData) {
-                  const isGood = typeData.event_type_good === true || typeData.event_type_good === 'true' || typeData.event_type_good === 1;
+                  const isGood = typeData.event_type_public === true || typeData.event_type_public === 'true' || typeData.event_type_public === 1;
                   
                   if (selectedTypes.length > 0) {
                     if (goodChecked && badChecked) {
@@ -4040,7 +4040,7 @@ function attachFilterEvents(tableKey) {
                   const typeName = cb.value;
                   const typeData = state.data.find(item => (item.event_type_name || '-') === typeName);
                   if (typeData) {
-                    const isGood = typeData.event_type_good === true || typeData.event_type_good === 'true' || typeData.event_type_good === 1;
+                    const isGood = typeData.event_type_public === true || typeData.event_type_public === 'true' || typeData.event_type_public === 1;
                     
                     if (isGood && !cb.checked) allGoodChecked = false;
                     if (!isGood && !cb.checked) allBadChecked = false;
@@ -4993,10 +4993,10 @@ function renderTypeTableRows(data) {
        (t.created_by_id === currentUser.id || t.created_by_name === currentUser.username))
     );
     
-    const goodText = (t.good === true || t.good === 'true' || t.good === 1) ? window.t('beneficial') : window.t('notBeneficial');
+    const goodText = (t.public === true || t.public === 'true' || t.public === 1) ? window.t('beneficial') : window.t('notBeneficial');
     
     const updateBtn = canUpdate 
-      ? `<button class="btn ghost" data-update-type="${t.event_type_id}" data-type-name="${escapeHtml(t.event_type_name)}" data-type-good="${t.good === true || t.good === 'true' || t.good === 1 ? 'true' : 'false'}" style="margin-right:4px;">${window.t('update')}</button>`
+      ? `<button class="btn ghost" data-update-type="${t.event_type_id}" data-type-name="${escapeHtml(t.event_type_name)}" data-type-public="${t.public === true || t.public === 'true' || t.public === 1 ? 'true' : 'false'}" style="margin-right:4px;">${window.t('update')}</button>`
       : `<button class="btn ghost" disabled title="${window.t('noPermission')}" style="margin-right:4px;">${window.t('update')}</button>`;
     
     const deleteBtn = canDelete 
@@ -5036,14 +5036,14 @@ function renderTypeTableRows(data) {
     b.onclick = () => {
       const typeId = b.getAttribute('data-update-type');
       const currentName = b.getAttribute('data-type-name');
-      const currentGood = b.getAttribute('data-type-good') === 'true';
-      openUpdateTypeModal(typeId, currentName, currentGood);
+      const currentPublic = b.getAttribute('data-type-public') === 'true';
+      openUpdateTypeModal(typeId, currentName, currentPublic);
     };
   });
 }
 
 /* ==================== EVENT TYPE UPDATE MODAL ==================== */
-function openUpdateTypeModal(typeId, currentName, currentGood) {
+function openUpdateTypeModal(typeId, currentName, currentPublic) {
   const modal = qs('#update-type-modal');
   const input = qs('#update-type-input');
   const goodRadioYes = qs('#update-type-good-yes');
@@ -5057,7 +5057,7 @@ function openUpdateTypeModal(typeId, currentName, currentGood) {
   }
   
   input.value = currentName;
-  const isGood = (currentGood === true || currentGood === 'true' || currentGood === 1);
+  const isGood = (currentPublic === true || currentPublic === 'true' || currentPublic === 1);
   if (goodRadioYes) goodRadioYes.checked = isGood;
   if (goodRadioNo) goodRadioNo.checked = !isGood;
   showModal(modal);
@@ -5076,7 +5076,7 @@ function openUpdateTypeModal(typeId, currentName, currentGood) {
       return;
     }
     
-    const goodChanged = (newGood !== (currentGood === true || currentGood === 'true' || currentGood === 1));
+    const goodChanged = (newGood !== (currentPublic === true || currentPublic === 'true' || currentPublic === 1));
     
     if (newName === currentName && !goodChanged) {
       toast(t('noChanges'), 'error');
@@ -5743,9 +5743,9 @@ async function loadExistingEvents(opts = {}) {
       
       const beforeFilter = events.length;
       events = events.filter(evt => {
-        const isGood = evt.event_type_good === true || 
-                      evt.event_type_good === 'true' || 
-                      evt.event_type_good === 1;
+        const isGood = evt.event_type_public === true || 
+                      evt.event_type_public === 'true' || 
+                      evt.event_type_public === 1;
         
         if (showGood && showBad) return true; 
         if (showGood && isGood) return true;  
@@ -8633,7 +8633,7 @@ function updateTableHeaders() {
     const headers = typeHeaders.querySelectorAll('th');
     
     rebuildHeader(headers[0], t('typeName'), true);       
-    rebuildHeader(headers[1], t('good'), true);           
+    rebuildHeader(headers[1], t('publicPrivate'), true);           
     rebuildHeader(headers[2], t('addedBy'), true);        
     rebuildHeader(headers[3], t('actions'), false);       
   }

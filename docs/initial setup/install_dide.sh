@@ -95,7 +95,6 @@ read_env_vars() {
   PORT="$(get_env_value PORT "$ENV_FILE")"
 
   POLYGON_FILE="$(get_env_value AGGREGATION_LAYER "$ENV_FILE")"
-  PRIMARY_KEYS="$(get_env_value Primary_Keys "$ENV_FILE")"
 
   PGDATABASE="${PGDATABASE}"
   PGPASSWORD="${PGPASSWORD}"
@@ -110,7 +109,6 @@ read_env_vars() {
   echo "DB_PORT       = $PGPORT"
   echo "APP_PORT      = $PORT"
   echo "POLYGON_FILE  = ${POLYGON_FILE:-<not set>}"
-  echo "PRIMARY_KEYS  = ${PRIMARY_KEYS:-<not set>}"
 }
 
 configure_postgres() {
@@ -161,31 +159,6 @@ import_polygon_file() {
     echo " POLYGON_FILE value in .env: $POLYGON_FILE"
     exit 1
   fi
-
-  if [ -z "${PRIMARY_KEYS:-}" ]; then
-    log "Primary_Keys is not set in .env, skipping PK column validation."
-  else
-    # Parse semicolon-separated PK list
-    IFS=';' read -ra PK_ARRAY <<< "$PRIMARY_KEYS"
-    for PK_COL in "${PK_ARRAY[@]}"; do
-      PK_COL="$(echo "$PK_COL" | tr -d '[:space:]')"
-      [ -z "$PK_COL" ] && continue
-      COL_EXISTS=$(sudo -u postgres psql -tAc \
-        "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='${POLY_TABLE}' AND column_name='${PK_COL}'" \
-        "$PGDATABASE" || true)
-      if [ "$COL_EXISTS" != "1" ]; then
-        echo " WARNING: Primary Key column '${PK_COL}' not found in table '${POLY_TABLE}'."
-        echo " Available columns:"
-        sudo -u postgres psql -tAc \
-          "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${POLY_TABLE}' ORDER BY ordinal_position" \
-          "$PGDATABASE"
-      else
-        echo " ✓ Primary Key column '${PK_COL}' found in table '${POLY_TABLE}'"
-      fi
-    done
-  fi
-
-  log "Polygon table '${POLY_TABLE}' is ready (Primary_Keys=${PRIMARY_KEYS:-<not set>})"
 
   # Derive table name from filename (lowercase, no extension)
   local POLY_BASENAME

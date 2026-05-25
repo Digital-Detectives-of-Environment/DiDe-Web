@@ -341,8 +341,8 @@ async function ensureTargetHasOlayTuru(table) {
 function publicGoodBadWhere() {
   // env: showGoodEventsOnLogin / showBadEventsOnLogin
   if (SHOW_GOOD_EVENTS_ON_LOGIN && SHOW_BAD_EVENTS_ON_LOGIN) return `TRUE`;
-  if (SHOW_GOOD_EVENTS_ON_LOGIN && !SHOW_BAD_EVENTS_ON_LOGIN) return `o.good = TRUE`;
-  if (!SHOW_GOOD_EVENTS_ON_LOGIN && SHOW_BAD_EVENTS_ON_LOGIN) return `o.good = FALSE`;
+  if (SHOW_GOOD_EVENTS_ON_LOGIN && !SHOW_BAD_EVENTS_ON_LOGIN) return `o."public" = TRUE`;
+  if (!SHOW_GOOD_EVENTS_ON_LOGIN && SHOW_BAD_EVENTS_ON_LOGIN) return `o."public" = FALSE`;
   return `FALSE`;
 }
 
@@ -411,7 +411,7 @@ app.get('/api/veri-tipi/list', mustAuth, mustSupervisor, async (req,res)=>{
         COALESCE(NULLIF(layer_table,''), 'asis') AS layer_table,
         COALESCE(NULLIF(attribute_column,''), 'event_type_name') AS attribute_column,
         event_type_name AS event_type,
-        CASE WHEN good THEN 'Faydali' ELSE 'Faydasiz' END AS faydali_faydasiz_mi,
+        CASE WHEN "public" THEN 'Faydali' ELSE 'Faydasiz' END AS faydali_faydasiz_mi,
         created_by_name AS ekleyen,
         created_by_id,
         created_by_role_name,
@@ -450,7 +450,7 @@ app.post('/api/veri-tipi/wizard/create', mustAuth, mustSupervisor, async (req,re
   try{
     const table = assertSafeIdent(req.body?.layer_table,'table');
     const column = assertSafeIdent(req.body?.attribute_column,'column');
-    const good = String(req.body?.good) === 'true' || req.body?.good === true;
+    const isPublic = String(req.body?.["public"]) === 'true' || req.body?.["public"] === true;
     const selectAll = String(req.body?.select_all) === 'true' || req.body?.select_all === true;
     const valuesIn = Array.isArray(req.body?.values) ? req.body.values : [];
 
@@ -485,12 +485,12 @@ app.post('/api/veri-tipi/wizard/create', mustAuth, mustSupervisor, async (req,re
     for(const v of values){
       const ins = await client.query(
         `INSERT INTO public.event_type
-          (event_type_name, good, active, created_by_name, created_by_role_name, created_by_id,
+          (event_type_name, "public", active, created_by_name, created_by_role_name, created_by_id,
            is_point, is_line, is_polygon, layer_table, attribute_column)
          VALUES
           ($1,$2,TRUE,$3,$4,$5,FALSE,$6,$7,$8,$9)
          RETURNING event_type_id`,
-        [String(v), good, createdByName, createdByRole, createdById, isLine, isPolygon, table, column]
+        [String(v), isPublic, createdByName, createdByRole, createdById, isLine, isPolygon, table, column]
       );
       const oId = ins.rows[0].event_type_id;
 
@@ -517,7 +517,7 @@ app.post('/api/veri-tipi/wizard/create', mustAuth, mustSupervisor, async (req,re
 app.put('/api/veri-tipi/:event_type_id', mustAuth, mustSupervisor, async (req,res)=>{
   try{
     const oId = Number(req.params.event_type_id);
-    const good = String(req.body?.good) === 'true' || req.body?.good === true;
+    const isPublic = String(req.body?.["public"]) === 'true' || req.body?.["public"] === true;
 
     const { rows } = await pool.query(`SELECT event_type_id, created_by_id, is_point, is_line, is_polygon FROM public.event_type WHERE event_type_id=$1`, [oId]);
     if(!rows.length) return res.status(404).json({ error:'bulunamadi' });
@@ -526,7 +526,7 @@ app.put('/api/veri-tipi/:event_type_id', mustAuth, mustSupervisor, async (req,re
     if(r.is_point) return res.status(400).json({ error:'point_duzenlenemez' });
     if(String(r.created_by_id) !== String(req.user.sub)) return res.status(403).json({ error:'sadece_kendi_kaydi' });
 
-    await pool.query(`UPDATE public.event_type SET good=$1 WHERE event_type_id=$2`, [good, oId]);
+    await pool.query(`UPDATE public.event_type SET "public"=$1 WHERE event_type_id=$2`, [isPublic, oId]);
     return res.json({ ok:true });
   }catch(e){
     return res.status(500).json({ error:'sunucu_hatasi' });
@@ -1588,7 +1588,7 @@ async function ensureDbSqlHelpers() {
   await run('event_type add created_at default', `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now()`);
   await run('event_type add deactivated_at',     `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS deactivated_at timestamptz`);
   await run('event_type drop created_by legacy', `ALTER TABLE public.event_type DROP COLUMN IF EXISTS created_by`);
-  await run('event_type add good',               `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS good boolean DEFAULT false`);
+  await run('event_type add public',               `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS "public" boolean DEFAULT false`);
 
   await tx('event_type unique(event_type_name)', async (c) => {
     try {
@@ -2491,7 +2491,7 @@ app.post('/api/auth/forgot/reset', async (req, res) => {
 app.get('/api/event_types', requireAuth, async (req, res) => {
   try {
     const r = await pool.query(`
-      SELECT event_type_id, event_type_name, good, created_by_id, created_by_name,
+      SELECT event_type_id, event_type_name, "public", created_by_id, created_by_name,
              is_point, is_line, is_polygon 
       FROM event_type 
       WHERE COALESCE(active,true)=true 
@@ -2529,7 +2529,7 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
         o.longitude,
         o.event_type AS event_type_id,
         l.event_type_name     AS event_type_name,
-        l.good      AS event_type_good,
+        l."public"      AS event_type_public,
         o.description,
         o.created_by_id              AS created_by_id,
         o.created_by_name            AS created_by_username,
@@ -2565,7 +2565,7 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
       const showBad = SHOW_BAD_EVENTS_ON_LOGIN;
       
       rows = rows.filter(row => {
-        const isGood = row.event_type_good === true || row.event_type_good === 'true' || row.event_type_good === 1;
+        const isGood = row.event_type_public === true || row.event_type_public === 'true' || row.event_type_public === 1;
         
         if (showGood && showBad) return true; 
         if (showGood && isGood) return true;  
@@ -2904,7 +2904,7 @@ app.delete('/api/event/:id', requireAuth, async (req, res) => {
 const adminOnly = [requireAuth, requireAnyRole(['admin', 'supervisor'])];
 app.post('/api/admin/event_types', adminOnly, async (req, res) => {
   const event_type_name = norm(req.body?.event_type_name);
-  const good = req.body?.good === true || req.body?.good === 'true';
+  const isPublic = req.body?.["public"] === true || req.body?.["public"] === 'true';
   
   if (!event_type_name) return res.status(400).json({ error: 'o_adi_gerekli', message: getErrorMessage(req, 'o_adi_gerekli') });
   try {
@@ -2921,10 +2921,10 @@ app.post('/api/admin/event_types', adminOnly, async (req, res) => {
     }
     
     const r = await pool.query(
-      `INSERT INTO event_type (event_type_name, active, good, created_by_name, created_by_role_name, created_by_id)
+      `INSERT INTO event_type (event_type_name, active, "public", created_by_name, created_by_role_name, created_by_id)
        VALUES ($1, true, $2, $3, $4, $5)
-       RETURNING event_type_id, event_type_name, good, created_by_name, created_by_id, created_at`,
-      [event_type_name, good, req.user.username, req.user.role, req.user.id]
+       RETURNING event_type_id, event_type_name, "public", created_by_name, created_by_id, created_at`,
+      [event_type_name, isPublic, req.user.username, req.user.role, req.user.id]
     );
     res.json({ ok: true, created: r.rows[0] });
   } catch (e) {
@@ -2936,9 +2936,9 @@ app.post('/api/admin/event_types', adminOnly, async (req, res) => {
 app.patch('/api/admin/event_type/:id', adminOnly, async (req, res) => {
   const id = +req.params.id;
   const event_type_name = norm(req.body?.event_type_name);
-  const good = req.body?.good;
+  const isPublic = req.body?.["public"];
   
-  if (!Number.isInteger(id) || (!event_type_name && good === undefined)) {
+  if (!Number.isInteger(id) || (!event_type_name && isPublic === undefined)) {
     return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
   }
   
@@ -2973,9 +2973,9 @@ app.patch('/api/admin/event_type/:id', adminOnly, async (req, res) => {
       values.push(event_type_name);
     }
     
-    if (good !== undefined) {
-      updates.push(`good = $${paramIndex++}`);
-      values.push(good === true || good === 'true');
+    if (isPublic !== undefined) {
+      updates.push(`"public" = $${paramIndex++}`);
+      values.push(isPublic === true || isPublic === 'true');
     }
     
     if (updates.length === 0) {
@@ -2985,7 +2985,7 @@ app.patch('/api/admin/event_type/:id', adminOnly, async (req, res) => {
     updates.push(`created_at = NOW()`);
     values.push(id);
     
-    const sql = `UPDATE event_type SET ${updates.join(', ')} WHERE event_type_id = $${paramIndex} RETURNING event_type_id, event_type_name, good, created_at`;
+    const sql = `UPDATE event_type SET ${updates.join(', ')} WHERE event_type_id = $${paramIndex} RETURNING event_type_id, event_type_name, "public", created_at`;
     const r = await pool.query(sql, values);
     
     res.json({ ok: true, message: 'Olay türü güncellendi', updated: r.rows[0] });
@@ -3512,7 +3512,7 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
       SELECT 
         ${selectCols},
         l.event_type_name AS event_type_name,
-        l.good AS event_type_good
+        l."public" AS event_type_public
       FROM event o
       LEFT JOIN event_type l ON l.event_type_id = o.event_type
       WHERE o.event_id IN (${placeholders})
@@ -3540,8 +3540,8 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
         properties[col] = val;
       }
       // Add joined fields
-      properties.event_type_name = row.event_type_name || null;
-      properties.event_type_good = row.event_type_good || false;
+      properties.event = row.event_type_name || null;
+      properties.public = row.event_type_public || false;
 
       return {
         type: 'Feature',

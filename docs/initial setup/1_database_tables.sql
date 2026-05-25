@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS public.event_type (
   created_by_role_name     text,
   created_by_id            integer,
   created_at               timestamptz DEFAULT now(),
-  good                     boolean,
+  "public"                 boolean,
   deactivated_by_name      text,
   deactivated_by_role_name text,
   deactivated_by_id        integer,
