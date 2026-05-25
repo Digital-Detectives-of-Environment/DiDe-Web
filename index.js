@@ -3734,7 +3734,7 @@ ensureOlaylarSchema().then(() => {
   server.headersTimeout = 66000;
 });
 
-// QField ve LISTEN/NOTIFY sadece worker 0'da calissin 
+// QField ve LISTEN/NOTIFY sadece worker 0'da calissin (tekrar onleme)
 if (process.env.WORKER_ID === '0') {
   startQFieldIngestLoop();
 }
