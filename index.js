@@ -28,30 +28,30 @@ const ALLOWED_EMAIL_DOMAINS = (process.env.ALLOWED_EMAIL_DOMAIN || '')
   .filter(Boolean);
 
 
-const SHOW_GOOD_EVENTS_ON_LOGIN = String(process.env.SHOW_GOOD_EVENTS_ON_LOGIN) === 'true';
-const SHOW_BAD_EVENTS_ON_LOGIN = String(process.env.SHOW_BAD_EVENTS_ON_LOGIN) === 'true';
+// Hardcoded defaults (removed from .env)
+const SHOW_GOOD_EVENTS_ON_LOGIN = true;
+const SHOW_BAD_EVENTS_ON_LOGIN = false;
+const MAP_MIN_ZOOM = 2;
+const TABLE_PAGE_SIZE_EVENTS = 5;
+const TABLE_PAGE_SIZE_TYPES = 20;
+const TABLE_PAGE_SIZE_USERS = 30;
 
 
 const QFIELD_SYNC_ROOT = process.env.QFIELD_SYNC_ROOT || '';              
 const QFIELD_INGEST_INTERVAL_MS = parseInt(process.env.QFIELD_INGEST_INTERVAL_MS, 10);
 
 const POLYGON_FILE  = process.env.AGGREGATION_LAYER || '';
-const PRIMARY_KEYS_RAW = (process.env.Primary_Keys || process.env.PRIMARY_KEYS || '').trim();
 const DEFAULT_LANG  = (process.env.DEFAULT_LANG || 'TR').toUpperCase();
 const POLYGON_TABLE = POLYGON_FILE
   ? path.basename(POLYGON_FILE).replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9_]/g, '_')
   : '';
 
-// Parse Primary_Keys: "h3_id;fid;gid" → ['h3_id','fid','gid']
-const POLYGON_PKS_INPUT = PRIMARY_KEYS_RAW ? PRIMARY_KEYS_RAW.split(';').map(s => s.trim()).filter(Boolean) : [];
-// Validated PKs will be populated after DB connection (only UNIQUE+NOT NULL columns)
+// Display_Attribute: columns to show in grid confirmation (semicolon-separated)
+const DISPLAY_ATTR_RAW = (process.env.Display_Attribute || '').trim();
+const DISPLAY_ATTRS = DISPLAY_ATTR_RAW ? DISPLAY_ATTR_RAW.split(';').map(s => s.trim()).filter(Boolean) : [];
+
+// PKs auto-detected from database (populated in ensureDbSqlHelpers)
 let POLYGON_PKS = [];
-
-// Backward compatibility helpers
-const POLYGON_PK1 = POLYGON_PKS_INPUT[0] || '';
-const POLYGON_PK2 = POLYGON_PKS_INPUT[1] || '';
-
-// Config loaded silently — validation happens in ensureDbSqlHelpers()
 
 
 
@@ -678,6 +678,11 @@ app.get('/api/polygon-layer', async (req, res) => {
   try {
     const table = assertSafeIdent(POLYGON_TABLE, 'table');
     const cols = POLYGON_PKS.length > 0 ? POLYGON_PKS.map(p => p.safeName) : [];
+    // Also include Display_Attribute columns (no duplicates)
+    for (const attr of DISPLAY_ATTRS) {
+      const safe = assertSafeIdent(attr, 'column');
+      if (!cols.includes(safe)) cols.push(safe);
+    }
 
     const propParts = cols.map(c => `'${c}', t.${c}`).join(', ');
     const propObj = cols.length > 0 ? `jsonb_build_object(${propParts})` : `'{}'::jsonb`;
@@ -702,21 +707,29 @@ app.get('/api/polygon-layer', async (req, res) => {
   }
 });
 
-// GET /api/polygon/grid-data  –  Return all polygon grid rows with PK columns for admin region tab
+// GET /api/polygon/grid-data  –  Return all polygon grid rows with PK + Display columns for admin region tab
 app.get('/api/polygon/grid-data', requireAuth, async (req, res) => {
   if (!POLYGON_TABLE || POLYGON_PKS.length === 0) {
-    return res.json({ ok: true, rows: [], pks: [], pk1: null, pk2: null });
+    return res.json({ ok: true, rows: [], pks: [], displayAttrs: [], allColumns: [] });
   }
   try {
     const table = assertSafeIdent(POLYGON_TABLE, 'table');
-    const cols = POLYGON_PKS.map(p => p.safeName);
-    const selectCols = cols.map(c => `t.${c}`).join(', ');
-    const q = `SELECT ${selectCols}, ST_AsGeoJSON(ST_Centroid(t.geom))::jsonb AS centroid, ST_AsGeoJSON(t.geom)::jsonb AS geojson FROM public.${table} t WHERE t.geom IS NOT NULL ORDER BY ${cols[0]} ASC`;
+    const pkCols = POLYGON_PKS.map(p => p.safeName);
+    // Build unique column list: PKs + Display_Attrs (no duplicates)
+    const allCols = [...pkCols];
+    for (const attr of DISPLAY_ATTRS) {
+      const safe = assertSafeIdent(attr, 'column');
+      if (!allCols.includes(safe)) allCols.push(safe);
+    }
+    const selectCols = allCols.map(c => `t.${c}`).join(', ');
+    const q = `SELECT ${selectCols}, ST_AsGeoJSON(ST_Centroid(t.geom))::jsonb AS centroid, ST_AsGeoJSON(t.geom)::jsonb AS geojson FROM public.${table} t WHERE t.geom IS NOT NULL ORDER BY ${pkCols[0]} ASC`;
     const { rows } = await pool.query(q);
     return res.json({
       ok: true,
       rows,
       pks: POLYGON_PKS.map(p => p.name),
+      displayAttrs: DISPLAY_ATTRS,
+      allColumns: allCols,
       pk1: POLYGON_PKS[0]?.name || null,
       pk2: POLYGON_PKS[1]?.name || null,
       tableName: POLYGON_TABLE
@@ -740,7 +753,15 @@ app.post('/api/polygon/find', async (req, res) => {
     const table = assertSafeIdent(POLYGON_TABLE, 'table');
     const cols = POLYGON_PKS.map(p => p.safeName);
 
-    const selectCols = cols.length > 0 ? cols.map(c => `t.${c}`).join(', ') + ',' : '';
+    // Also include Display_Attribute columns
+    const displayCols = [];
+    for (const attr of DISPLAY_ATTRS) {
+      const safe = assertSafeIdent(attr, 'column');
+      if (!cols.includes(safe)) displayCols.push(safe);
+    }
+    const allCols = [...cols, ...displayCols];
+
+    const selectCols = allCols.length > 0 ? allCols.map(c => `t.${c}`).join(', ') + ',' : '';
 
     const q = `
       SELECT ${selectCols} ST_AsGeoJSON(t.geom)::jsonb AS geojson
@@ -758,10 +779,18 @@ app.post('/api/polygon/find', async (req, res) => {
     const pkValues = {};
     for (const p of POLYGON_PKS) pkValues[p.name] = row[p.safeName];
 
+    // Display attribute values
+    const displayValues = {};
+    for (const attr of DISPLAY_ATTRS) {
+      const safe = assertSafeIdent(attr, 'column');
+      displayValues[attr] = row[safe];
+    }
+
     return res.json({
       ok: true,
       found: true,
       pk_values: pkValues,
+      display_values: displayValues,
       geometry: row.geojson
     });
   } catch (e) {
@@ -1455,7 +1484,7 @@ async function ensureDbSqlHelpers() {
   await run('event drop legacy PK1',         `ALTER TABLE public.event DROP COLUMN IF EXISTS "PK1"`);
   await run('event drop legacy PK2',         `ALTER TABLE public.event DROP COLUMN IF EXISTS "PK2"`);
 
-  // ==================== AGGREGATION_LAYER & Primary_Keys VALIDATION ====================
+  // ==================== AGGREGATION_LAYER VALIDATION ====================
   if (POLYGON_TABLE) {
     // Step 1: Check if the table exists in the database
     const tableCheck = await pool.query(`
@@ -1466,65 +1495,47 @@ async function ensureDbSqlHelpers() {
     if (tableCheck.rows.length === 0) {
       console.error(`\n[FATAL] AGGREGATION_LAYER="${POLYGON_FILE}" → table "${POLYGON_TABLE}" does NOT exist in the database.`);
       console.error(`        Please import your aggregation layer table into the database first.`);
-      if (POLYGON_PKS_INPUT.length === 0) {
-        console.error(`        Also, when AGGREGATION_LAYER is set, Primary_Keys parameter is required (e.g. Primary_Keys=h3_id).`);
-      }
       console.error(`        System cannot start. Exiting.\n`);
       process.exit(1);
     }
 
-    // Step 2: Check if Primary_Keys is provided
-    if (POLYGON_PKS_INPUT.length === 0) {
-      console.error(`\n[FATAL] AGGREGATION_LAYER="${POLYGON_FILE}" → table "${POLYGON_TABLE}" exists in the database.`);
-      console.error(`        However, Primary_Keys parameter is EMPTY.`);
-      console.error(`        When AGGREGATION_LAYER is set, you must also set Primary_Keys with at least one column`);
-      console.error(`        that uniquely identifies each row (e.g. Primary_Keys=h3_id).`);
+    // Step 2: Auto-detect primary key columns from database
+    const pkQuery = await pool.query(`
+      SELECT kcu.column_name
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu
+        ON tc.constraint_name = kcu.constraint_name
+        AND tc.table_schema = kcu.table_schema
+      WHERE tc.table_schema = 'public'
+        AND LOWER(tc.table_name) = LOWER($1)
+        AND tc.constraint_type = 'PRIMARY KEY'
+      ORDER BY kcu.ordinal_position
+    `, [POLYGON_TABLE]);
+
+    if (pkQuery.rows.length === 0) {
+      console.error(`\n[FATAL] AGGREGATION_LAYER="${POLYGON_FILE}" → table "${POLYGON_TABLE}" exists but has NO PRIMARY KEY defined.`);
+      console.error(`        Please define a PRIMARY KEY on this table in your database.`);
+      console.error(`        Example: ALTER TABLE ${POLYGON_TABLE} ADD PRIMARY KEY (your_column);`);
+      console.error(`        Composite primary keys are also supported (e.g. PRIMARY KEY (col_a, col_b, col_c)).`);
       console.error(`        System cannot start. Exiting.\n`);
       process.exit(1);
     }
 
-    // Step 3: Validate each Primary_Key column
+    // Step 3: Build POLYGON_PKS from detected primary keys
     const validPks = [];
-    for (const pkName of POLYGON_PKS_INPUT) {
+    const safeTable = assertSafeIdent(POLYGON_TABLE, 'table');
+    for (const pkRow of pkQuery.rows) {
+      const pkName = pkRow.column_name;
       try {
         const safePk = assertSafeIdent(pkName, 'column');
         
-        // Check column exists
+        // Get column type
         const colInfo = await pool.query(`
-          SELECT c.data_type, c.is_nullable
-          FROM information_schema.columns c
+          SELECT c.data_type FROM information_schema.columns c
           WHERE c.table_schema='public' AND LOWER(c.table_name)=LOWER($1) AND LOWER(c.column_name)=LOWER($2)
         `, [POLYGON_TABLE, pkName]);
-        
-        if (colInfo.rows.length === 0) {
-          console.error(`\n[FATAL] Primary_Keys column "${pkName}" does NOT exist in table "${POLYGON_TABLE}".`);
-          console.error(`        Available columns can be checked in your database. System cannot start. Exiting.\n`);
-          process.exit(1);
-        }
 
-        // Check for NULL values in actual data
-        const safeTable = assertSafeIdent(POLYGON_TABLE, 'table');
-        const nullCount = await pool.query(`SELECT COUNT(*) as cnt FROM public.${safeTable} WHERE ${safePk} IS NULL`);
-        if (parseInt(nullCount.rows[0].cnt) > 0) {
-          console.error(`\n[FATAL] Primary_Keys column "${pkName}" in table "${POLYGON_TABLE}" contains NULL values.`);
-          console.error(`        A Primary Key column must have NO null values. This column has ${nullCount.rows[0].cnt} null(s).`);
-          console.error(`        System cannot start. Exiting.\n`);
-          process.exit(1);
-        }
-
-        // Check for duplicate values in actual data
-        const dupCheck = await pool.query(`
-          SELECT ${safePk}, COUNT(*) FROM public.${safeTable} GROUP BY ${safePk} HAVING COUNT(*) > 1 LIMIT 1
-        `);
-        if (dupCheck.rows.length > 0) {
-          console.error(`\n[FATAL] Primary_Keys column "${pkName}" in table "${POLYGON_TABLE}" contains DUPLICATE values.`);
-          console.error(`        A Primary Key column must have all UNIQUE values.`);
-          console.error(`        System cannot start. Exiting.\n`);
-          process.exit(1);
-        }
-
-        // Column passed validation — determine type
-        const srcType = colInfo.rows[0].data_type;
+        const srcType = colInfo.rows[0]?.data_type || 'text';
         let eventColType = 'text';
         if (['integer','bigint','smallint','int','int4','int8','int2'].includes(srcType)) {
           eventColType = 'integer';
@@ -1535,16 +1546,29 @@ async function ensureDbSqlHelpers() {
         // Add column to event table
         await run(`event add "${pkName}"`, `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS "${safePk}" ${eventColType}`);
         validPks.push({ name: pkName, safeName: safePk, type: eventColType });
-
       } catch(e) {
-        if (e.message?.includes('Exiting')) throw e; // re-throw exit errors
-        console.error(`\n[FATAL] Error validating Primary_Keys column "${pkName}": ${e.message}`);
-        console.error(`        System cannot start. Exiting.\n`);
+        console.error(`[FATAL] Error processing primary key column "${pkName}": ${e.message}`);
         process.exit(1);
       }
     }
     POLYGON_PKS = validPks;
-    console.log(`[OK] Aggregation layer "${POLYGON_TABLE}" validated with Primary Keys: [${POLYGON_PKS.map(p => p.name).join(', ')}]`);
+
+    // Step 4: Validate Display_Attribute columns exist in table
+    for (const attr of DISPLAY_ATTRS) {
+      const attrCheck = await pool.query(`
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND LOWER(table_name)=LOWER($1) AND LOWER(column_name)=LOWER($2)
+      `, [POLYGON_TABLE, attr]);
+      if (attrCheck.rows.length === 0) {
+        console.error(`\n[FATAL] Display_Attribute column "${attr}" does NOT exist in table "${POLYGON_TABLE}".`);
+        console.error(`        System cannot start. Exiting.\n`);
+        process.exit(1);
+      }
+    }
+
+    const pkNames = POLYGON_PKS.map(p => p.name).join(', ');
+    const dispNames = DISPLAY_ATTRS.length > 0 ? ` | Display: [${DISPLAY_ATTRS.join(', ')}]` : '';
+    console.log(`[OK] Aggregation layer "${POLYGON_TABLE}" validated. Primary Keys: [${pkNames}]${dispNames}`);
   }
   // ==================== END VALIDATION ====================
 
@@ -2037,19 +2061,20 @@ app.get('/api/config', (_req, res) => {
     siteLogoUrl: process.env.SITE_LOGO_URL,
     allowedDomains: ALLOWED_EMAIL_DOMAINS.length > 0 ? ALLOWED_EMAIL_DOMAINS : null,
     allowedEmailDomains: ALLOWED_EMAIL_DOMAINS,
-    pageSizeEvents: parseInt(process.env.TABLE_PAGE_SIZE_EVENTS, 10),
-    pageSizeTypes: parseInt(process.env.TABLE_PAGE_SIZE_TYPES, 10),
-    pageSizeUsers: parseInt(process.env.TABLE_PAGE_SIZE_USERS, 10),
+    pageSizeEvents: TABLE_PAGE_SIZE_EVENTS,
+    pageSizeTypes: TABLE_PAGE_SIZE_TYPES,
+    pageSizeUsers: TABLE_PAGE_SIZE_USERS,
     mapInitialLat: parseFloat(process.env.MAP_INITIAL_LAT),
     mapInitialLng: parseFloat(process.env.MAP_INITIAL_LNG),
     mapInitialZoom: parseInt(process.env.MAP_INITIAL_ZOOM, 10),
-    mapMinZoom: parseInt(process.env.MAP_MIN_ZOOM, 10),
+    mapMinZoom: MAP_MIN_ZOOM,
     showGoodEventsOnLogin: SHOW_GOOD_EVENTS_ON_LOGIN,
     showBadEventsOnLogin: SHOW_BAD_EVENTS_ON_LOGIN,
     polygonTable: POLYGON_TABLE || null,
     polygonPk1: POLYGON_PKS[0]?.name || null,
     polygonPk2: POLYGON_PKS[1]?.name || null,
     polygonPks: POLYGON_PKS.map(p => p.name),
+    displayAttrs: DISPLAY_ATTRS,
     defaultLang: DEFAULT_LANG.toLowerCase(),
   });
 });
@@ -3709,7 +3734,7 @@ ensureOlaylarSchema().then(() => {
   server.headersTimeout = 66000;
 });
 
-// QField ve LISTEN/NOTIFY sadece worker 0'da calissin (tekrar onleme)
+// QField ve LISTEN/NOTIFY sadece worker 0'da calissin 
 if (process.env.WORKER_ID === '0') {
   startQFieldIngestLoop();
 }

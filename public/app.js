@@ -77,7 +77,8 @@ let APP_CONFIG = {
   polygonTable: null,
   polygonPk1: null,
   polygonPk2: null,
-  polygonPks: []
+  polygonPks: [],
+  displayAttrs: []
 };
 
 async function loadAppConfig() {
@@ -818,19 +819,23 @@ function clearPolygonHighlight() {
   }
 }
 
-function showPolygonConfirmCard(pkValues) {
+function showPolygonConfirmCard(pkValues, displayValues) {
   const card = qs('#polygon-confirm-card');
   if (!card) return;
 
   const info = qs('#polygon-confirm-info');
   if (info) {
-    const pks = APP_CONFIG.polygonPks || [];
+    const displayAttrs = APP_CONFIG.displayAttrs || [];
     let text = '';
-    pks.forEach(pk => {
-      if (pkValues[pk] != null) {
-        text += (text ? '  |  ' : '') + pk + ': ' + pkValues[pk];
-      }
-    });
+    if (displayAttrs.length > 0 && displayValues) {
+      // Show Display_Attribute values
+      displayAttrs.forEach(attr => {
+        if (displayValues[attr] != null) {
+          text += (text ? '  |  ' : '') + attr + ': ' + displayValues[attr];
+        }
+      });
+    }
+    // If Display_Attribute is empty, show nothing (text stays empty)
     info.textContent = text;
   }
 
@@ -1364,7 +1369,7 @@ async function startPolygonFlow(lat, lng) {
   __currentPolygonGeometry = result.geometry;
 
   highlightPolygon(result.geometry);
-  showPolygonConfirmCard(result.pk_values);
+  showPolygonConfirmCard(result.pk_values, result.display_values);
 }
 
 function openEventFormDirectly(lat, lng) {
@@ -3033,7 +3038,7 @@ function applyFilters(tableKey) {
           if (column === 'date') itemValue = formatDate(item.created_at || item.eklenme_tarihi);
           break;
         case 'regions':
-          { const _pkI = parseInt(column.replace('pk', ''), 10); if (!isNaN(_pkI) && __regionsPks[_pkI]) { itemValue = String(item._pkVals?.[__regionsPks[_pkI]] ?? ''); } }
+          { const _pkI = parseInt(column.replace('col', ''), 10); if (!isNaN(_pkI) && __regionsAllCols[_pkI]) { itemValue = String(item._colVals?.[__regionsAllCols[_pkI]] ?? ''); } }
           break;
       }
       
@@ -3159,7 +3164,7 @@ function buildFilterDropdown(tableKey, column, data) {
         if (column === 'video') value = (Array.isArray(item.video_urls) && item.video_urls.length > 0) ? t('available') : t('notAvailable');
         break;
       case 'regions':
-        { const _pkI = parseInt(column.replace('pk', ''), 10); if (!isNaN(_pkI) && __regionsPks[_pkI]) { value = String(item._pkVals?.[__regionsPks[_pkI]] ?? ''); } }
+        { const _pkI = parseInt(column.replace('col', ''), 10); if (!isNaN(_pkI) && __regionsAllCols[_pkI]) { value = String(item._colVals?.[__regionsAllCols[_pkI]] ?? ''); } }
         break;
     }
     
@@ -3177,7 +3182,7 @@ function buildFilterDropdown(tableKey, column, data) {
       }
     }
     // Numeric sort for regions pk columns
-    if (tableKey === 'regions' && column.startsWith('pk')) {
+    if (tableKey === 'regions' && column.startsWith('col')) {
       const na = parseFloat(a), nb = parseFloat(b);
       if (!isNaN(na) && !isNaN(nb)) return na - nb;
     }
@@ -3207,7 +3212,7 @@ function buildFilterDropdown(tableKey, column, data) {
         if (column === 'video') value = (Array.isArray(item.video_urls) && item.video_urls.length > 0) ? t('available') : t('notAvailable');
         break;
       case 'regions':
-        { const _pkI = parseInt(column.replace('pk', ''), 10); if (!isNaN(_pkI) && __regionsPks[_pkI]) { value = String(item._pkVals?.[__regionsPks[_pkI]] ?? ''); } }
+        { const _pkI = parseInt(column.replace('col', ''), 10); if (!isNaN(_pkI) && __regionsAllCols[_pkI]) { value = String(item._colVals?.[__regionsAllCols[_pkI]] ?? ''); } }
         break;
     }
     
@@ -3259,7 +3264,7 @@ function buildFilterDropdown(tableKey, column, data) {
           if (column === 'video') itemValue = (Array.isArray(item.video_urls) && item.video_urls.length > 0) ? t('available') : t('notAvailable');
           break;
         case 'regions':
-          { const _pkI = parseInt(column.replace('pk', ''), 10); if (!isNaN(_pkI) && __regionsPks[_pkI]) { itemValue = String(item._pkVals?.[__regionsPks[_pkI]] ?? ''); } }
+          { const _pkI = parseInt(column.replace('col', ''), 10); if (!isNaN(_pkI) && __regionsAllCols[_pkI]) { itemValue = String(item._colVals?.[__regionsAllCols[_pkI]] ?? ''); } }
           break;
       }
       
@@ -3267,11 +3272,11 @@ function buildFilterDropdown(tableKey, column, data) {
     });
     
     // For regions: override count with event count per grid
-    if (tableKey === 'regions' && column.startsWith('pk')) {
-      const _pkI = parseInt(column.replace('pk', ''), 10);
+    if (tableKey === 'regions' && column.startsWith('col')) {
+      const _pkI = parseInt(column.replace('col', ''), 10);
       const matchRow = state.data.find(r => {
-        const pkName = __regionsPks[_pkI];
-        const v = pkName ? String(r._pkVals?.[pkName] ?? '') : '';
+        const pkName = __regionsAllCols[_pkI];
+        const v = pkName ? String(r._colVals?.[pkName] ?? '') : '';
         return v === value;
       });
       if (matchRow) filteredCount = matchRow._eventCount || 0;
@@ -4519,7 +4524,8 @@ let regionsMarkersLayer = null;
 let __regionsGeomLayers = [];
 let __regionsPk1 = null;
 let __regionsPk2 = null;
-let __regionsPks = []; // dynamic PK column names
+let __regionsPks = []; // primary key column names
+let __regionsAllCols = []; // all displayed columns (PKs + Display_Attrs)
 let __regionsSelectedRows = new Set();
 let __eventsSelectedRows = new Set();
 
@@ -4532,6 +4538,8 @@ async function loadRegionData() {
     __regionsPks = data.pks || [];
     __regionsPk1 = data.pk1;
     __regionsPk2 = data.pk2;
+    // All columns = PKs + Display_Attrs (no duplicates, from backend)
+    __regionsAllCols = data.allColumns || data.pks || [];
 
     const tabBtn = qs('#btn-regions-tab');
     if (tabBtn) {
@@ -4540,25 +4548,24 @@ async function loadRegionData() {
 
     if (__regionsPks.length === 0) return;
 
-    // Build table header dynamically — all PK columns
+    // Build table header dynamically — all columns (PKs + Display_Attrs)
     const thead = qs('#regions-thead-row');
     if (thead) {
       let headerHtml = '';
-      __regionsPks.forEach((pkName, i) => {
+      __regionsAllCols.forEach((colName, i) => {
         headerHtml += `<th>
-          <span>${pkName}</span>
-          <span class="filter-icon" data-column="pk${i}" data-i18n-title="search">▼</span>
-          <div class="filter-dropdown" data-column="pk${i}"></div>
+          <span>${colName}</span>
+          <span class="filter-icon" data-column="col${i}" data-i18n-title="search">▼</span>
+          <div class="filter-dropdown" data-column="col${i}"></div>
         </th>`;
       });
       thead.innerHTML = headerHtml;
     }
 
-    // Get all events and match to grids using dynamic PK columns
+    // Get all events and match to grids using first PK
     const allEvents = tableStates.events?.data || [];
     const firstPk = __regionsPks[0];
 
-    // Build a map: firstPkValue → [events]
     const gridEventsMap = {};
     allEvents.forEach(evt => {
       const matchVal = firstPk ? evt[firstPk] : null;
@@ -4570,9 +4577,9 @@ async function loadRegionData() {
 
     // Enrich grid rows with event info
     const rows = data.rows.map((row, idx) => {
-      // Store all PK values
-      const pkVals = {};
-      __regionsPks.forEach(pk => { pkVals[pk] = row[pk] ?? null; });
+      // Store all column values
+      const colVals = {};
+      __regionsAllCols.forEach(col => { colVals[col] = row[col] ?? null; });
       
       const matchKey = firstPk ? String(row[firstPk] ?? '') : '';
       const events = gridEventsMap[matchKey] || [];
@@ -4589,9 +4596,10 @@ async function loadRegionData() {
       return {
         ...row,
         _idx: idx,
-        _pk1Val: pkVals[__regionsPks[0]] ?? null,
-        _pk2Val: pkVals[__regionsPks[1]] ?? null,
-        _pkVals: pkVals,
+        _pk1Val: colVals[__regionsPks[0]] ?? null,
+        _pk2Val: colVals[__regionsPks[1]] ?? null,
+        _pkVals: colVals,
+        _colVals: colVals,
         _events: events,
         _eventCount: events.length,
         _typeCounts: typeCounts,
@@ -4616,7 +4624,7 @@ function renderRegionTableRows(data) {
   if (!tb) return;
   tb.innerHTML = '';
   if (!data.length) {
-    const colCount = __regionsPks.length || 1;
+    const colCount = __regionsAllCols.length || 1;
     tb.innerHTML = `<tr><td colspan="${colCount}" style="text-align:center;padding:20px;color:var(--muted);">${t('noRegionData')}</td></tr>`;
     return;
   }
@@ -4624,9 +4632,9 @@ function renderRegionTableRows(data) {
     const tr = document.createElement('tr');
     const isSelected = __regionsSelectedRows.has(row._idx);
     if (isSelected) tr.classList.add('table-row-selected');
-    __regionsPks.forEach(pkName => {
+    __regionsAllCols.forEach(colName => {
       const td = document.createElement('td');
-      td.textContent = row._pkVals?.[pkName] ?? row[pkName] ?? '';
+      td.textContent = row._colVals?.[colName] ?? row[colName] ?? '';
       tr.appendChild(td);
     });
     tr.addEventListener('click', (e) => {
