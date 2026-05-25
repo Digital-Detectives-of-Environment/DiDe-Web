@@ -3499,8 +3499,11 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
       ORDER BY ordinal_position
     `);
     const allColumns = colResult.rows.map(r => r.column_name);
-    // Exclude geometry and internal columns from properties
-    const excludeFromProps = ['geom'];
+    // Exclude geometry and raw event_type source columns from properties.
+    // - event_type      → ham FK; yerine join'den "event" (event_type_name) olarak ekleniyor
+    // - event_type_name → event tablosunda varsa bile join sonucu "event" olarak ekleniyor
+    // - event_type_good → yerine "public" anahtarıyla ekleniyor (aşağıda loop + join)
+    const excludeFromProps = ['geom', 'event_type', 'event_type_good', 'event_type_name'];
     const propColumns = allColumns.filter(c => !excludeFromProps.includes(c));
     
     const placeholders = validIds.map((_, i) => `$${i + 1}`).join(',');
@@ -3532,6 +3535,8 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
       const properties = {};
       for (const col of propColumns) {
         if (col === 'latitude' || col === 'longitude') continue; // coordinates go in geometry
+        // Çift güvence: event_type kaynak sütunları asla properties'e yazılmasın
+        if (col === 'event_type' || col === 'event_type_good' || col === 'event_type_name') continue;
         let val = row[col];
         // Parse JSON text fields
         if (col === 'photo_urls' || col === 'video_urls') {
@@ -3539,8 +3544,9 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
         }
         properties[col] = val;
       }
-      // Add joined fields
+      // "event" → event_type_name join'inden (okunabilir tip adı)
       properties.event = row.event_type_name || null;
+      // "public" → event_type tablosundaki public flag'inden
       properties.public = row.event_type_public || false;
 
       return {
@@ -3559,7 +3565,11 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
       metadata: {
         total_events: features.length,
         export_date: new Date().toISOString(),
-        columns: propColumns.filter(c => c !== 'latitude' && c !== 'longitude')
+        columns: [
+          ...propColumns.filter(c => c !== 'latitude' && c !== 'longitude'),
+          'event',
+          'public'
+        ]
       }
     };
     

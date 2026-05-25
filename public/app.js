@@ -2164,7 +2164,7 @@ function downloadFilteredEventsAsGeoJSON() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `event_type_${Date.now()}.geojson`;
+    a.download = `events_${Date.now()}.geojson`;
     document.body.appendChild(a);
     a.click();
     setTimeout(() => {
