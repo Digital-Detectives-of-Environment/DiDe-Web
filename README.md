@@ -91,8 +91,8 @@ Follow these steps in order to clone the project and run it on your local machin
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/banbar/dide.git
-cd dide
+git clone https://github.com/Digital-Detectives-of-Environment/DiDe-Web.git
+cd DiDe-Web/
 ```
 
 ### Step 2: Install NPM Packages
