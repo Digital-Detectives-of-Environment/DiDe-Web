@@ -187,27 +187,22 @@ SITE_LOGO_URL=/DiDe-Logo.png
 # ── ALLOWED EMAIL DOMAINS FOR REGISTRATION ──
 ALLOWED_EMAIL_DOMAIN=gmail.com;outlook.com
 
-# ── TABLE PAGINATION ──
-TABLE_PAGE_SIZE_EVENTS=25
-TABLE_PAGE_SIZE_TYPES=20
-TABLE_PAGE_SIZE_USERS=30
+
 
 # ── MAP SETTINGS ──
 MAP_INITIAL_LAT=45.4642
 MAP_INITIAL_LNG=9.1900
 MAP_INITIAL_ZOOM=6
-MAP_MIN_ZOOM=2
 
-# ── EVENT VISIBILITY (LOGGED-OUT USERS) ──
-SHOW_GOOD_EVENTS_ON_LOGIN=true
-SHOW_BAD_EVENTS_ON_LOGIN=false
+
+
 
 # ── LANGUAGE SETTING ──
 DEFAULT_LANG=TR                         # TR, EN, IT, etc. (file name in i18n/)
 
 # ── GIS / AGGREGATION SETTINGS ──
 AGGREGATION_LAYER=                      # e.g. h3_milan
-Primary_Keys= 
+Display_Attribute=
 ```
 
 ### Step 7: Start the Application
