@@ -91,6 +91,7 @@ window.i18nLangs.en = {
     vtLayerTable: 'Layer Table',
     vtAttributeColumn: 'Attribute Column',
     vtAttributeColumnData: "Attribute Column's Data",
+    vtValue: 'Value',
     publicPrivate: 'Public/Private',
     vtSelectLayerTable: 'Select layer table',
     vtTablesDescription: 'Tables containing Line / Polygon geometry are listed.',
@@ -111,6 +112,7 @@ window.i18nLangs.en = {
     users: 'Users',
     username: 'Username',
     email: 'Email',
+    registrationDate: 'Registration Date',
     role: 'Role',
     verified: 'Verified',
     
@@ -120,6 +122,7 @@ window.i18nLangs.en = {
     mine: 'Mine',
     other: 'Other',
     addedBy: 'Added By',
+    updatedBy: 'Updated By',
     addedDate: 'Date Added',
     dateAdded: 'Date Added',
     available: 'Available',

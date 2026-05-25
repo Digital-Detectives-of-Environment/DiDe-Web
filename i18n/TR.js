@@ -91,6 +91,7 @@ window.i18nLangs.tr = {
     vtLayerTable: 'Katman Tablosu',
     vtAttributeColumn: 'Öznitelik Sütunu',
     vtAttributeColumnData: 'Öznitelik Sütun Verisi',
+    vtValue: 'Değer',
     publicPrivate: 'Public/Private',
     vtSelectLayerTable: 'Katman tablosu seç',
     vtTablesDescription: 'Line / Polygon geometri içeren tablolar listelenir.',
@@ -111,6 +112,7 @@ window.i18nLangs.tr = {
     users: 'Kullanıcılar',
     username: 'Kullanıcı Adı',
     email: 'E-posta',
+    registrationDate: 'Kayıt Tarihi',
     role: 'Rol',
     verified: 'Doğrulandı',
     
@@ -120,6 +122,7 @@ window.i18nLangs.tr = {
     mine: 'Benim',
     other: 'Diğer',
     addedBy: 'Ekleyen',
+    updatedBy: 'Güncelleyen',
     addedDate: 'Eklenme Tarihi',
     dateAdded: 'Eklenme Tarihi',
     available: 'Var',

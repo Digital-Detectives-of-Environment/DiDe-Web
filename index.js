@@ -1613,6 +1613,9 @@ async function ensureDbSqlHelpers() {
   await run('event add updated_by_id',        `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS updated_by_id integer`);
   await run('event add updated_at',           `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS updated_at timestamptz`);
 
+  // users: kayıt tarihi (e-posta doğrulandığı an yazılır)
+  await run('users add registration_date',    `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS registration_date timestamptz`);
+
   await tx('event_type unique(event_type_name)', async (c) => {
     try {
       await c.query(`ALTER TABLE public.event_type ADD CONSTRAINT event_type_name_key UNIQUE (event_type_name)`);
@@ -2250,7 +2253,7 @@ app.get('/api/auth/verify', async (req, res) => {
     if (!rows.length) return res.status(400).send('Geçersiz veya kullanılmış bağlantı.');
     if (new Date(rows[0].verify_expires) < new Date()) return res.status(400).send('Bağlantının süresi dolmuş.');
 
-    await pool.query('UPDATE users SET email_verified=true, is_verified=true, verify_token=null, verify_expires=null WHERE id=$1', [
+    await pool.query('UPDATE users SET email_verified=true, is_verified=true, verify_token=null, verify_expires=null, registration_date=NOW() WHERE id=$1', [
       rows[0].id,
     ]);
     res.send('E-posta doğrulandı. Giriş yapabilirsiniz.');
@@ -2558,6 +2561,7 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
         o.created_by_name            AS created_by_username,
         o.created_by_role_name       AS created_by_role_name,
         o.created_at,
+        o.updated_by_name,
         o.photo_urls,
         o.video_urls,
         ${POLYGON_PKS.map(p => `o."${p.safeName}"`).join(',\n        ')}${POLYGON_PKS.length > 0 ? ',' : ''}
@@ -3140,7 +3144,8 @@ app.get('/api/admin/users', adminOnly, async (req, res) => {
     const where = includeInactive ? 'TRUE' : 'COALESCE(is_active,true)=true';
     const { rows } = await pool.query(
       `SELECT id, username, name, surname, email, role, email_verified, is_verified,
-              COALESCE(is_active, true) AS is_active, deleted_by, deleted_by_role, deleted_by_id, deleted_at
+              COALESCE(is_active, true) AS is_active, deleted_by, deleted_by_role, deleted_by_id, deleted_at,
+              registration_date
        FROM users
        WHERE ${where}
        ORDER BY id`
@@ -3573,8 +3578,8 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
         }
         properties[col] = val;
       }
-      // "event" → event_type_name join'inden (okunabilir tip adı)
-      properties.event = row.event_type_name || null;
+      // "event_type" → event_type_name join'inden (okunabilir tip adı)
+      properties.event_type = row.event_type_name || null;
       // "public_" → event_type tablosundaki public_ flag'inden
       properties.public_ = row.event_type_public || false;
 
@@ -3596,7 +3601,7 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
         export_date: new Date().toISOString(),
         columns: [
           ...propColumns.filter(c => c !== 'latitude' && c !== 'longitude'),
-          'event',
+          'event_type',
           'public_'
         ]
       }

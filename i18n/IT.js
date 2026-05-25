@@ -86,6 +86,7 @@ window.i18nLangs.it = {
     vtLayerTable: 'Tabella livello',
     vtAttributeColumn: 'Colonna attributo',
     vtAttributeColumnData: 'Dati Colonna Attributo',
+    vtValue: 'Valore',
     publicPrivate: 'Pubblico/Privato',
     vtSelectLayerTable: 'Seleziona tabella livello',
     vtTablesDescription: 'Vengono elencate le tabelle contenenti geometria Linea / Poligono.',
@@ -106,6 +107,7 @@ window.i18nLangs.it = {
     users: 'Utenti',
     username: 'Nome utente',
     email: 'Email',
+    registrationDate: 'Data di registrazione',
     role: 'Ruolo',
     verified: 'Verificato',
     
@@ -115,6 +117,7 @@ window.i18nLangs.it = {
     mine: 'Mio',
     other: 'Altro',
     addedBy: 'Aggiunto da',
+    updatedBy: 'Aggiornato da',
     addedDate: 'Data aggiunta',
     dateAdded: 'Data aggiunta',
     available: 'Disponibile',

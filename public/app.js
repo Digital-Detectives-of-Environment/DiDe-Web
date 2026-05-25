@@ -1601,7 +1601,7 @@ async function vt_refreshTable(){
       <tr>
         <th data-i18n="vtLayerTable">${t('vtLayerTable')}</th>
         <th data-i18n="vtAttributeColumn">${t('vtAttributeColumn')}</th>
-        <th data-i18n="vtAttributeColumnData">${t('vtAttributeColumnData')}</th>
+        <th data-i18n="vtValue">${t('vtValue')}</th>
         <th data-i18n="publicPrivate">${t('publicPrivate')}</th>
         <th data-i18n="addedBy">${t('addedBy')}</th>
         <th data-i18n="actions">${t('actions')}</th>
@@ -2547,7 +2547,8 @@ function parseDateStr(dateStr) {
 }
 
 /* ==================== DATE FILTER DROPDOWN ==================== */
-function buildDateFilterDropdown(data, state) {
+function buildDateFilterDropdown(data, state, dateFieldFn) {
+  const _getDate = dateFieldFn || (item => formatDate(item.created_at || item.eklenme_tarihi));
   let selectAllChecked = false;
   
   if (!state.filters.date || !Array.isArray(state.filters.date)) {
@@ -2557,7 +2558,7 @@ function buildDateFilterDropdown(data, state) {
   } else {
     const valueCounts = {};
     data.forEach(item => {
-      const value = formatDate(item.created_at || item.eklenme_tarihi);
+      const value = _getDate(item);
       if (value && value !== '-') {
         valueCounts[value] = (valueCounts[value] || 0) + 1;
       }
@@ -2591,7 +2592,7 @@ function buildDateFilterDropdown(data, state) {
   
   const valueCounts = {};
   data.forEach(item => {
-    const value = formatDate(item.created_at || item.eklenme_tarihi);
+    const value = _getDate(item);
     if (value && value !== '-') {
       valueCounts[value] = (valueCounts[value] || 0) + 1;
     }
@@ -2735,7 +2736,9 @@ function buildEmailFilterDropdown(data, state) {
 }
 
 /* ==================== UPDATE CUSTOM DATE FILTERS ==================== */
-function updateCustomDateFilters(dropdown, query, data) {
+function updateCustomDateFilters(dropdown, query, data, tableKey, column) {
+  tableKey = tableKey || 'events';
+  column = column || 'date';
   const container = dropdown.querySelector('#custom-date-filters');
   if (!container) return;
   
@@ -2818,7 +2821,7 @@ function updateCustomDateFilters(dropdown, query, data) {
     setTimeout(() => {
       container.querySelectorAll('.filter-custom').forEach(cb => {
         cb.addEventListener('change', () => {
-          applyCustomDateFilters('events');
+          applyCustomDateFilters(tableKey, column);
         });
       });
     }, 10);
@@ -2826,9 +2829,11 @@ function updateCustomDateFilters(dropdown, query, data) {
 }
 
 /* ==================== APPLY CUSTOM DATE FILTERS ==================== */
-function applyCustomDateFilters(tableKey) {
+function applyCustomDateFilters(tableKey, column) {
+  tableKey = tableKey || 'events';
+  column = column || 'date';
   const state = tableStates[tableKey];
-  const dropdown = document.querySelector(`#${tableKey}-table .filter-dropdown[data-column="date"]`);
+  const dropdown = document.querySelector(`#${tableKey}-table .filter-dropdown[data-column="${column}"]`);
   if (!dropdown) return;
   
   const customBoxes = Array.from(dropdown.querySelectorAll('.filter-custom:checked'));
@@ -2841,7 +2846,9 @@ function applyCustomDateFilters(tableKey) {
   const filters = customBoxes.map(cb => JSON.parse(cb.getAttribute('data-filter')));
   
   state.filtered = state.data.filter(item => {
-    const rawDate = item.created_at || item.eklenme_tarihi;
+    const rawDate = (tableKey === 'users' && column === 'regdate')
+      ? item.registration_date
+      : (item.created_at || item.eklenme_tarihi);
     if (!rawDate) return false;
     
     const dateObj = new Date(rawDate);
@@ -2879,12 +2886,15 @@ function applyCustomDateFilters(tableKey) {
   
   state.currentPage = 1;
   renderTable(tableKey);
-  updateFilterIcon(tableKey, 'date');
+  updateFilterIcon(tableKey, column);
 }
 
 /* ==================== APPLY SORT FILTER ==================== */
-function applySortFilter(sortType) {
-  const state = tableStates.events;
+function applySortFilter(sortType, tableKey, column, dateFieldFn) {
+  tableKey = tableKey || 'events';
+  column = column || 'date';
+  const _dateField = dateFieldFn || (item => new Date(item.created_at || item.eklenme_tarihi || 0));
+  const state = tableStates[tableKey];
   
   if (!state.specialFilters) state.specialFilters = {};
   state.specialFilters.sortOrder = sortType;
@@ -2893,20 +2903,16 @@ function applySortFilter(sortType) {
     state.filtered = [...state.data];
   } else {
     state.filtered.sort((a, b) => {
-      const dateA = new Date(a.created_at || a.eklenme_tarihi || 0);
-      const dateB = new Date(b.created_at || b.eklenme_tarihi || 0);
-      
-      if (sortType === 'newest') {
-        return dateB - dateA; 
-      } else {
-        return dateA - dateB; 
-      }
+      const dateA = _dateField(a);
+      const dateB = _dateField(b);
+      if (sortType === 'newest') return dateB - dateA;
+      else return dateA - dateB;
     });
   }
   
   state.currentPage = 1;
-  renderTable('events');
-  updateFilterIcon('events', 'date');
+  renderTable(tableKey);
+  updateFilterIcon(tableKey, column);
 }
 
 /* ==================== APPLY EMAIL DOMAIN FILTERS ==================== */
@@ -3078,10 +3084,12 @@ function applyFilters(tableKey) {
           if (column === 'role') itemValue = item.role || '';
           if (column === 'email') itemValue = item.email || '';
           if (column === 'verified') itemValue = item.email_verified ? t('yes') : t('no');
+          if (column === 'regdate') itemValue = formatDate(item.registration_date);
           break;
         case 'events':
           if (column === 'type') itemValue = item.event_type_name || '-';
           if (column === 'creator') itemValue = item.created_by_username || '-';
+          if (column === 'updatedby') itemValue = item.updated_by_name || '-';
           if (column === 'photo') itemValue = (Array.isArray(item.photo_urls) && item.photo_urls.length > 0) ? t('available') : t('notAvailable');
           if (column === 'video') itemValue = (Array.isArray(item.video_urls) && item.video_urls.length > 0) ? t('available') : t('notAvailable');
           if (column === 'date') itemValue = formatDate(item.created_at || item.eklenme_tarihi);
@@ -3188,6 +3196,14 @@ function buildFilterDropdown(tableKey, column, data) {
   
   if (tableKey === 'events' && column === 'creator') {
     return buildEventCreatorFilterDropdown(data, state);
+  }
+  
+  if (tableKey === 'events' && column === 'updatedby') {
+    return buildEventUpdatedByFilterDropdown(data, state);
+  }
+  
+  if (tableKey === 'users' && column === 'regdate') {
+    return buildDateFilterDropdown(data, state, item => formatDate(item.registration_date));
   }
   
   const uniqueValues = new Set();
@@ -3562,7 +3578,136 @@ function buildEventCreatorFilterDropdown(data, state) {
   return html;
 }
 
-/* ==================== APPLY EVENT TYPE GOOD/BAD FILTERS ==================== */
+/* ==================== UPDATED BY FILTER DROPDOWN (mirrors creator) ==================== */
+function buildEventUpdatedByFilterDropdown(data, state) {
+  const uniqueUpdaters = new Set();
+  state.data.forEach(item => {
+    const updater = item.updated_by_name || '-';
+    if (updater) uniqueUpdaters.add(updater);
+  });
+  
+  const sortedUpdaters = Array.from(uniqueUpdaters).sort();
+  
+  const updaterCounts = {};
+  sortedUpdaters.forEach(u => { updaterCounts[u] = 0; });
+  state.filtered.forEach(item => {
+    const u = item.updated_by_name || '-';
+    if (u && updaterCounts.hasOwnProperty(u)) updaterCounts[u]++;
+  });
+  
+  const activeDomains = new Set();
+  if (tableStates.users && tableStates.users.data) {
+    tableStates.users.data.forEach(user => {
+      const email = user.email || '';
+      const match = email.match(/@(.+)$/);
+      if (match) activeDomains.add(match[1]);
+    });
+  }
+  
+  const domainCounts = {};
+  activeDomains.forEach(d => { domainCounts[d] = 0; });
+  if (tableStates.users && tableStates.users.data) {
+    tableStates.users.data.forEach(user => {
+      const email = user.email || '';
+      const match = email.match(/@(.+)$/);
+      if (match && activeDomains.has(match[1])) {
+        const username = user.username;
+        state.filtered.forEach(item => {
+          if (item.updated_by_name === username) domainCounts[match[1]]++;
+        });
+      }
+    });
+  }
+  
+  const sortedDomains = Array.from(activeDomains).sort();
+  const specialFilters = state.specialFilters || {};
+  const allUpd = !state.filters.updatedby || state.filters.updatedby.length === sortedUpdaters.length;
+  const allDom = !specialFilters.updatedbyDomains || specialFilters.updatedbyDomains.length === sortedDomains.length;
+  
+  let html = `
+    <input type="text" class="filter-search" placeholder="${t('search')}" />
+    <div class="filter-options-container">
+      <label class="filter-option">
+        <input type="checkbox" class="filter-select-all" ${allUpd && allDom ? 'checked' : ''} />
+        <span>(${t('selectAll')})</span>
+      </label>
+  `;
+  
+  if (sortedDomains.length > 0) {
+    html += `<div style="font-weight:600; font-size:0.85rem; color:var(--primary); margin:8px 0 4px 0;">📧 ${t('emailDomains')}:</div>`;
+    sortedDomains.forEach(domain => {
+      const count = domainCounts[domain] || 0;
+      const checked = !specialFilters.updatedbyDomains || specialFilters.updatedbyDomains.includes(domain);
+      html += `
+        <label class="filter-option special-filter-item" style="background:#e3f2fd; border-radius:4px; padding:4px 8px; margin:2px 0;">
+          <input type="checkbox" class="filter-updatedby-domain" data-domain="${escapeHtml(domain)}" ${checked ? 'checked' : ''} />
+          <span style="font-weight:500;">@${escapeHtml(domain)} (${count})</span>
+        </label>
+      `;
+    });
+    html += '<hr style="margin:8px 0; border:none; border-top:1px solid var(--border);" />';
+  }
+  
+  sortedUpdaters.forEach(updater => {
+    const count = updaterCounts[updater] || 0;
+    let checked = true;
+    if (state.filters.updatedby && state.filters.updatedby.length > 0) {
+      checked = state.filters.updatedby.includes(updater);
+    } else if (specialFilters.updatedbyDomains && specialFilters.updatedbyDomains.length < sortedDomains.length) {
+      if (tableStates.users && tableStates.users.data) {
+        const user = tableStates.users.data.find(u => u.username === updater);
+        if (user && user.email) {
+          const match = user.email.match(/@(.+)$/);
+          if (match) checked = specialFilters.updatedbyDomains.includes(match[1]);
+        }
+      }
+    }
+    html += `
+      <label class="filter-option">
+        <input type="checkbox" class="filter-checkbox" value="${escapeHtml(updater)}" ${checked ? 'checked' : ''} />
+        <span>${escapeHtml(updater)} (${count})</span>
+      </label>
+    `;
+  });
+  
+  html += `</div>`;
+  return html;
+}
+
+/* ==================== APPLY UPDATED BY DOMAIN FILTERS ==================== */
+function applyEventUpdatedByDomainFilters(tableKey) {
+  const state = tableStates[tableKey];
+  const dropdown = document.querySelector(`#${tableKey}-table .filter-dropdown[data-column="updatedby"]`);
+  if (!dropdown) return;
+  
+  const checkedDomains = Array.from(dropdown.querySelectorAll('.filter-updatedby-domain:checked'))
+    .map(cb => cb.getAttribute('data-domain'));
+  
+  if (!state.specialFilters) state.specialFilters = {};
+  state.specialFilters.updatedbyDomains = checkedDomains;
+  
+  const selectedUpdaters = state.filters.updatedby || [];
+  
+  const usernamesInDomains = [];
+  if (tableStates.users && tableStates.users.data) {
+    tableStates.users.data.forEach(user => {
+      const email = user.email || '';
+      const match = email.match(/@(.+)$/);
+      if (match && checkedDomains.includes(match[1])) usernamesInDomains.push(user.username);
+    });
+  }
+  
+  state.filtered = state.data.filter(item => {
+    const updater = item.updated_by_name || '';
+    const inDomain = usernamesInDomains.includes(updater);
+    const inSelected = selectedUpdaters.length === 0 || selectedUpdaters.includes(updater);
+    return inDomain || (selectedUpdaters.length > 0 && inSelected);
+  });
+  
+  state.currentPage = 1;
+  renderTable(tableKey);
+  updateFilterIcon(tableKey, 'updatedby');
+}
 function applyEventTypeGoodBadFilters(tableKey) {
   const state = tableStates[tableKey];
   const dropdown = document.querySelector(`#${tableKey}-table .filter-dropdown[data-column="type"]`);
@@ -3765,6 +3910,28 @@ function attachFilterEvents(tableKey) {
             }
           }
           
+          if (tableKey === 'events' && column === 'updatedby') {
+            if (specialFilters.updatedbyDomains !== undefined) {
+              dropdown.querySelectorAll('.filter-updatedby-domain').forEach(cb => {
+                const domain = cb.getAttribute('data-domain');
+                cb.checked = specialFilters.updatedbyDomains.includes(domain);
+              });
+              const usernamesInDomains = [];
+              if (tableStates.users && tableStates.users.data) {
+                tableStates.users.data.forEach(user => {
+                  const email = user.email || '';
+                  const match = email.match(/@(.+)$/);
+                  if (match && specialFilters.updatedbyDomains.includes(match[1])) {
+                    usernamesInDomains.push(user.username);
+                  }
+                });
+              }
+              dropdown.querySelectorAll('.filter-checkbox').forEach(cb => {
+                if (usernamesInDomains.includes(cb.value)) cb.checked = true;
+              });
+            }
+          }
+          
           if (tableKey === 'users' && column === 'email') {
             if (specialFilters.emailDomains !== undefined) {
               dropdown.querySelectorAll('.filter-email-domain').forEach(cb => {
@@ -3797,18 +3964,26 @@ function attachFilterEvents(tableKey) {
             }
           }
           
+          if (tableKey === 'users' && column === 'regdate') {
+            const newestBox = dropdown.querySelector('.filter-sort-newest');
+            const oldestBox = dropdown.querySelector('.filter-sort-oldest');
+            if (specialFilters.sortOrder === 'newest' && newestBox) newestBox.checked = true;
+            else if (specialFilters.sortOrder === 'oldest' && oldestBox) oldestBox.checked = true;
+          }
+          
           const searchInput = dropdown.querySelector('.filter-search');
           searchInput?.addEventListener('input', (e) => {
             const searchTerm = e.target.value.toLowerCase().trim();
             
-            if (tableKey === 'events' && column === 'date') {
-              updateCustomDateFilters(dropdown, searchTerm, tableStates[tableKey].data);
+            if ((tableKey === 'events' && column === 'date') || (tableKey === 'users' && column === 'regdate')) {
+              updateCustomDateFilters(dropdown, searchTerm, tableStates[tableKey].data, tableKey, column);
             }
             
             dropdown.querySelectorAll('.filter-option').forEach((opt, idx) => {
               if (idx === 0) return;
               
-              if (tableKey === 'events' && column === 'date' && (idx === 1 || idx === 2)) return;
+              if ((tableKey === 'events' && column === 'date' && (idx === 1 || idx === 2)) ||
+                  (tableKey === 'users' && column === 'regdate' && (idx === 1 || idx === 2))) return;
               
               const isDomainOption = opt.querySelector('.filter-email-domain');
               if (isDomainOption) {
@@ -3838,7 +4013,7 @@ function attachFilterEvents(tableKey) {
               let match = false;
               
               if (searchTerm) {
-                if (tableKey === 'events' && column === 'date') {
+                if ((tableKey === 'events' && column === 'date') || (tableKey === 'users' && column === 'regdate')) {
                   match = matchDateQuery(value, searchTerm);
                 } else {
                   const searchWords = searchTerm.split(/\s+/).filter(w => w.length > 0);
@@ -3887,6 +4062,17 @@ function attachFilterEvents(tableKey) {
                 state.specialFilters.creatorDomains = allDomains;
               } else {
                 state.specialFilters.creatorDomains = [];
+              }
+            }
+            
+            if (tableKey === 'events' && column === 'updatedby') {
+              dropdown.querySelectorAll('.filter-updatedby-domain').forEach(cb => cb.checked = e.target.checked);
+              if (!state.specialFilters) state.specialFilters = {};
+              if (e.target.checked) {
+                const allDomains = Array.from(dropdown.querySelectorAll('.filter-updatedby-domain')).map(cb => cb.getAttribute('data-domain'));
+                state.specialFilters.updatedbyDomains = allDomains;
+              } else {
+                state.specialFilters.updatedbyDomains = [];
               }
             }
             
@@ -3981,6 +4167,53 @@ function attachFilterEvents(tableKey) {
             });
           }
           
+          if (tableKey === 'events' && column === 'updatedby') {
+            dropdown.querySelectorAll('.filter-updatedby-domain').forEach(domainBox => {
+              domainBox.addEventListener('change', () => {
+                const allDomainBoxes = dropdown.querySelectorAll('.filter-updatedby-domain');
+                const checkedDomains = Array.from(dropdown.querySelectorAll('.filter-updatedby-domain:checked'))
+                  .map(cb => cb.getAttribute('data-domain'));
+                const selectAllBox = dropdown.querySelector('.filter-select-all');
+                if (selectAllBox) {
+                  const allCheckboxes = dropdown.querySelectorAll('.filter-checkbox');
+                  const checkedCheckboxes = dropdown.querySelectorAll('.filter-checkbox:checked');
+                  selectAllBox.checked = checkedDomains.length === allDomainBoxes.length && checkedCheckboxes.length === allCheckboxes.length;
+                }
+                const usernamesInDomains = [];
+                if (tableStates.users && tableStates.users.data) {
+                  tableStates.users.data.forEach(user => {
+                    const email = user.email || '';
+                    const match = email.match(/@(.+)$/);
+                    if (match && checkedDomains.includes(match[1])) usernamesInDomains.push(user.username);
+                  });
+                }
+                dropdown.querySelectorAll('.filter-checkbox').forEach(cb => {
+                  const u = cb.value;
+                  if (usernamesInDomains.includes(u)) {
+                    if (!cb.checked) cb.checked = true;
+                  } else if (checkedDomains.length > 0) {
+                    if (!state.filters.updatedby || !state.filters.updatedby.includes(u)) cb.checked = false;
+                  }
+                });
+                applyEventUpdatedByDomainFilters('events');
+              });
+            });
+          }
+          
+          if (tableKey === 'events' && column === 'date') {
+            const newestBox = dropdown.querySelector('.filter-sort-newest');
+            const oldestBox = dropdown.querySelector('.filter-sort-oldest');
+            newestBox?.addEventListener('change', (e) => { if (e.target.checked) applySortFilter('newest'); });
+            oldestBox?.addEventListener('change', (e) => { if (e.target.checked) applySortFilter('oldest'); });
+          }
+          
+          if (tableKey === 'users' && column === 'regdate') {
+            const regDateFn = item => new Date(item.registration_date || 0);
+            const newestBox = dropdown.querySelector('.filter-sort-newest');
+            const oldestBox = dropdown.querySelector('.filter-sort-oldest');
+            newestBox?.addEventListener('change', (e) => { if (e.target.checked) applySortFilter('newest', 'users', 'regdate', regDateFn); });
+            oldestBox?.addEventListener('change', (e) => { if (e.target.checked) applySortFilter('oldest', 'users', 'regdate', regDateFn); });
+          }
           if (tableKey === 'events' && column === 'type') {
             const goodBox = dropdown.querySelector('.filter-event-type-good');
             const badBox = dropdown.querySelector('.filter-event-type-bad');
@@ -4041,23 +4274,6 @@ function attachFilterEvents(tableKey) {
             
             goodBox?.addEventListener('change', updateTypeCheckboxes);
             badBox?.addEventListener('change', updateTypeCheckboxes);
-          }
-          
-          if (tableKey === 'events' && column === 'date') {
-            const newestBox = dropdown.querySelector('.filter-sort-newest');
-            const oldestBox = dropdown.querySelector('.filter-sort-oldest');
-            
-            newestBox?.addEventListener('change', (e) => {
-              if (e.target.checked) {
-                applySortFilter('newest');
-              }
-            });
-            
-            oldestBox?.addEventListener('change', (e) => {
-              if (e.target.checked) {
-                applySortFilter('oldest');
-              }
-            });
           }
           
           dropdown.querySelectorAll('.filter-checkbox').forEach(cb => {
@@ -5170,7 +5386,7 @@ function renderUserTableRows(data) {
   tb.innerHTML = '';
   
   if (data.length === 0) {
-    tb.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);">${t('noRecordsFound')}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);">${t('noRecordsFound')}</td></tr>`;
     return;
   }
   
@@ -5191,10 +5407,13 @@ function renderUserTableRows(data) {
       ? `<button class="btn danger" data-del-user="${u.id}">${t('delete')}</button>`
       : `<button class="btn danger" disabled title="${t('noPermission')}">${t('delete')}</button>`;
     
+    const regDateStr = u.registration_date ? formatDate(u.registration_date) : '-';
+    
     tr.innerHTML = `
       <td>${escapeHtml(u.username)}</td>
       <td>${escapeHtml(u.role)}</td>
       <td>${escapeHtml(u.email || '')}</td>
+      <td>${regDateStr}</td>
       <td>${u.email_verified ? t('yes') : t('no')}</td>
       <td>${deleteBtn}</td>
     `;
@@ -5268,7 +5487,7 @@ function renderEventTableRows(data) {
   }
   
   if (data.length === 0) {
-    tb.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);">${t('noRecordsFound')}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);">${t('noRecordsFound')}</td></tr>`;
     return;
   }
   
@@ -5276,6 +5495,7 @@ function renderEventTableRows(data) {
     const creatorName = o.created_by_username ?? '';
     const creatorId = (o.created_by_id != null) ? String(o.created_by_id) : '-';
     const who = creatorName ? `${creatorName} (ID: ${creatorId})` : '-';
+    const updatedWho = o.updated_by_name ? escapeHtml(o.updated_by_name) : '-';
     
     const hasPhoto = Array.isArray(o.photo_urls) && o.photo_urls.length > 0 ? t('available') : t('notAvailable');
     const hasVideo = Array.isArray(o.video_urls) && o.video_urls.length > 0 ? t('available') : t('notAvailable');
@@ -5291,6 +5511,7 @@ function renderEventTableRows(data) {
       <td>${o.event_type_name ? escapeHtml(o.event_type_name) : '-'}</td>
       <td><div class="td-desc">${o.description ? escapeHtml(o.description) : ''}</div></td>
       <td>${escapeHtml(who)}</td>
+      <td>${updatedWho}</td>
       <td>${hasPhoto}</td>
       <td>${hasVideo}</td>
       <td>${dateStr}</td>
@@ -8670,10 +8891,11 @@ function updateTableHeaders() {
     rebuildHeader(headers[0], t('type'), true);           
     rebuildHeader(headers[1], t('description'), false);   
     rebuildHeader(headers[2], t('addedBy'), true);        
-    rebuildHeader(headers[3], t('photo'), true);          
-    rebuildHeader(headers[4], t('video'), true);          
-    rebuildHeader(headers[5], t('addedDate'), true);      
-    rebuildHeader(headers[6], t('actions'), false);       
+    rebuildHeader(headers[3], t('updatedBy'), true);
+    rebuildHeader(headers[4], t('photo'), true);          
+    rebuildHeader(headers[5], t('video'), true);          
+    rebuildHeader(headers[6], t('addedDate'), true);      
+    rebuildHeader(headers[7], t('actions'), false);       
   }
   
   // Types Table
@@ -8695,8 +8917,9 @@ function updateTableHeaders() {
     rebuildHeader(headers[0], t('username'), true);       
     rebuildHeader(headers[1], t('role'), true);           
     rebuildHeader(headers[2], t('email'), true);          
-    rebuildHeader(headers[3], t('verified'), true);      
-    rebuildHeader(headers[4], t('actions'), false);       
+    rebuildHeader(headers[3], t('registrationDate'), true);
+    rebuildHeader(headers[4], t('verified'), true);      
+    rebuildHeader(headers[5], t('actions'), false);       
   }
 }
 document.addEventListener('DOMContentLoaded', () => {
