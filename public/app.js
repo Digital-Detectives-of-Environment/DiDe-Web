@@ -5803,6 +5803,8 @@ async function refreshAdminEvents(){
   }
   // Also load regions data for Bölgemi Bul tab
   try { await loadRegionData(); } catch(e) { console.warn('loadRegionData error:', e); }
+  // Refresh regions map markers so popup data (Updated By etc.) is current
+  try { syncRegionsEventMarkers(); } catch(e) {}
 }
 
 /* ==================== TAB NAVIGATION ==================== */
