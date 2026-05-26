@@ -5097,13 +5097,44 @@ function syncRegionsEventMarkers() {
   regionsMarkersLayer.clearLayers();
 
   const allEvents = tableStates.events?.data || [];
+  const _savedForceBlue = window.FORCE_BLUE_MARKERS;
+  window.FORCE_BLUE_MARKERS = false;
   allEvents.forEach(e => {
     const lat = parseFloat(e.latitude), lng = parseFloat(e.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const m = L.marker([lat, lng], { icon: iconForEvent(e) });
-    m.bindPopup(`<b>${e.event_type_name || '-'}</b><br>${e.description || ''}`);
+
+    const turHtml = e.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(e.event_type_name)}<br>` : '';
+    const creatorName = e.created_by_username ?? '';
+    const creatorId = (e.created_by_id != null) ? String(e.created_by_id) : '-';
+    const who = creatorName ? `${creatorName} (ID: ${creatorId})` : '-';
+
+    const mediaHtml = `
+      <div><b>${t('photo')}:</b></div>
+      <div class="popup-photos"><div data-ph="${e.event_id}"></div></div>
+      <div style="height:6px"></div>
+      <div><b>${t('video')}:</b></div>
+      <div class="popup-videos"><div data-vd="${e.event_id}"></div></div>
+    `;
+
+    const content = document.createElement('div');
+    content.innerHTML = `
+      <div style="margin-bottom:6px;">
+        <b>${t('eventID')}:</b> ${e.event_id}
+        <span class="badge ${e.is_mine ? 'mine' : 'other'}" style="margin-left:6px;">${e.is_mine ? t('mine') : t('other')}</span>
+      </div>
+      ${turHtml}
+      <div class="popup-body"><b>${t('description')}:</b> ${e.description ? escapeHtml(e.description) : ''}</div>
+      ${mediaHtml}
+      <div class="popup-meta"><b>${t('addedBy')}:</b> ${escapeHtml(who)}</div>
+      ${e.updated_by_name ? `<div class="popup-meta"><b>${t('updatedBy')}:</b> ${escapeHtml(e.updated_by_name)}(${escapeHtml(e.updated_by_role_name || '')})</div>` : ''}
+    `;
+
+    m.bindPopup(content);
+    m.on('popupopen', () => populateEventMedia(content, e));
     regionsMarkersLayer.addLayer(m);
   });
+  window.FORCE_BLUE_MARKERS = _savedForceBlue;
 
   // Ensure markers layer is on the map (it might have been removed)
   if (!regionsMap.hasLayer(regionsMarkersLayer)) {
