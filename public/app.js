@@ -5232,14 +5232,80 @@ function syncEventsMapWithSelection() {
   const selected = allFiltered.filter(e => __eventsSelectedRows.has(e.event_id));
 
   eventsMarkersLayer.clearLayers();
+  const _savedForceBlue = window.FORCE_BLUE_MARKERS;
+  window.FORCE_BLUE_MARKERS = false;
   const bounds = [];
   selected.forEach(e => {
     const lat = parseFloat(e.latitude), lng = parseFloat(e.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const m = L.marker([lat, lng], { icon: iconForEvent(e) }).addTo(eventsMarkersLayer);
-    m.bindPopup(`<b>${e.event_type_name || '-'}</b><br>${e.description || ''}`);
+
+    const turHtml = e.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(e.event_type_name)}<br>` : '';
+    const creatorName = e.created_by_username ?? '';
+    const creatorId = (e.created_by_id != null) ? String(e.created_by_id) : '-';
+    const who = creatorName ? `${creatorName} (ID: ${creatorId})` : '-';
+
+    const mediaHtml = `
+      <div><b>${t('photo')}:</b></div>
+      <div class="popup-photos"><div data-ph="${e.event_id}"></div></div>
+      <div style="height:6px"></div>
+      <div><b>${t('video')}:</b></div>
+      <div class="popup-videos"><div data-vd="${e.event_id}"></div></div>
+    `;
+
+    const content = document.createElement('div');
+    content.innerHTML = `
+      <div style="margin-bottom:6px;">
+        <b>${t('eventID')}:</b> ${e.event_id}
+        <span class="badge ${e.is_mine ? 'mine' : 'other'}" style="margin-left:6px;">${e.is_mine ? t('mine') : t('other')}</span>
+      </div>
+      ${turHtml}
+      <div class="popup-body"><b>${t('description')}:</b> ${e.description ? escapeHtml(e.description) : ''}</div>
+      ${mediaHtml}
+      <div class="popup-meta"><b>${t('addedBy')}:</b> ${escapeHtml(who)}</div>
+      ${e.updated_by_name ? `<div class="popup-meta"><b>${t('updatedBy')}:</b> ${escapeHtml(e.updated_by_name)}(${escapeHtml(e.updated_by_role_name || '')})</div>` : ''}
+      <div class="inline" style="gap:6px; margin-top:8px;"></div>
+    `;
+
+    const btnRow = content.querySelector('.inline');
+
+    const canEdit = (currentUser && (currentUser.role === 'admin' || (currentUser.role === 'user' && (e.is_mine || e.created_by_role_name === 'supervisor')) || (currentUser.role === 'supervisor' && (e.is_mine || e.created_by_role_name === 'supervisor'))));
+    if (canEdit) {
+      const eb = document.createElement('button');
+      eb.className = 'btn ghost';
+      eb.textContent = t('update');
+      eb.onclick = () => beginEdit(e);
+      btnRow.appendChild(eb);
+    }
+
+    const canDelete = currentUser && (
+      (currentUser.role === 'user' && e.is_mine) ||
+      (currentUser.role === 'supervisor') ||
+      (currentUser.role === 'admin')
+    );
+    if (canDelete) {
+      const db = document.createElement('button');
+      db.className = 'btn danger';
+      db.textContent = t('delete');
+      db.onclick = async () => {
+        if (!confirm(t('confirmDeleteEvent'))) return;
+        db.disabled = true;
+        try {
+          const url = (currentUser.role === 'user') ? `/api/event/${e.event_id}` : `/api/admin/event/${e.event_id}`;
+          await fetch(url, {method:'DELETE'});
+          await Promise.all([loadExistingEvents({ publicMode:false }), refreshAdminEvents()]);
+        } catch(err) {
+          console.error('delete event error:', err);
+        } finally { db.disabled = false; }
+      };
+      btnRow.appendChild(db);
+    }
+
+    m.bindPopup(content);
+    m.on('popupopen', () => populateEventMedia(content, e));
     bounds.push([lat, lng]);
   });
+  window.FORCE_BLUE_MARKERS = _savedForceBlue;
 
   if (bounds.length) {
     eventsMap.fitBounds(L.latLngBounds(bounds).pad(0.2));
@@ -8561,6 +8627,32 @@ async function changeLanguage(lang) {
     }
     
     toast(t('languageChanged'), 'success');
+
+    // Safety net: after all async ops AND the 80ms resetAllTableFilters timeout,
+    // do a final re-sync of events map markers + layer panel language.
+    // This catches any race conditions between wrappedSetLanguage timeout,
+    // async API calls, and markerCluster chunked rendering.
+    setTimeout(() => {
+      try {
+        // Re-sync events map markers
+        if (eventsMap && eventsMarkersLayer && currentUser &&
+            (currentUser.role === 'admin' || currentUser.role === 'supervisor')) {
+          // Ensure eventsMarkersLayer is on the map
+          if (!eventsMap.hasLayer(eventsMarkersLayer)) {
+            eventsMarkersLayer.addTo(eventsMap);
+          }
+          syncEventsMapWithFilteredEvents();
+          eventsMap.invalidateSize();
+        }
+        // Re-sync layer panel headers
+        document.querySelectorAll('.layer-panel-header').forEach(header => {
+          const b = header.querySelector('b');
+          const span = header.querySelector('.layer-panel-subtitle');
+          if (b) b.textContent = t('layers');
+          if (span) span.textContent = t('layersSubtitle');
+        });
+      } catch(e) { console.warn('[changeLanguage] post-sync error:', e); }
+    }, 150);
   }
 }
 
@@ -8835,17 +8927,13 @@ async function updateUIWithNewLanguage() {
     });
   }
   
-  if (currentUser) {
-    await loadExistingEvents({ publicMode: false });
-    if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
-      await refreshAdminEvents();
-    }
-  } else {
-    const showGood = boolFromConfigValue(APP_CONFIG.showGoodEventsOnLogin);
-    const showBad = boolFromConfigValue(APP_CONFIG.showBadEventsOnLogin);
-    if (showGood || showBad) {
-      await loadExistingEvents({ publicMode: true });
-    }
+  // Language change: no need to re-fetch data from API — data hasn't changed.
+  // Tables are already re-rendered above (line 8737), event map markers are
+  // re-synced by wrappedSetLanguage's 80ms timeout + changeLanguage safety net,
+  // and main map popups auto-update on open via recreatePopupContent.
+  // Just re-sync the events map markers with existing data for the new language.
+  if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'supervisor')) {
+    try { syncEventsMapWithFilteredEvents(); } catch(e) {}
   }
   
   // ── General data-i18n attribute processor ──
