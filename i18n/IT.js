@@ -329,5 +329,10 @@ window.i18nLangs.it = {
     cannotAddOutsideGrid: 'Impossibile aggiungere punti fuori dalla griglia',
 
     // Language
-    languageChanged: 'Lingua cambiata'
+    languageChanged: 'Lingua cambiata',
+
+    // Layers panel
+    layers: 'Livelli',
+    layersSubtitle: '(mostra/nascondi + riordina)',
+    apply: 'Applica'
 };

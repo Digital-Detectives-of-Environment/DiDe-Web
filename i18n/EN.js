@@ -338,5 +338,10 @@ window.i18nLangs.en = {
     cannotAddOutsideGrid: 'Cannot add points outside the grid',
 
     // Language
-    languageChanged: 'Language changed'
+    languageChanged: 'Language changed',
+
+    // Layers panel
+    layers: 'Layers',
+    layersSubtitle: '(show/hide + reorder)',
+    apply: 'Apply'
 };

@@ -2634,6 +2634,7 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
         o.created_by_role_name       AS created_by_role_name,
         o.created_at,
         o.updated_by_name,
+        o.updated_by_role_name,
         o.photo_urls,
         o.video_urls,
         ${POLYGON_PKS.map(p => `o."${p.safeName}"`).join(',\n        ')}${POLYGON_PKS.length > 0 ? ',' : ''}
@@ -2676,6 +2677,8 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
         ...row,
         created_by_id: null,
         created_by_username: null,
+        updated_by_name: null,
+        updated_by_role_name: null,
         is_mine: false,
       }));
       

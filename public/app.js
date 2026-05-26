@@ -451,8 +451,8 @@ function ensureLayerDrawer(mapInstance, listId){
 
   panel.innerHTML = `
     <div class="layer-panel-header">
-      <b>Katmanlar</b>
-      <span class="layer-panel-subtitle">(göster/gizle + sırala)</span>
+      <b>${t('layers')}</b>
+      <span class="layer-panel-subtitle">${t('layersSubtitle')}</span>
     </div>
     <div id="${listId}" class="layer-panel-list"></div>
   `;
@@ -563,7 +563,7 @@ function renderLayerList(mapInstance, layers, listId){
       }
 
       const applyBtn = document.createElement('button');
-      applyBtn.textContent = 'Uygula';
+      applyBtn.textContent = t('apply');
       applyBtn.className = 'btn';
       applyBtn.style.cssText = 'margin-top:6px; padding:3px 12px; font-size:12px; width:100%;';
       applyBtn.onclick = ()=>{
@@ -656,10 +656,13 @@ async function loadGeomLayersForEventsMap(){
   if(!eventsMap || __eventsLayersLoading) return;
   __eventsLayersLoading = true;
   try {
-    __eventsGeomLayers.forEach(x => {
-      try { eventsMap.removeLayer(x.layer); } catch {}
-    });
-    __eventsGeomLayers = [];
+    // Preserve Events markers and raster layers — only remove line/polygon layers
+    __eventsGeomLayers
+      .filter(x => x.table !== 'Events' && x.geomType !== 'raster')
+      .forEach(x => {
+        try { eventsMap.removeLayer(x.layer); } catch {}
+      });
+    __eventsGeomLayers = __eventsGeomLayers.filter(x => x.table === 'Events' || x.geomType === 'raster');
 
     const r = await fetch('/api/geom-tables');
     if(!r.ok){
@@ -2284,6 +2287,15 @@ function ensureEventsMap() {
     }).addTo(eventsMap);
 
     eventsMarkersLayer = makeMarkersLayer().addTo(eventsMap);
+    if (!__eventsGeomLayers.some(x => x.table === 'Events' && x.layer === eventsMarkersLayer)) {
+      __eventsGeomLayers.push({
+        table: 'Events',
+        geomType: 'point',
+        layer: eventsMarkersLayer,
+        visible: true,
+        z: 100
+      });
+    }
     eventsMap.invalidateSize();
   } else {
     eventsMap.setView([lat, lng], zoom, { animate: false });
@@ -4567,6 +4579,7 @@ function addEventMarkerToLayer(e){
     <div class="popup-body"><b>${t('description')}:</b> ${e.description ? escapeHtml(e.description) : ''}</div>
     ${mediaHtml}
     ${currentUser ? `<div class="popup-meta"><b>${t('addedBy')}:</b> ${escapeHtml(who)}</div>` : ''}
+    ${currentUser && e.updated_by_name ? `<div class="popup-meta"><b>${t('updatedBy')}:</b> ${escapeHtml(e.updated_by_name)}(${escapeHtml(e.updated_by_role_name || '')})</div>` : ''}
     <div class="inline" style="gap:6px; margin-top:8px;"></div>
   `;
 
@@ -4705,6 +4718,8 @@ function syncEventsMapWithFilteredEvents(){
   }
 
   try { eventsMarkersLayer.clearLayers(); } catch {}
+  const _savedForceBlue = window.FORCE_BLUE_MARKERS;
+  window.FORCE_BLUE_MARKERS = false;
   list.forEach(e=>{
     const lat = parseFloat(e.latitude), lng = parseFloat(e.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
@@ -4733,6 +4748,7 @@ function syncEventsMapWithFilteredEvents(){
       <div class="popup-body"><b>${t('description')}:</b> ${e.description ? escapeHtml(e.description) : ''}</div>
       ${mediaHtml}
       <div class="popup-meta"><b>${t('addedBy')}:</b> ${escapeHtml(who)}</div>
+      ${e.updated_by_name ? `<div class="popup-meta"><b>${t('updatedBy')}:</b> ${escapeHtml(e.updated_by_name)}(${escapeHtml(e.updated_by_role_name || '')})</div>` : ''}
       <div class="inline" style="gap:6px; margin-top:8px;"></div>
     `;
 
@@ -4773,6 +4789,7 @@ function syncEventsMapWithFilteredEvents(){
     m.bindPopup(content);
     m.on('popupopen', () => populateEventMedia(content, e));
   });
+  window.FORCE_BLUE_MARKERS = _savedForceBlue;
 
   try{
     const group = L.featureGroup(eventsMarkersLayer.getLayers());
@@ -5942,6 +5959,7 @@ function recreatePopupContent(evt, marker) {
     <div class="popup-body"><b>${t('description')}:</b> ${evt.description ? escapeHtml(evt.description) : ''}</div>
     ${mediaHtml}
     ${currentUser ? `<div class="popup-meta"><b>${t('addedBy')}:</b> ${escapeHtml(who)}</div>` : ''}
+    ${currentUser && evt.updated_by_name ? `<div class="popup-meta"><b>${t('updatedBy')}:</b> ${escapeHtml(evt.updated_by_name)}(${escapeHtml(evt.updated_by_role_name || '')})</div>` : ''}
     <div class="inline" style="gap:6px; margin-top:8px;"></div>
   `;
 
@@ -6072,6 +6090,7 @@ async function loadExistingEvents(opts = {}) {
         <div class="popup-body"><b>${t('description')}:</b> ${e2.description ? escapeHtml(e2.description) : ''}</div>
         ${mediaHtml}
         ${publicMode ? '' : `<div class="popup-meta"><b>${t('addedBy')}:</b> ${escapeHtml(who)}</div>`}
+        ${!publicMode && e2.updated_by_name ? `<div class="popup-meta"><b>${t('updatedBy')}:</b> ${escapeHtml(e2.updated_by_name)}(${escapeHtml(e2.updated_by_role_name || '')})</div>` : ''}
         <div class="inline" style="gap:6px; margin-top:8px;"></div>
       `;
       const btnRow = content.querySelector('.inline');
@@ -8764,6 +8783,22 @@ async function updateUIWithNewLanguage() {
   } catch(e) {
     console.warn('Map legend update error:', e);
   }
+
+  // Update layer panel headers and re-render layer lists for i18n
+  try {
+    document.querySelectorAll('.layer-panel-header').forEach(header => {
+      const b = header.querySelector('b');
+      const span = header.querySelector('.layer-panel-subtitle');
+      if (b) b.textContent = t('layers');
+      if (span) span.textContent = t('layersSubtitle');
+    });
+    if (map) renderLayerList(map, __geomLayers, 'layer-list');
+    if (eventsMap) renderLayerList(eventsMap, __eventsGeomLayers, 'events-layer-list');
+    if (regionsMap) renderLayerList(regionsMap, __regionsGeomLayers, 'regions-layer-list');
+  } catch(e) {
+    console.warn('Layer panel language update error:', e);
+  }
+
   const allowedDomainEl = qs('#allowed-domain');
   if (allowedDomainEl && APP_CONFIG.allowedEmailDomains && APP_CONFIG.allowedEmailDomains.length) {
     allowedDomainEl.textContent = APP_CONFIG.allowedEmailDomains.length === 1 

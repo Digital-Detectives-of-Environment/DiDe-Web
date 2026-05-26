@@ -338,5 +338,10 @@ window.i18nLangs.tr = {
     cannotAddOutsideGrid: 'Grid dışında nokta eklenemez',
 
     // Language
-    languageChanged: 'Dil değiştirildi'
+    languageChanged: 'Dil değiştirildi',
+
+    // Layers panel
+    layers: 'Katmanlar',
+    layersSubtitle: '(göster/gizle + sırala)',
+    apply: 'Uygula'
 };
