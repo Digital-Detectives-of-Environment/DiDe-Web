@@ -54,7 +54,7 @@
 
 **Existing Data Integration** — Display existing geographic data from PostgreSQL (buildings, roads, etc.) on the map as Public or Private layers.
 
-**H3 Aggregation Layer** — Hexagonal grid-based region selection and region-based event management.
+**Aggregation Layer** — Hexagonal grid-based region selection and region-based event management.
 
 **Raster Layer Support** — Display GeoTIFF files as background layers on the map.
 
