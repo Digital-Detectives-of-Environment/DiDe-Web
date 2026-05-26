@@ -286,6 +286,24 @@ window.i18nLangs.it = {
     recordType: 'Tipo di evento',
     polygonNotConfigured: 'Livello poligono non configurato',
 
+
+    // Messaggi di errore auth (localizzati)
+    usernameTaken: 'Il nome utente è già registrato. Scegli un nome utente diverso.',
+    emailTaken: "L'indirizzo email è già registrato. Usa un'email diversa.",
+    bothTaken: 'Sia il nome utente che l\'email sono già registrati.',
+    wrongPassword: 'Password errata.',
+    accountNotFound: 'Nessun account registrato trovato con questo indirizzo email.',
+    invalidCode: 'Il codice non è corretto.',
+    codeExpired: 'Il codice è scaduto. Richiedine uno nuovo.',
+    emailNotVerified: 'Verifica il tuo indirizzo email prima di accedere.',
+
+    // Reset password
+    resetPasswordCode: 'Codice di Reset Password',
+    resetPasswordCodePlaceholder: 'Inserisci il codice a 6 cifre...',
+
+    // GeoJSON import
+    importNoEventType: 'Nessuno (importa senza tipo di evento)',
+
     // Importazione GeoJSON
     importGeoJSON: 'Importa GeoJSON',
     selectEventTypeForImport: 'Seleziona il tipo di evento per l\'importazione',

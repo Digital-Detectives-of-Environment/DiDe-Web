@@ -1521,6 +1521,33 @@ async function ensureDbSqlHelpers() {
       process.exit(1);
     }
 
+    // Step 2b: Verify geometry type is Polygon/MultiPolygon (not Line/Point)
+    try {
+      const geomTypeCheck = await pool.query(
+        `SELECT type FROM geometry_columns
+         WHERE f_table_schema = 'public' AND LOWER(f_table_name) = LOWER($1) LIMIT 1`,
+        [POLYGON_TABLE]
+      );
+      if (geomTypeCheck.rows.length > 0) {
+        const geomType = (geomTypeCheck.rows[0].type || '').toUpperCase();
+        if (geomType.includes('LINE') || geomType === 'LINESTRING' || geomType === 'MULTILINESTRING') {
+          console.error(`\n[FATAL] AGGREGATION_LAYER="${POLYGON_FILE}" → table "${POLYGON_TABLE}" has geometry type "${geomType}".`);
+          console.error(`        The AGGREGATION_LAYER must be a Polygon or MultiPolygon layer, not a Line or LineString layer.`);
+          console.error(`        Please set AGGREGATION_LAYER to a polygon layer in your .env file and restart.`);
+          console.error(`        System cannot start. Exiting.\n`);
+          process.exit(1);
+        }
+        if (geomType === 'POINT' || geomType === 'MULTIPOINT') {
+          console.error(`\n[FATAL] AGGREGATION_LAYER="${POLYGON_FILE}" → table "${POLYGON_TABLE}" has geometry type "${geomType}".`);
+          console.error(`        The AGGREGATION_LAYER must be a Polygon or MultiPolygon layer, not a Point layer.`);
+          console.error(`        System cannot start. Exiting.\n`);
+          process.exit(1);
+        }
+      }
+    } catch (geomErr) {
+      console.warn(`[WARN] Could not verify geometry type of "${POLYGON_TABLE}": ${geomErr.message}`);
+    }
+
     // Step 3: Build POLYGON_PKS from detected primary keys
     const validPks = [];
     const safeTable = assertSafeIdent(POLYGON_TABLE, 'table');
@@ -2108,15 +2135,30 @@ app.get('/api/config', (_req, res) => {
 async function failIfAnyDuplicate(usernameRaw, emailRaw) {
   const username = norm(usernameRaw);
   const email = norm(emailRaw);
-  const q = `
-    SELECT 1
-    FROM users
-    WHERE (lower(btrim(username))=lower($1) OR lower(btrim(email))=lower($2))
-    LIMIT 1`;
-  const r = await pool.query(q, [username, email]);
-  if (r.rowCount) {
-    const err = new Error('active_username_or_email_exists');
-    err.code = 'ACTIVE_DUP';
+
+  const uq = await pool.query(
+    `SELECT 1 FROM users WHERE lower(btrim(username))=lower($1) LIMIT 1`,
+    [username]
+  );
+  const usernameTaken = uq.rowCount > 0;
+
+  const eq = await pool.query(
+    `SELECT 1 FROM users WHERE lower(btrim(email))=lower($1) LIMIT 1`,
+    [email]
+  );
+  const emailTaken = eq.rowCount > 0;
+
+  if (usernameTaken && emailTaken) {
+    const err = new Error('both_taken');
+    err.code = 'BOTH_DUP';
+    throw err;
+  } else if (usernameTaken) {
+    const err = new Error('username_taken');
+    err.code = 'USERNAME_DUP';
+    throw err;
+  } else if (emailTaken) {
+    const err = new Error('email_taken');
+    err.code = 'EMAIL_DUP';
     throw err;
   }
 }
@@ -2155,8 +2197,12 @@ app.post('/api/auth/register', async (req, res) => {
   try {
     await failIfAnyDuplicate(username, email);
   } catch (e) {
-    if (e.code === 'ACTIVE_DUP')
-      return res.status(409).json({ error: 'kullanici_veya_eposta_kayitli', message: getErrorMessage(req, 'kullanici_veya_eposta_kayitli') });
+    if (e.code === 'USERNAME_DUP')
+      return res.status(409).json({ error: 'usernameTaken', message: getErrorMessage(req, 'usernameTaken') });
+    if (e.code === 'EMAIL_DUP')
+      return res.status(409).json({ error: 'emailTaken', message: getErrorMessage(req, 'emailTaken') });
+    if (e.code === 'BOTH_DUP')
+      return res.status(409).json({ error: 'bothTaken', message: getErrorMessage(req, 'bothTaken') });
     throw e;
   }
 
@@ -2186,13 +2232,25 @@ app.post('/api/auth/register', async (req, res) => {
 
     try {
       const verifyLink = `${req.protocol}://${req.get('host')}/api/auth/verify?token=${verifyToken}`;
-      const lang = req.body?.lang === 'en' ? 'en' : 'tr';
+      const lang = _detectLang(req);
 
-      const defaultHtml = lang === 'en'
-        ? `<p>Hello <b>${username}</b>,</p><p>Click <a href="${verifyLink}">here</a> to verify your account.</p><p>This link is valid for 24 hours.</p>`
-        : `<p>Merhaba <b>${username}</b>,</p><p>Hesabını doğrulamak için <a href="${verifyLink}">buraya tıkla</a>.</p><p>Bağlantı 24 saat geçerlidir.</p>`;
-
-      const subject = lang === 'en' ? 'Email Verification' : 'E-posta doğrulama';
+      const _verifyContent = {
+        en: {
+          subject: 'Email Verification',
+          html: `<p>Hello <b>${username}</b>,</p><p>Click <a href="${verifyLink}">here</a> to verify your account.</p><p>This link is valid for 24 hours.</p>`
+        },
+        tr: {
+          subject: 'E-posta Doğrulama',
+          html: `<p>Merhaba <b>${username}</b>,</p><p>Hesabını doğrulamak için <a href="${verifyLink}">buraya tıkla</a>.</p><p>Bağlantı 24 saat geçerlidir.</p>`
+        },
+        it: {
+          subject: 'Verifica Email',
+          html: `<p>Ciao <b>${username}</b>,</p><p>Clicca <a href="${verifyLink}">qui</a> per verificare il tuo account.</p><p>Il link è valido per 24 ore.</p>`
+        }
+      };
+      const _vc = _verifyContent[lang] || _verifyContent.en;
+      const defaultHtml = _vc.html;
+      const subject = _vc.subject;
 
       // Read optional custom HTML from file (e.g. terms & conditions)
       let customHtml = '';
@@ -2250,13 +2308,13 @@ app.get('/api/auth/verify', async (req, res) => {
   if (!token) return res.status(400).send('Geçersiz bağlantı.');
   try {
     const { rows } = await pool.query('SELECT id, verify_expires FROM users WHERE verify_token=$1', [token]);
-    if (!rows.length) return res.status(400).send('Geçersiz veya kullanılmış bağlantı.');
-    if (new Date(rows[0].verify_expires) < new Date()) return res.status(400).send('Bağlantının süresi dolmuş.');
+    if (!rows.length) return res.status(400).send('Invalid or used link.');
+    if (new Date(rows[0].verify_expires) < new Date()) return res.status(400).send('Link has expired.');
 
     await pool.query('UPDATE users SET email_verified=true, is_verified=true, verify_token=null, verify_expires=null, registration_date=NOW() WHERE id=$1', [
       rows[0].id,
     ]);
-    res.send('E-posta doğrulandı. Giriş yapabilirsiniz.');
+    res.send('Email verified. You can now log in.');
   } catch (e) {
     console.error('verify error:', e);
     res.status(500).send('Sunucu hatası.');
@@ -2395,13 +2453,27 @@ app.post('/api/auth/forgot/start', async (req, res) => {
 
     if (transporter) {
       try {
+        const resetLang = _detectLang(req);
+        const _resetContent = {
+          en: {
+            subject: 'Password Reset Code',
+            html: `<p>Hello <b>${u.username}</b>,</p><p>Your password reset code is: <b>${code}</b></p><p>The code is valid for <b>5 minutes</b>.</p>`
+          },
+          tr: {
+            subject: 'Parola Sıfırlama Kodu',
+            html: `<p>Merhaba <b>${u.username}</b>,</p><p>Parola sıfırlama kodunuz: <b>${code}</b></p><p>Kod <b>5 dakika</b> boyunca geçerlidir.</p>`
+          },
+          it: {
+            subject: 'Codice di Reset Password',
+            html: `<p>Ciao <b>${u.username}</b>,</p><p>Il tuo codice di reset della password è: <b>${code}</b></p><p>Il codice è valido per <b>5 minuti</b>.</p>`
+          }
+        };
+        const _rc = _resetContent[resetLang] || _resetContent.en;
         await transporter.sendMail({
           from: MAIL_FROM,
           to: u.email,
-          subject: 'Şifre Sıfırlama Kodu',
-          html: `<p>Merhaba <b>${u.username}</b>,</p>
-                 <p>Şifre sıfırlama kodunuz: <b>${code}</b></p>
-                 <p>Kod <b>5 dakika</b> boyunca geçerlidir.</p>`,
+          subject: _rc.subject,
+          html: _rc.html,
         });
       } catch (e) {
         console.error('reset mail error:', e);
@@ -3192,8 +3264,12 @@ app.post('/api/admin/users', adminOnly, async (req, res) => {
   try {
     await failIfAnyDuplicate(username, email);
   } catch (e) {
-    if (e.code === 'ACTIVE_DUP')
-      return res.status(409).json({ error: 'kullanici_veya_eposta_kayitli', message: getErrorMessage(req, 'kullanici_veya_eposta_kayitli') });
+    if (e.code === 'USERNAME_DUP')
+      return res.status(409).json({ error: 'usernameTaken', message: getErrorMessage(req, 'usernameTaken') });
+    if (e.code === 'EMAIL_DUP')
+      return res.status(409).json({ error: 'emailTaken', message: getErrorMessage(req, 'emailTaken') });
+    if (e.code === 'BOTH_DUP')
+      return res.status(409).json({ error: 'bothTaken', message: getErrorMessage(req, 'bothTaken') });
     throw e;
   }
 
@@ -3624,7 +3700,9 @@ app.post('/api/import/geojson', adminOnly, express.json({ limit: '50mb' }), asyn
     if (!Array.isArray(features) || features.length === 0) {
       return res.status(400).json({ error: 'empty', message: getErrorMessage(req, 'bos_liste') });
     }
-    if (!event_type_id) {
+    // event_type_id is optional; null = no event type (visible after login)
+    const eventTypeId = event_type_id ? parseInt(event_type_id, 10) : null;
+    if (event_type_id && isNaN(eventTypeId)) {
       return res.status(400).json({ error: 'missing_type', message: getErrorMessage(req, 'gecersiz_event_type') });
     }
 
@@ -3666,7 +3744,7 @@ app.post('/api/import/geojson', adminOnly, express.json({ limit: '50mb' }), asyn
 
       // Build INSERT
       let pkColumns = '', pkPlaceholders = '';
-      const baseVals = [lat, lng, event_type_id, description || null, req.user.username, req.user.role, req.user.id];
+      const baseVals = [lat, lng, eventTypeId, description || null, req.user.username, req.user.role, req.user.id];
       let pkIdx = 8;
 
       for (const p of POLYGON_PKS) {

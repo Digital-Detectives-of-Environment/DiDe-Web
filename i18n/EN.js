@@ -292,6 +292,24 @@ window.i18nLangs.en = {
     recordType: 'Event Type',
     polygonNotConfigured: 'Polygon layer not configured',
 
+
+    // Auth error messages (localized)
+    usernameTaken: 'Username is already registered. Please choose a different username.',
+    emailTaken: 'Email address is already registered. Please use a different email.',
+    bothTaken: 'Both the username and email address are already registered.',
+    wrongPassword: 'Incorrect password.',
+    accountNotFound: 'No registered account found with this email address.',
+    invalidCode: 'The code is incorrect.',
+    codeExpired: 'The code has expired. Please request a new one.',
+    emailNotVerified: 'Please verify your email address before logging in.',
+
+    // Password reset
+    resetPasswordCode: 'Password Reset Code',
+    resetPasswordCodePlaceholder: 'Enter the 6-digit code...',
+
+    // GeoJSON import
+    importNoEventType: 'None (import without event type)',
+
     // GeoJSON Import
     importGeoJSON: 'Import GeoJSON',
     selectEventTypeForImport: 'Select event type for import',

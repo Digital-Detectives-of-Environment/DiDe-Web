@@ -7712,7 +7712,7 @@ qs('#btn-forgot-start')?.addEventListener('click', async () => {
     const r = await fetch('/api/auth/forgot/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
+      body: JSON.stringify({ email, lang: getLanguage() })
     });
     const data = await r.json().catch(() => ({}));
 
@@ -8007,11 +8007,11 @@ function _createImportWizardHTML() {
         <button type="button" class="import-wizard-close" id="import-wizard-close">&times;</button>
       </div>
       <div class="import-wizard-body">
-        <!-- Step 1: Select event type -->
+        <!-- Step 1: Select event type (optional) -->
         <div class="import-step" data-step="1">
           <label style="font-weight:500;margin-bottom:8px;display:block;">${t('selectEventTypeForImport')}</label>
           <select id="import-event-type" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);font-size:14px;">
-            <option value="">${t('pleaseSelect')}</option>
+            <option value="">${t('importNoEventType')}</option>
           </select>
         </div>
         <!-- Step 2: File picker with EPSG warning -->
@@ -8145,7 +8145,7 @@ function _showImportStep(step) {
     if (s1Label) s1Label.textContent = t('selectEventTypeForImport');
     // Step 1 placeholder
     const s1Select = wiz.querySelector('#import-event-type option[value=""]');
-    if (s1Select) s1Select.textContent = t('pleaseSelect');
+    if (s1Select) s1Select.textContent = t('importNoEventType');
     // Step 2 EPSG warning
     const epsgDiv = wiz.querySelector('.import-epsg-warning');
     if (epsgDiv) epsgDiv.innerHTML = `<strong>⚠️</strong> ${t('epsgWarning')}`;
@@ -8229,8 +8229,7 @@ function handleImportFileSelect(e) {
 
 async function importWizardNext() {
   if (__importStep === 1) {
-    const sel = qs('#import-event-type');
-    if (!sel || !sel.value) { toast(t('pleaseSelectEventType'), 'error'); return; }
+    // Event type is optional - proceed to step 2 regardless
     _showImportStep(2);
   } else if (__importStep === 2) {
     if (!__importParsedFeatures || __importParsedFeatures.length === 0) {
@@ -8254,7 +8253,8 @@ async function importWizardNext() {
     const nextBtn = qs('#import-btn-next');
     if (nextBtn) { nextBtn.disabled = true; nextBtn.textContent = t('importing'); }
 
-    const event_type_id = parseInt(qs('#import-event-type')?.value, 10);
+    const _etRaw = qs('#import-event-type')?.value;
+    const event_type_id = _etRaw ? parseInt(_etRaw, 10) : null;
     const descYes = qs('#import-desc-yes')?.classList.contains('active-choice');
     const description_column = descYes ? qs('#import-desc-column')?.value : null;
 
@@ -8579,7 +8579,7 @@ async function updateUIWithNewLanguage() {
   if (fgEmail) fgEmail.placeholder = t('registeredEmailPlaceholder');
   
   const fgCode = qs('#fg-code');
-  if (fgCode) fgCode.placeholder = t('verificationCode');
+  if (fgCode) fgCode.placeholder = t('resetPasswordCodePlaceholder');
   
   const fgPass1 = qs('#fg-pass1');
   if (fgPass1) fgPass1.placeholder = t('newPasswordPlaceholder');
@@ -8647,7 +8647,7 @@ async function updateUIWithNewLanguage() {
   document.querySelectorAll('#forgot-card label').forEach(label => {
     const forAttr = label.getAttribute('for');
     if (forAttr === 'fg-email') label.textContent = t('email') + ':';
-    if (forAttr === 'fg-code') label.textContent = t('verificationCode') + ':';
+    if (forAttr === 'fg-code') label.textContent = t('resetPasswordCode') + ':';
     if (forAttr === 'fg-pass1') label.textContent = t('newPassword') + ':';
     if (forAttr === 'fg-pass2') label.textContent = t('confirmNewPassword') + ':';
   });

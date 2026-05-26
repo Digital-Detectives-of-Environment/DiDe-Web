@@ -292,6 +292,24 @@ window.i18nLangs.tr = {
     recordType: 'Olay Türü',
     polygonNotConfigured: 'Poligon katmanı yapılandırılmamış',
 
+
+    // Auth hata mesajları (dil desteği)
+    usernameTaken: 'Kullanıcı adı kayıtlı. Lütfen başka bir kullanıcı adı girin.',
+    emailTaken: 'E-posta adresi kayıtlı. Lütfen başka bir e-posta adresi girin.',
+    bothTaken: 'Kullanıcı adı ve e-posta adresi zaten kayıtlı.',
+    wrongPassword: 'Parola hatalı.',
+    accountNotFound: 'Bu e-posta adresiyle kayıtlı bir hesap bulunamadı.',
+    invalidCode: 'Kod geçersiz.',
+    codeExpired: 'Kodun süresi dolmuş. Lütfen yeni bir kod talep edin.',
+    emailNotVerified: 'Giriş yapmadan önce lütfen e-posta adresinizi doğrulayın.',
+
+    // Parola sıfırlama
+    resetPasswordCode: 'Parola Sıfırlama Kodu',
+    resetPasswordCodePlaceholder: '6 haneli kodu girin...',
+
+    // GeoJSON import
+    importNoEventType: 'Yok (olay türü olmadan içe aktar)',
+
     // GeoJSON Import
     importGeoJSON: 'GeoJSON İçe Aktar',
     selectEventTypeForImport: 'İçe aktarılacak olay türünü seçin',
