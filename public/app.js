@@ -5128,7 +5128,42 @@ function syncRegionsEventMarkers() {
       ${mediaHtml}
       <div class="popup-meta"><b>${t('addedBy')}:</b> ${escapeHtml(who)}</div>
       ${e.updated_by_name ? `<div class="popup-meta"><b>${t('updatedBy')}:</b> ${escapeHtml(e.updated_by_name)}(${escapeHtml(e.updated_by_role_name || '')})</div>` : ''}
+      <div class="inline" style="gap:6px; margin-top:8px;"></div>
     `;
+
+    const btnRow = content.querySelector('.inline');
+
+    const canEdit = (currentUser && (currentUser.role === 'admin' || (currentUser.role === 'user' && (e.is_mine || e.created_by_role_name === 'supervisor')) || (currentUser.role === 'supervisor' && (e.is_mine || e.created_by_role_name === 'supervisor'))));
+    if (canEdit) {
+      const eb = document.createElement('button');
+      eb.className = 'btn ghost';
+      eb.textContent = t('update');
+      eb.onclick = () => beginEdit(e);
+      btnRow.appendChild(eb);
+    }
+
+    const canDelete = currentUser && (
+      (currentUser.role === 'user' && e.is_mine) ||
+      (currentUser.role === 'supervisor') ||
+      (currentUser.role === 'admin')
+    );
+    if (canDelete) {
+      const db = document.createElement('button');
+      db.className = 'btn danger';
+      db.textContent = t('delete');
+      db.onclick = async () => {
+        if (!confirm(t('confirmDeleteEvent'))) return;
+        db.disabled = true;
+        try {
+          const url = (currentUser.role === 'user') ? `/api/event/${e.event_id}` : `/api/admin/event/${e.event_id}`;
+          await fetch(url, {method:'DELETE'});
+          await Promise.all([loadExistingEvents({ publicMode:false }), refreshAdminEvents()]);
+        } catch(err) {
+          console.error('delete event error:', err);
+        } finally { db.disabled = false; }
+      };
+      btnRow.appendChild(db);
+    }
 
     m.bindPopup(content);
     m.on('popupopen', () => populateEventMedia(content, e));
