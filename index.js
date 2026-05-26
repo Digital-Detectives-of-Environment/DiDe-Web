@@ -2340,15 +2340,15 @@ app.post('/api/auth/login', async (req, res) => {
     );
 
     if (!rows.length) {
-      return res.status(404).json({ error: 'hesap_bulunamadi', message: getErrorMessage(req, 'hesap_bulunamadi') });
+      return res.status(404).json({ error: 'accountNotFound', message: getErrorMessage(req, 'accountNotFound') });
     }
 
     const u = rows[0];
     if (!u.is_active) return res.status(403).json({ error: 'kullanici_pasif', message: getErrorMessage(req, 'kullanici_pasif') });
 
     const ok = await bcrypt.compare(password, u.password_hash || '');
-    if (!ok) return res.status(401).json({ error: 'sifre_hatali', message: getErrorMessage(req, 'sifre_hatali') });
-    if (!u.email_verified) return res.status(403).json({ error: 'email_dogrulanmamış', message: getErrorMessage(req, 'email_dogrulanmamış') });
+    if (!ok) return res.status(401).json({ error: 'wrongPassword', message: getErrorMessage(req, 'wrongPassword') });
+    if (!u.email_verified) return res.status(403).json({ error: 'emailNotVerified', message: getErrorMessage(req, 'emailNotVerified') });
 
     if (u.two_factor_enabled) {
       if (!u.two_factor_secret) return res.status(401).json({ error: 'totp_gerekli', message: getErrorMessage(req, 'totp_gerekli') });
@@ -2432,8 +2432,8 @@ app.post('/api/auth/forgot/start', async (req, res) => {
 
     if (!rows.length) {
       return res.status(404).json({
-        error: 'kayitli_hesap_yok',
-        message: getErrorMessage(req, 'kayitli_hesap_yok'),
+        error: 'accountNotFound',
+        message: getErrorMessage(req, 'accountNotFound'),
       });
     }
 
@@ -2494,14 +2494,14 @@ app.post('/api/auth/forgot/verify', async (req, res) => {
   if (!email || !code) return res.status(400).json({ error: 'eksik_bilgi', message: getErrorMessage(req, 'eksik_bilgi') });
   try {
     const { rows } = await pool.query('SELECT id, reset_code, reset_expires FROM users WHERE lower(btrim(email))=lower($1) LIMIT 1', [email]);
-    if (!rows.length) return res.status(404).json({ error: 'hesap_bulunamadi', message: getErrorMessage(req, 'hesap_bulunamadi') });
+    if (!rows.length) return res.status(404).json({ error: 'accountNotFound', message: getErrorMessage(req, 'accountNotFound') });
 
     const u = rows[0];
     if (!u.reset_code || !u.reset_expires || new Date(u.reset_expires) < new Date()) {
-      return res.status(400).json({ error: 'kod_suresi_doldu', message: getErrorMessage(req, 'kod_suresi_doldu') });
+      return res.status(400).json({ error: 'codeExpired', message: getErrorMessage(req, 'codeExpired') });
     }
     if (String(u.reset_code) !== String(code)) {
-      return res.status(400).json({ error: 'kod_gecersiz', message: getErrorMessage(req, 'kod_gecersiz') });
+      return res.status(400).json({ error: 'invalidCode', message: getErrorMessage(req, 'invalidCode') });
     }
     res.json({ ok: true, verified: true });
   } catch (e) {
@@ -2536,15 +2536,15 @@ app.post('/api/auth/forgot/reset', async (req, res) => {
       [email]
     );
     if (!rows.length) {
-      return res.status(404).json({ error: 'hesap_bulunamadi', message: getErrorMessage(req, 'hesap_bulunamadi') });
+      return res.status(404).json({ error: 'accountNotFound', message: getErrorMessage(req, 'accountNotFound') });
     }
 
     const u = rows[0];
     if (!u.reset_code || !u.reset_expires || new Date(u.reset_expires) < new Date()) {
-      return res.status(400).json({ error: 'kod_suresi_doldu', message: getErrorMessage(req, 'kod_suresi_doldu') });
+      return res.status(400).json({ error: 'codeExpired', message: getErrorMessage(req, 'codeExpired') });
     }
     if (String(u.reset_code) !== String(code)) {
-      return res.status(400).json({ error: 'kod_gecersiz', message: getErrorMessage(req, 'kod_gecersiz') });
+      return res.status(400).json({ error: 'invalidCode', message: getErrorMessage(req, 'invalidCode') });
     }
 
     await client.query('BEGIN');
