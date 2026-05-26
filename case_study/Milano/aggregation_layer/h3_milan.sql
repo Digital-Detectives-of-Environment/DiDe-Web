@@ -1,5 +1,5 @@
 SET standard_conforming_strings = OFF;
-CREATE SCHEMA "public";
+CREATE SCHEMA IF NOT EXISTS "public";
 DROP TABLE IF EXISTS "public"."h3_milan" CASCADE;
 BEGIN;
 CREATE TABLE "public"."h3_milan" ( "ogc_fid" SERIAL, CONSTRAINT "h3_milan_pk" PRIMARY KEY ("ogc_fid") );
