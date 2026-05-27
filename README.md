@@ -160,6 +160,8 @@ PGPASSWORD=your_password
 PGDATABASE=dide_db
 PGPOOL_MAX=150
 
+QFIELD_SYNC_ROOT=
+
 # ── JWT SECURITY ──
 JWT_SECRET=dev-secret
 JWT_EXPIRES=7d
@@ -187,15 +189,10 @@ SITE_LOGO_URL=/DiDe-Logo.png
 # ── ALLOWED EMAIL DOMAINS FOR REGISTRATION ──
 ALLOWED_EMAIL_DOMAIN=gmail.com;outlook.com
 
-
-
 # ── MAP SETTINGS ──
 MAP_INITIAL_LAT=45.4642
 MAP_INITIAL_LNG=9.1900
 MAP_INITIAL_ZOOM=6
-
-
-
 
 # ── LANGUAGE SETTING ──
 DEFAULT_LANG=TR                         # TR, EN, IT, etc. (file name in i18n/)
@@ -469,6 +466,8 @@ PGUSER=postgres
 PGPASSWORD=your_password
 PGDATABASE=dide_db
 PGPOOL_MAX=150
+
+QFIELD_SYNC_ROOT=
 
 # ── JWT SECURITY ──
 JWT_SECRET=dev-secret
