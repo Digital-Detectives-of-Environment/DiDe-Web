@@ -82,6 +82,24 @@
 - **npm**
 - **OS:** Windows, Linux, or macOS
 
+#### PostgreSQL Installation
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt update
+sudo apt install postgresql postgresql-contrib postgis
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+```
+
+**macOS:**
+```bash
+brew install postgresql postgis
+brew services start postgresql
+```
+
+**Windows:**  Download and install from [postgresql.org](https://www.postgresql.org/download/windows/). Install PostGIS via Stack Builder.
+
 ---
 
 ## Quick Start — Localhost
@@ -101,25 +119,7 @@ cd DiDe-Web/
 npm install
 ```
 
-### Step 3: Install PostgreSQL
-
-**Linux (Ubuntu/Debian):**
-```bash
-sudo apt update
-sudo apt install postgresql postgresql-contrib postgis
-sudo systemctl start postgresql
-sudo systemctl enable postgresql
-```
-
-**macOS:**
-```bash
-brew install postgresql postgis
-brew services start postgresql
-```
-
-**Windows:** Download and install from [postgresql.org](https://www.postgresql.org/download/windows/). Install PostGIS via Stack Builder.
-
-### Step 4: Create the Database
+### Step 3: Create the Database
 
 ```bash
 # Enter the PostgreSQL console
@@ -135,7 +135,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 \q
 ```
 
-### Step 5: Create the Core Tables
+### Step 4: Create the Core Tables
 
 ```bash
 psql -U postgres -d dide_db -f "docs/initial setup/1_database_tables.sql"
@@ -143,7 +143,7 @@ psql -U postgres -d dide_db -f "docs/initial setup/1_database_tables.sql"
 
 This creates the `users`, `olaylar` (event types), and `olay` (events) tables. For details, see [docs/README.md](docs/README.md).
 
-### Step 6: Create the `.env` File
+### Step 5: Create the `.env` File
 
 Create a `.env` file in the project root directory. For all parameters, see [Environment Variables](#environment-variables). Minimum configuration for local development:
 
@@ -202,7 +202,7 @@ AGGREGATION_LAYER=                      # e.g. h3_milan
 Display_Attribute=
 ```
 
-### Step 7: Start the Application
+### Step 6: Start the Application
 
 ```bash
 npm start
