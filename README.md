@@ -221,7 +221,7 @@ All database operations on localhost are done through **pgAdmin 4**.
 **3b — Create the core tables:**
 1. In pgAdmin 4, with `dide_db` selected, open the **Query Tool**
 2. Click **File** → **Open File** in the Query Tool toolbar
-3. Navigate to `docs/initial setup/1_database_tables.sql` and open it
+3. Navigate to `docs/initial_setup/1_database_tables.sql` and open it
 4. Click **▶ Execute** (or press `F5`) to run the script
 
 This creates the `users`, `event_type`, and `event` tables.
@@ -253,12 +253,12 @@ Go to the site and click the **Sign Up** button to create a new user.
 
 *On localhost (pgAdmin 4):*
 1. Open pgAdmin 4 → select `dide_db` → open the **Query Tool**
-2. Click **File** → **Open File**, navigate to `docs/initial setup/2_example_experts.sql`, and open it
+2. Click **File** → **Open File**, navigate to `docs/initial_setup/2_example_experts.sql`, and open it
 3. Click **▶ Execute** to run. This adds 8 test users (default password: `12345Aa`).
 
 *On Ubuntu Server (terminal):*
 ```bash
-sudo -u postgres psql -d dide_db -f "docs/initial setup/2_example_experts.sql"
+sudo -u postgres psql -d dide_db -f "docs/initial_setup/2_example_experts.sql"
 ```
 
 **Method 3 — Manual SQL:**
@@ -297,7 +297,7 @@ Supervisor accounts require **two-factor authentication (2FA)**, so the creation
 
 **Step 1 — Generate a 2FA secret code:**
 ```bash
-node "docs/initial setup/generate-2fa-secret.js"
+node "docs/initial_setup/generate-2fa-secret.js"
 ```
 Note down the BASE32 code from the output.
 
@@ -384,8 +384,8 @@ Create your `.env` file using the parameters described in the [Environment Varia
 ### 4. Run the Automated Setup Script
 
 ```bash
-chmod +x "docs/initial setup/install_dide.sh"
-sudo bash "docs/initial setup/install_dide.sh"
+chmod +x "docs/initial_setup/install_dide.sh"
+sudo bash "docs/initial_setup/install_dide.sh"
 ```
 
 The script will automatically:
@@ -577,7 +577,7 @@ dide/
 │       ├── raw_data/           ← Raw data (Vector + Raster TIF files)
 │       └── aggregation_layer/  ← aggregation layer files
 ├── docs/                       ← Documentation and setup files
-│   ├── initial setup/          ← Initial setup SQL and scripts
+│   ├── initial_setup/          ← Initial setup SQL and scripts
 │   └── img/                    ← Documentation images
 └── qfield-DiDe/                ← QField mobile integration files
 ```
