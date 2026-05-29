@@ -138,8 +138,8 @@ CORS_ORIGIN=http://localhost:3000                  # Comma-separated list of all
 
 # ── POSTGRESQL DATABASE ──
 PGUSER=postgres                                    # PostgreSQL username
-PGPASSWORD=your_password                           # PostgreSQL password
-PGDATABASE=dide_db                                 # Name of the database
+PGPASSWORD=your_password                           # Enter your PostgreSQL password
+PGDATABASE=dide_db                                 # Enter your Name of the database
 PGPOOL_MAX=150                                     # Max number of DB connections in the pool
                                                    
 
@@ -153,10 +153,10 @@ VERIFY_EMAIL_TEXT=terms_conditions.html            # HTML file displayed during 
 # ── SMTP EMAIL ──
 SMTP_HOST=smtp.gmail.com                           # SMTP server hostname
 SMTP_PORT=587                                      
-SMTP_USER=your@gmail.com                           # Sender email address
+SMTP_USER=your@gmail.com                           # Enter Sender email address
 SMTP_PASS=app_password                             # SMTP password or Gmail App Password  Example: SMTP_PASS=abcdefghijklmnop
 SMTP_FROM_NAME=DiDe                                # Display name shown in the From field of outgoing emails
-SMTP_FROM_EMAIL=your@gmail.com                     # Sender email address
+SMTP_FROM_EMAIL=your@gmail.com                     # Enter the same Sender email address
                                                   
 # ── SITE SETTINGS ──
 SITE_TITLE=DiDe                                    # Browser tab title and page heading
@@ -172,7 +172,7 @@ MAP_INITIAL_ZOOM=12                                # Initial zoom level (1 = wor
 
 # ── LANGUAGE SETTING ──
 DEFAULT_LANG=IT                                    # Default UI language; must match a file name in the i18n/ folder  
-
+                                                   # Example: TR, IT
 # ── CASE STUDY (RASTER LAYER) ──
 CASE_STUDY=Milano                                  # Folder name under case_study/; TIF files are read from case_study/<CASE_STUDY>/raw_data/Raster/
                                                    # Example: CASE_STUDY=Ankara  → reads from case_study/Ankara/raw_data/Raster/
