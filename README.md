@@ -137,15 +137,11 @@ CORS_ORIGIN=http://localhost:3000                  # Comma-separated list of all
                                                    # Example (production): CORS_ORIGIN=https://yourdomain.com
 
 # ── POSTGRESQL DATABASE ──
-# PGHOST and PGPORT are hardcoded (127.0.0.1 and 5432) — do not add to .env
 PGUSER=postgres                                    # PostgreSQL username
-                                                   # Example: PGUSER=dide_user
-PGPASSWORD=your_password                           # PostgreSQL password (keep secret!)
-                                                   # Example: PGPASSWORD=StrongPass123
+PGPASSWORD=your_password                           # PostgreSQL password
 PGDATABASE=dide_db                                 # Name of the database
-                                                   # Example: PGDATABASE=dide_db
 PGPOOL_MAX=150                                     # Max number of DB connections in the pool
-                                                   # Example: PGPOOL_MAX=150
+                                                   
 
 # ── JWT SECURITY ──
 JWT_SECRET=dev-secret                              # Secret key used to sign JWT tokens — must be a long random string in production
