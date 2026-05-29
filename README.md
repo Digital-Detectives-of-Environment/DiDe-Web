@@ -145,6 +145,7 @@ PGPOOL_MAX=150                                     # Max number of DB connection
 
 # ── JWT SECURITY ──
 JWT_SECRET=dev-secret                              # Secret key used to sign JWT tokens — must be a long random string in production
+                                                   #You can write whatever you want in this section, but write something that's not easily guessable.
                                                    # Example: JWT_SECRET=xK9#mP2$qL8vRn5wYz
 # ── EMAIL VERIFICATION ──
 VERIFY_EMAIL_TEXT=terms_conditions.html            # HTML file displayed during email verification
