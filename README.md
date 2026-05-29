@@ -408,13 +408,8 @@ sudo -u postgres psql -d dide_db -c "SELECT count(*) FROM users;"
 DiDe uses **Let's Encrypt** with **Certbot** to obtain a free SSL/TLS certificate. Let's Encrypt is a free, automated certificate authority — it issues certificates based on domain ownership verification. This means **you must have a registered domain name** pointing to your server's IP address before running these commands.
 
 ```bash
-sudo apt update
-sudo apt install -y snapd
-sudo snap install core
-sudo snap refresh core
-sudo snap install --classic certbot
-sudo ln -sf /snap/bin/certbot /usr/bin/certbot
-sudo certbot --nginx -d yourdomain.com
+sudo apt update && sudo apt install -y snapd && sudo snap install core && sudo snap refresh core
+sudo snap install --classic certbot && sudo ln -sf /snap/bin/certbot /usr/bin/certbot && sudo certbot --nginx -d yourdomain.com
 ```
 
 Certbot will automatically detect your Nginx configuration and configure HTTPS. The certificate is valid for 90 days and **renews automatically** via a system timer.
