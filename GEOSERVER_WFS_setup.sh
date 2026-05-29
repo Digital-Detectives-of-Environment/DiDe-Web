@@ -386,46 +386,74 @@ if [[ -f "$NGINX_CONF" ]]; then
 WFSEOF
 )
 
-    # Find the FIRST "server {" block's closing "}" and inject BEFORE it
-    # Use python for reliable multi-line insertion
+    # Inject WFS blocks INSIDE the main server block (the one with location /)
+    # Uses brace-depth tracking; inserts snippet before the closing "}" of that block.
     python3 <<PYEOF
-import re
+import sys
+
 with open("${NGINX_CONF}", "r") as f:
     content = f.read()
 
+if "location /geoserver/" in content:
+    print("geoserver location already exists, skipping")
+    sys.exit(0)
+
 snippet = """${WFS_SNIPPET}"""
 
-# Find the closing brace of the first server block that has "listen 443" or "location /"
-# Insert before the last "}" of that block
-# Simple approach: find "location / {" block end, insert after it
-if "location /geoserver/" not in content:
-    # Find the last "}" before a "server {" or end of file in the first server block
-    lines = content.split("\\n")
-    inserted = False
-    result = []
-    brace_depth = 0
-    in_server = False
+lines = content.split("\\n")
+
+# ── Find the server block that contains "location /" (the main app block) ──
+# We track brace depth per-character to be precise, then work line by line.
+
+# Pass 1: find line index where the target server block starts.
+# The target block is the FIRST server block that contains "location /" somewhere
+# inside it (i.e. the main HTTPS or HTTP app block, not the redirect stub).
+
+def find_main_server_block(lines):
+    """
+    Returns (start_line, end_line) indices (inclusive) of the server block
+    that contains a 'location /' directive.  Falls back to the first server
+    block if none has 'location /'.
+    """
+    blocks = []          # list of (start, end) tuples
+    depth = 0
+    start = None
     for i, line in enumerate(lines):
-        if "server {" in line or "server{" in line:
-            in_server = True
-            brace_depth = 0
-        if in_server:
-            brace_depth += line.count("{") - line.count("}")
-            if brace_depth == 0 and in_server and not inserted:
-                result.append(snippet)
-                inserted = True
-                in_server = False
-        result.append(line)
-    if not inserted:
-        # Fallback: insert before the very last "}"
-        for i in range(len(result)-1, -1, -1):
-            if "}" in result[i]:
-                result.insert(i, snippet)
-                break
-    with open("${NGINX_CONF}", "w") as f:
-        f.write("\\n".join(result))
+        opens  = line.count("{")
+        closes = line.count("}")
+        if depth == 0 and opens > 0 and ("server" in line or start is not None):
+            if "server" in line and depth == 0:
+                start = i
+        depth += opens - closes
+        if start is not None and depth == 0:
+            blocks.append((start, i))
+            start = None
+
+    # Pick the block that has "location /"
+    for (s, e) in blocks:
+        block_text = "\\n".join(lines[s:e+1])
+        if "location /" in block_text:
+            return s, e
+
+    # Fallback: first block
+    return blocks[0] if blocks else (None, None)
+
+start_idx, end_idx = find_main_server_block(lines)
+
+if start_idx is None:
+    # Last-resort fallback: insert before the very last standalone "}"
+    for i in range(len(lines)-1, -1, -1):
+        if lines[i].strip() == "}":
+            lines.insert(i, snippet)
+            break
 else:
-    print("geoserver location already exists, skipping")
+    # Insert snippet BEFORE the closing "}" of the target server block
+    lines.insert(end_idx, snippet)
+
+with open("${NGINX_CONF}", "w") as f:
+    f.write("\\n".join(lines))
+
+print("WFS blocks injected successfully.")
 PYEOF
 
   fi
