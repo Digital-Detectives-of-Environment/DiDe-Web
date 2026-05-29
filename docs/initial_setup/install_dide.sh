@@ -4,7 +4,7 @@ PROJECT_NAME="dide"
 BASE_DIR="/var/www/${PROJECT_NAME}"
 PROJECT_DIR="${BASE_DIR}/${PROJECT_NAME}"
 
-SQL_FILE="docs/initial setup/1_database_tables.sql"
+SQL_FILE="docs/initial_setup/1_database_tables.sql"
 
 log() {
   echo -e "\n[+] $1\n"
