@@ -216,17 +216,8 @@ All database operations on localhost are done through **pgAdmin 4**.
 2. In the left panel, right-click **Databases** → **Create** → **Database**
 3. Enter `dide_db` as the database name and click **Save**
 
-**3b — Enable PostGIS extensions:**
-1. In the left panel, expand **Databases** → click on `dide_db`
-2. Click the **Query Tool** button in the toolbar (or press `Alt+Shift+Q`)
-3. Paste the following SQL into the query editor and click the **▶ Execute** button (or press `F5`):
 
-```sql
-CREATE EXTENSION IF NOT EXISTS postgis;
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-```
-
-**3c — Create the core tables:**
+**3b — Create the core tables:**
 1. In pgAdmin 4, with `dide_db` selected, open the **Query Tool**
 2. Click **File** → **Open File** in the Query Tool toolbar
 3. Navigate to `docs/initial setup/1_database_tables.sql` and open it
