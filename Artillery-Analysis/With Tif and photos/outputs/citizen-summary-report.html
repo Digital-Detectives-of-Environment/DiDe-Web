@@ -1,0 +1,130 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>DiDe Citizen Load Test</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f5f5f5;color:#333}.hdr{background:linear-gradient(135deg,#1565c0,#0d47a1);color:#fff;padding:32px;text-align:center}.hdr h1{font-size:22px;margin-bottom:6px}.hdr p{opacity:.8;font-size:13px}.w{max-width:1400px;margin:0 auto;padding:20px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin:18px 0}.cd{background:#fff;border-radius:10px;padding:18px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.07)}.cd .v{font-size:26px;font-weight:700;color:#1565c0;margin:6px 0}.cd .l{font-size:11px;color:#888;text-transform:uppercase}.s{background:#fff;border-radius:10px;padding:22px;margin:18px 0;box-shadow:0 2px 6px rgba(0,0,0,.07);overflow-x:auto}.s h2{font-size:16px;color:#1565c0;margin-bottom:14px;padding-bottom:6px;border-bottom:2px solid #e3f2fd}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#e3f2fd;padding:9px 8px;text-align:center;font-weight:600;border-bottom:2px solid #bbdefb;white-space:nowrap}td{padding:8px;border-bottom:1px solid #f0f0f0;text-align:center;vertical-align:middle}tr:hover{background:#fafafa}.b{display:inline-block;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;color:#fff}.ch{position:relative;height:340px;margin:14px 0}.cfg{background:#e3f2fd;border-radius:8px;padding:14px;margin:14px 0;font-size:12px;line-height:1.8}.cfg b{color:#0d47a1}.ft{text-align:center;padding:18px;color:#aaa;font-size:11px}.tcell{line-height:1.4}.tcell .tot{font-weight:700;display:block;font-size:13px}.tcell .sub{font-size:11px;color:#666;display:block;margin-top:2px}.ok{color:#2e7d32;font-weight:600}.ng{color:#c62828;font-weight:600}.maxbadge{display:inline-block;font-size:10px;padding:2px 7px;margin-left:6px;border-radius:9px;color:#fff;font-weight:600;vertical-align:middle}.note{margin-top:10px;font-size:11px;color:#666}</style></head><body>
+<div class="hdr"><h1>DiDe - Citizen Load Test Report</h1><p>Unauthenticated User Read Performance | 2026-05-29 08:58:17</p></div>
+<div class="w">
+<div class="cfg"><b>Target:</b> http://localhost:3000 | <b>Sustained:</b> 60s | <b>Ramp:</b> 15s | <b>Threshold:</b> 5s | <b>POI:</b> 1694 | <b>VU/s:</b> 10, 20, 40, 60, 80, 100, 100</div>
+<div class="cards"><div class="cd"><div class="l">Experiments</div><div class="v">7</div></div><div class="cd"><div class="l">Public POI</div><div class="v">1694</div></div><div class="cd"><div class="l">Max VU/s</div><div class="v">100</div></div><div class="cd"><div class="l">POI Size</div><div class="v">0.70 MB</div></div><div class="cd"><div class="l">Threshold</div><div class="v">5s</div></div></div>
+<div class="s"><h2>Citizen Performance Table</h2>
+<table><thead><tr>
+  <th># Public<br>POI</th>
+  <th>POI Size<br>(MB)</th>
+  <th>Concurrent<br>Users [VU/s]</th>
+  <th>Total<br>Requests</th>
+  <th>Successful<br>(200 + 304)</th>
+  <th>Failed<br>(4xx + 5xx)</th>
+  <th>Median<br>(ms)</th>
+  <th>p95<br>(ms)</th>
+  <th>p99<br>(ms)</th>
+  <th>Max (ms)<br>+ status</th>
+  <th>&le; 5s<br>total / &#10003; / &#10007;</th>
+  <th>&gt; 5s<br>total / &#10003; / &#10007;</th>
+  <th>Success Rate<br>(threshold)</th>
+</tr></thead><tbody><tr>
+  <td><b>1.694</b></td>
+  <td>0.70</td>
+  <td><b>10</b></td>
+  <td>2.214</td>
+  <td class="ok">2.214</td>
+  <td class="ng">0</td>
+  <td>14</td>
+  <td style="color:#2e7d32;font-weight:600">48</td>
+  <td>93</td>
+  <td>268<span class="maxbadge" style="background:#2e7d32">200 ✓</span></td>
+  <td class="tcell"><span class="tot">2.214</span><span class="sub"><span class="ok">2.214 &#10003;</span> / <span class="ng">0 &#10007;</span></span></td>
+  <td class="tcell"><span class="tot">0</span><span class="sub"><span class="ok">0 &#10003;</span> / <span class="ng">0 &#10007;</span></span></td>
+  <td><span class="b" style="background:#2e7d32">100.0%</span></td>
+</tr><tr>
+  <td><b>1.694</b></td>
+  <td>0.70</td>
+  <td><b>20</b></td>
+  <td>4.386</td>
+  <td class="ok">4.386</td>
+  <td class="ng">0</td>
+  <td>13</td>
+  <td style="color:#2e7d32;font-weight:600">48</td>
+  <td>176</td>
+  <td>812<span class="maxbadge" style="background:#2e7d32">200 ✓</span></td>
+  <td class="tcell"><span class="tot">4.386</span><span class="sub"><span class="ok">4.386 &#10003;</span> / <span class="ng">0 &#10007;</span></span></td>
+  <td class="tcell"><span class="tot">0</span><span class="sub"><span class="ok">0 &#10003;</span> / <span class="ng">0 &#10007;</span></span></td>
+  <td><span class="b" style="background:#2e7d32">100.0%</span></td>
+</tr><tr>
+  <td><b>1.694</b></td>
+  <td>0.70</td>
+  <td><b>40</b></td>
+  <td>8.736</td>
+  <td class="ok">8.736</td>
+  <td class="ng">0</td>
+  <td>16</td>
+  <td style="color:#2e7d32;font-weight:600">233</td>
+  <td>714</td>
+  <td>2235<span class="maxbadge" style="background:#2e7d32">200 ✓</span></td>
+  <td class="tcell"><span class="tot">8.736</span><span class="sub"><span class="ok">8.736 &#10003;</span> / <span class="ng">0 &#10007;</span></span></td>
+  <td class="tcell"><span class="tot">0</span><span class="sub"><span class="ok">0 &#10003;</span> / <span class="ng">0 &#10007;</span></span></td>
+  <td><span class="b" style="background:#2e7d32">100.0%</span></td>
+</tr><tr>
+  <td><b>1.694</b></td>
+  <td>0.70</td>
+  <td><b>60</b></td>
+  <td>13.086</td>
+  <td class="ok">11.417</td>
+  <td class="ng">1.669</td>
+  <td>3262</td>
+  <td style="color:#c62828;font-weight:600">7408</td>
+  <td>8693</td>
+  <td>11048<span class="maxbadge" style="background:#c62828">500 ✗</span></td>
+  <td class="tcell"><span class="tot">9.167</span><span class="sub"><span class="ok">8.880 &#10003;</span> / <span class="ng">287 &#10007;</span></span></td>
+  <td class="tcell"><span class="tot">3.919</span><span class="sub"><span class="ok">2.537 &#10003;</span> / <span class="ng">1.382 &#10007;</span></span></td>
+  <td><span class="b" style="background:#c62828">67.9%</span></td>
+</tr><tr>
+  <td><b>1.694</b></td>
+  <td>0.70</td>
+  <td><b>80</b></td>
+  <td>17.399</td>
+  <td class="ok">16.000</td>
+  <td class="ng">1.399</td>
+  <td>3012</td>
+  <td style="color:#c62828;font-weight:600">7866</td>
+  <td>14332</td>
+  <td>20130<span class="maxbadge" style="background:#2e7d32">200 ✓</span></td>
+  <td class="tcell"><span class="tot">13.099</span><span class="sub"><span class="ok">12.441 &#10003;</span> / <span class="ng">658 &#10007;</span></span></td>
+  <td class="tcell"><span class="tot">4.300</span><span class="sub"><span class="ok">3.559 &#10003;</span> / <span class="ng">741 &#10007;</span></span></td>
+  <td><span class="b" style="background:#c62828">71.5%</span></td>
+</tr><tr>
+  <td><b>1.694</b></td>
+  <td>0.70</td>
+  <td><b>100</b></td>
+  <td>20.267</td>
+  <td class="ok">16.730</td>
+  <td class="ng">3.537</td>
+  <td>4147</td>
+  <td style="color:#c62828;font-weight:600">10618</td>
+  <td>20543</td>
+  <td>25426<span class="maxbadge" style="background:#2e7d32">200 ✓</span></td>
+  <td class="tcell"><span class="tot">10.691</span><span class="sub"><span class="ok">10.347 &#10003;</span> / <span class="ng">344 &#10007;</span></span></td>
+  <td class="tcell"><span class="tot">9.576</span><span class="sub"><span class="ok">6.383 &#10003;</span> / <span class="ng">3.193 &#10007;</span></span></td>
+  <td><span class="b" style="background:#c62828">51.1%</span></td>
+</tr><tr>
+  <td><b>1.694</b></td>
+  <td>0.70</td>
+  <td><b>100</b></td>
+  <td>19.807</td>
+  <td class="ok">16.385</td>
+  <td class="ng">3.422</td>
+  <td>4317</td>
+  <td style="color:#c62828;font-weight:600">11274</td>
+  <td>20958</td>
+  <td>27844<span class="maxbadge" style="background:#c62828">500 ✗</span></td>
+  <td class="tcell"><span class="tot">10.436</span><span class="sub"><span class="ok">10.004 &#10003;</span> / <span class="ng">432 &#10007;</span></span></td>
+  <td class="tcell"><span class="tot">9.371</span><span class="sub"><span class="ok">6.381 &#10003;</span> / <span class="ng">2.990 &#10007;</span></span></td>
+  <td><span class="b" style="background:#c62828">50.5%</span></td>
+</tr></tbody></table>
+<p class="note">Success Rate uses the threshold rule: a request is counted as successful only if its HTTP status is 200/304 <b>and</b> its response time is at most 5 seconds.</p>
+</div>
+<div class="s"><h2>Response Time vs VU/s</h2><div class="ch"><canvas id="c1"></canvas></div></div>
+<div class="s"><h2>Success Rate vs VU/s (threshold-aware)</h2><div class="ch"><canvas id="c2"></canvas></div></div>
+</div><div class="ft">DiDe Citizen Load Test | 2026-05-29</div>
+<script>const D=[{"poi":1694,"mb":"0.70","vu":10,"req":2214,"httpSuccess":2214,"httpFailure":0,"med":"14","p95":"48","p99":"93","max":"268","maxBadge":"200 ✓","maxBadgeColor":"#2e7d32","under":{"total":2214,"success":2214,"failure":0},"over":{"total":0,"success":0,"failure":0},"rate":"100.0","p95c":"#2e7d32","rc":"#2e7d32"},{"poi":1694,"mb":"0.70","vu":20,"req":4386,"httpSuccess":4386,"httpFailure":0,"med":"13","p95":"48","p99":"176","max":"812","maxBadge":"200 ✓","maxBadgeColor":"#2e7d32","under":{"total":4386,"success":4386,"failure":0},"over":{"total":0,"success":0,"failure":0},"rate":"100.0","p95c":"#2e7d32","rc":"#2e7d32"},{"poi":1694,"mb":"0.70","vu":40,"req":8736,"httpSuccess":8736,"httpFailure":0,"med":"16","p95":"233","p99":"714","max":"2235","maxBadge":"200 ✓","maxBadgeColor":"#2e7d32","under":{"total":8736,"success":8736,"failure":0},"over":{"total":0,"success":0,"failure":0},"rate":"100.0","p95c":"#2e7d32","rc":"#2e7d32"},{"poi":1694,"mb":"0.70","vu":60,"req":13086,"httpSuccess":11417,"httpFailure":1669,"med":"3262","p95":"7408","p99":"8693","max":"11048","maxBadge":"500 ✗","maxBadgeColor":"#c62828","under":{"total":9167,"success":8880,"failure":287},"over":{"total":3919,"success":2537,"failure":1382},"rate":"67.9","p95c":"#c62828","rc":"#c62828"},{"poi":1694,"mb":"0.70","vu":80,"req":17399,"httpSuccess":16000,"httpFailure":1399,"med":"3012","p95":"7866","p99":"14332","max":"20130","maxBadge":"200 ✓","maxBadgeColor":"#2e7d32","under":{"total":13099,"success":12441,"failure":658},"over":{"total":4300,"success":3559,"failure":741},"rate":"71.5","p95c":"#c62828","rc":"#c62828"},{"poi":1694,"mb":"0.70","vu":100,"req":20267,"httpSuccess":16730,"httpFailure":3537,"med":"4147","p95":"10618","p99":"20543","max":"25426","maxBadge":"200 ✓","maxBadgeColor":"#2e7d32","under":{"total":10691,"success":10347,"failure":344},"over":{"total":9576,"success":6383,"failure":3193},"rate":"51.1","p95c":"#c62828","rc":"#c62828"},{"poi":1694,"mb":"0.70","vu":100,"req":19807,"httpSuccess":16385,"httpFailure":3422,"med":"4317","p95":"11274","p99":"20958","max":"27844","maxBadge":"500 ✗","maxBadgeColor":"#c62828","under":{"total":10436,"success":10004,"failure":432},"over":{"total":9371,"success":6381,"failure":2990},"rate":"50.5","p95c":"#c62828","rc":"#c62828"}];const L=D.map(d=>d.vu+' VU/s');
+new Chart(document.getElementById('c1'),{type:'line',data:{labels:L,datasets:[{label:'Median (ms)',data:D.map(d=>+d.med),borderColor:'#1565c0',backgroundColor:'rgba(21,101,192,.1)',fill:true,tension:.3},{label:'p95 (ms)',data:D.map(d=>+d.p95),borderColor:'#ff9800',borderDash:[5,5],tension:.3},{label:'p99 (ms)',data:D.map(d=>+d.p99),borderColor:'#f44336',borderDash:[2,2],tension:.3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top'}},scales:{y:{title:{display:true,text:'ms'},beginAtZero:true}}}});
+new Chart(document.getElementById('c2'),{type:'bar',data:{labels:L,datasets:[{label:'Success Rate (%)',data:D.map(d=>+d.rate),backgroundColor:D.map(d=>d.rc),borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{title:{display:true,text:'%'},beginAtZero:true,max:100}}}});
+</script></body></html>

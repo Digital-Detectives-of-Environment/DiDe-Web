@@ -1,0 +1,58 @@
+# DiDe — Citizen (Unauthenticated) Read Load Test
+# Phases are overridden by run-citizen-test.js at runtime.
+
+config:
+  target: "http://localhost:3000"
+  http:
+    timeout: 30000
+    pool: 100
+  phases:
+    - name: "Warm-up"
+      duration: 15
+      arrivalRate: 1
+      rampTo: 5
+    - name: "Sustained"
+      duration: 30
+      arrivalRate: 5
+    - name: "Cool-down"
+      duration: 5
+      arrivalRate: 5
+      rampTo: 1
+  defaults:
+    headers:
+      Accept: "application/json"
+  plugins:
+    metrics-by-endpoint: {}
+  processor: "./citizen-processor.js"
+
+scenarios:
+  - name: "Citizen - Browse Map"
+    weight: 70
+    flow:
+      - get:
+          url: "/api/config"
+          expect:
+            - statusCode: 200
+      - think: 1
+      - get:
+          url: "/api/events_all"
+          afterResponse: "measurePayloadSize"
+      - think: 2
+      - get:
+          url: "/api/public/geom-tables"
+      - think: 1
+
+  - name: "Citizen - Refresh Page"
+    weight: 30
+    flow:
+      - get:
+          url: "/api/config"
+      - think: 0.5
+      - get:
+          url: "/api/events_all"
+          afterResponse: "measurePayloadSize"
+      - think: 1
+      - get:
+          url: "/api/events_all"
+          afterResponse: "measurePayloadSize"
+      - think: 2
