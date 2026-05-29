@@ -454,7 +454,7 @@ sudo -u postgres psql -d dide_db -f case_study/Milano/existing_data/roads.sql
 - **Public** → visible to everyone without logging in
 - **Private** → visible only to logged-in users
 
-### Adding the H3 Aggregation Layer
+### Adding the Aggregation Layer
 
 **1. Run the H3 SQL file:**
 
