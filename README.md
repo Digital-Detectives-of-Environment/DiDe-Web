@@ -27,12 +27,12 @@
 - [Features](#features)
 - [Tech Stack](#tech-stack)
 - [System Requirements](#system-requirements)
+- [Environment Variables](#environment-variables)
 - [Quick Start (Localhost)](#quick-start--localhost)
 - [Adding Supervisors and Users](#adding-supervisors-and-users)
 - [Production Deployment (Ubuntu Server)](#production-deployment--ubuntu-server)
 - [Data Integration (Case Study)](#data-integration--case-study)
 - [WFS Service Setup](#wfs-service-setup)
-- [Environment Variables](#environment-variables)
 - [Security](#security)
 - [Project Structure](#project-structure)
 
@@ -125,6 +125,75 @@ After installation, open pgAdmin 4 and connect to your local PostgreSQL server:
 
 ---
 
+## Environment Variables
+
+Create a `.env` file in the project root directory. Parameters marked as **hardcoded** do not need to be added to `.env` — they are set automatically in the application code.
+
+```env
+# ── SERVER ──
+PORT=3000                                          # Port the application runs on
+                                                   # Example: PORT=3000
+CORS_ORIGIN=http://localhost:3000                  # Comma-separated list of allowed frontend origins
+                                                   # Example (production): CORS_ORIGIN=https://yourdomain.com
+
+# ── POSTGRESQL DATABASE ──
+# PGHOST and PGPORT are hardcoded (127.0.0.1 and 5432) — do not add to .env
+PGUSER=postgres                                    # PostgreSQL username
+                                                   # Example: PGUSER=dide_user
+PGPASSWORD=your_password                           # PostgreSQL password (keep secret!)
+                                                   # Example: PGPASSWORD=StrongPass123
+PGDATABASE=dide_db                                 # Name of the database
+                                                   # Example: PGDATABASE=dide_db
+PGPOOL_MAX=150                                     # Max number of DB connections in the pool
+                                                   # Example: PGPOOL_MAX=150
+
+# ── JWT SECURITY ──
+JWT_SECRET=dev-secret                              # Secret key used to sign JWT tokens — must be a long random string in production
+                                                   # Example: JWT_SECRET=xK9#mP2$qL8vRn5wYz
+# ── EMAIL VERIFICATION ──
+VERIFY_EMAIL_TEXT=terms_conditions.html            # HTML file displayed during email verification
+                                                   # Example: VERIFY_EMAIL_TEXT=terms_conditions.html
+# ── SMTP EMAIL ──
+SMTP_HOST=smtp.gmail.com                           # SMTP server hostname
+SMTP_PORT=587                                      
+SMTP_USER=your@gmail.com                           # Sender email address
+SMTP_PASS=app_password                             # SMTP password or Gmail App Password  Example: SMTP_PASS=abcdefghijklmnop
+SMTP_FROM_NAME=DiDe                                # Display name shown in the From field of outgoing emails
+SMTP_FROM_EMAIL=your@gmail.com                     # Sender email address
+                                                  
+# ── SITE SETTINGS ──
+SITE_TITLE=DiDe                                    # Browser tab title and page heading
+SITE_LOGO_URL=/DiDe-Logo.png                       # Path to the logo 
+
+# ── ALLOWED EMAIL DOMAINS FOR REGISTRATION ──
+ALLOWED_EMAIL_DOMAIN=                              # Semicolon-separated list of allowed email domains; leave empty to allow all
+                                                   # Example: ALLOWED_EMAIL_DOMAIN=hacettepe.edu.tr;gmail.com
+# ── MAP SETTINGS ──
+MAP_INITIAL_LAT=45.4642                            # Map center latitude on first load for Milano (45.4642)
+MAP_INITIAL_LNG=9.1900                             # Map center longitude on first load for Milano (9.1900)
+MAP_INITIAL_ZOOM=12                                # Initial zoom level (1 = world, 12= Campus, 18 = street level)
+
+# ── LANGUAGE SETTING ──
+DEFAULT_LANG=IT                                    # Default UI language; must match a file name in the i18n/ folder  
+
+# ── CASE STUDY (RASTER LAYER) ──
+CASE_STUDY=Milano                                  # Folder name under case_study/; TIF files are read from case_study/<CASE_STUDY>/raw_data/Raster/
+                                                   # Example: CASE_STUDY=Ankara  → reads from case_study/Ankara/raw_data/Raster/
+# ── GIS / AGGREGATION SETTINGS ──
+AGGREGATION_LAYER=                                 # PostGIS table name for the aggregation/hexagonal grid layer; leave empty to disable
+                                                   # Example: AGGREGATION_LAYER=h3_milan
+Display_Attribute=                                 # Column(s) shown in the aggregation grid info popup (semicolon-separated)
+                                                   # Example: Display_Attribute=h3_index;district_name
+
+# ── QFIELD SYNC ──
+QFIELD_SYNC_ROOT=                                  # Absolute path to the QField sync folder; leave empty to disable
+                                                   # Example: QFIELD_SYNC_ROOT=/var/www/dide/qfield-sync
+```
+
+> **For Gmail users:** Enable 2-Step Verification in your Google Account, then generate an App Password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) and use it as `SMTP_PASS`.
+
+---
+
 ## Quick Start — Localhost
 
 Follow these steps in order to clone the project and run it on your local machine.
@@ -171,58 +240,7 @@ This creates the `users`, `event_type`, and `event` tables.
 
 ### Step 4: Create the `.env` File
 
-Create a `.env` file in the project root directory with the following content. See the [Environment Variables](#environment-variables) section for full descriptions of each parameter.
-
-```env
-# ── SERVER ──
-PORT=3000                                          # Port the application runs on
-CORS_ORIGIN=http://localhost:3000                  # Allowed frontend origin(s)
-
-# ── POSTGRESQL DATABASE ──
-PGUSER=postgres                                    # PostgreSQL username
-PGPASSWORD=your_password                           # PostgreSQL password
-PGDATABASE=dide_db                                 # Database name
-PGPOOL_MAX=150                                     # Max DB connection pool size
-
-# ── JWT SECURITY ──
-JWT_SECRET=dev-secret                              # Secret key for JWT tokens — use a strong random value in production
-
-# ── EMAIL VERIFICATION ──
-VERIFY_EMAIL_TEXT=terms_conditions.html            # HTML file shown during email verification
-
-# ── SMTP EMAIL ──
-SMTP_HOST=smtp.gmail.com                           # SMTP server hostname
-SMTP_PORT=587                                      # SMTP port (587 for STARTTLS)
-SMTP_USER=your@gmail.com                           # SMTP login username
-SMTP_PASS=app_password                             # SMTP password or app password
-SMTP_FROM_NAME=DiDe                                # Display name for outgoing emails
-SMTP_FROM_EMAIL=your@gmail.com                     # Sender email address
-
-# ── SITE SETTINGS ──
-SITE_TITLE=DiDe                                    # Browser tab title and site name
-SITE_LOGO_URL=/DiDe-Logo.png                       # Path to the logo file (relative to /public)
-
-# ── ALLOWED EMAIL DOMAINS FOR REGISTRATION ──
-ALLOWED_EMAIL_DOMAIN=gmail.com;outlook.com         # Semicolon-separated list; leave empty to allow all
-
-# ── MAP SETTINGS ──
-MAP_INITIAL_LAT=45.4642                            # Map center latitude on first load
-MAP_INITIAL_LNG=9.1900                             # Map center longitude on first load
-MAP_INITIAL_ZOOM=12                                # Initial zoom level (1–18)
-
-# ── LANGUAGE SETTING ──
-DEFAULT_LANG=IT                                    # Default UI language: TR, EN, IT (must match a file in i18n/)
-
-# ── CASE STUDY (RASTER LAYER) ──
-CASE_STUDY=Milano                                  # Folder name under case_study/ — TIF files are read from case_study/<CASE_STUDY>/raw_data/Raster/
-
-# ── GIS / AGGREGATION SETTINGS ──
-AGGREGATION_LAYER=                                 # PostGIS table name for the aggregation grid (e.g. h3_milan); leave empty to disable
-Display_Attribute=                                 # Column(s) to show in the aggregation grid popup (semicolon-separated)
-
-# ── QFIELD SYNC ──
-QFIELD_SYNC_ROOT=                                  # Path to QField sync root folder; leave empty to disable
-```
+Create a `.env` file in the project root directory. For all parameters and their descriptions, see the [Environment Variables](#environment-variables) section above.
 
 ### Step 5: Start the Application
 
@@ -368,12 +386,10 @@ cd dide
 nano .env
 ```
 
-Paste your environment variables. See the [Environment Variables](#environment-variables) section for all parameters. Key values to set for production:
+Create your `.env` file using the parameters described in the [Environment Variables](#environment-variables) section above. Key values to update for production:
 
-```env
-CORS_ORIGIN=https://yourdomain.com
-JWT_SECRET=a-very-strong-random-key
-```
+- `CORS_ORIGIN=https://yourdomain.com`
+- `JWT_SECRET=a-very-strong-random-key`
 
 > `COOKIE_SECURE` is automatically set to `true` in production (when `NODE_ENV=production`). You do not need to add it to `.env`.
 
@@ -533,97 +549,6 @@ WFS is protected by the credentials of active users with the `supervisor` role i
 
 ---
 
-## Environment Variables
-
-Create a `.env` file in the project root directory. Parameters marked as **hardcoded** do not need to be added to `.env` — they are set automatically in the application code.
-
-```env
-# ── SERVER ──
-PORT=3000                                          # Port the application runs on
-                                                   # Example: PORT=3000
-CORS_ORIGIN=http://localhost:3000                  # Comma-separated list of allowed frontend origins
-                                                   # Example (production): CORS_ORIGIN=https://yourdomain.com
-
-# ── POSTGRESQL DATABASE ──
-# PGHOST and PGPORT are hardcoded (127.0.0.1 and 5432) — do not add to .env
-PGUSER=postgres                                    # PostgreSQL username
-                                                   # Example: PGUSER=dide_user
-PGPASSWORD=your_password                           # PostgreSQL password (keep secret!)
-                                                   # Example: PGPASSWORD=StrongPass123
-PGDATABASE=dide_db                                 # Name of the database
-                                                   # Example: PGDATABASE=dide_db
-PGPOOL_MAX=150                                     # Max number of DB connections in the pool
-                                                   # Example: PGPOOL_MAX=150
-
-# ── JWT SECURITY ──
-JWT_SECRET=dev-secret                              # Secret key used to sign JWT tokens — must be a long random string in production
-                                                   # Example: JWT_SECRET=xK9#mP2$qL8vRn5wYz
-# JWT_EXPIRES is hardcoded to 7d — do not add to .env
-
-# ── COOKIE SETTINGS ──
-# COOKIE_SAMESITE is hardcoded to "lax" — do not add to .env
-# COOKIE_SECURE is set automatically: true in production (NODE_ENV=production), false on localhost — do not add to .env
-
-# ── EMAIL VERIFICATION ──
-VERIFY_EMAIL_TEXT=terms_conditions.html            # HTML file displayed during email verification
-                                                   # Example: VERIFY_EMAIL_TEXT=terms_conditions.html
-
-# ── SMTP EMAIL ──
-SMTP_HOST=smtp.gmail.com                           # SMTP server hostname
-                                                   # Example: SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587                                      # SMTP port — 587 for STARTTLS (recommended), 465 for SSL
-                                                   # Example: SMTP_PORT=587
-# SMTP_SECURE is hardcoded to false (STARTTLS on port 587) — do not add to .env
-SMTP_USER=your@gmail.com                           # SMTP login username / email address
-                                                   # Example: SMTP_USER=noreply@yourdomain.com
-SMTP_PASS=app_password                             # SMTP password or Gmail App Password
-                                                   # Example: SMTP_PASS=abcd efgh ijkl mnop
-SMTP_FROM_NAME=DiDe                                # Display name shown in the From field of outgoing emails
-                                                   # Example: SMTP_FROM_NAME=DiDe Platform
-SMTP_FROM_EMAIL=your@gmail.com                     # Sender email address
-                                                   # Example: SMTP_FROM_EMAIL=noreply@yourdomain.com
-
-# ── SITE SETTINGS ──
-SITE_TITLE=DiDe                                    # Browser tab title and page heading
-                                                   # Example: SITE_TITLE=DiDe - Milano
-SITE_LOGO_URL=/DiDe-Logo.png                       # Path to the logo (relative to /public folder)
-                                                   # Example: SITE_LOGO_URL=/my-logo.png
-
-# ── ALLOWED EMAIL DOMAINS FOR REGISTRATION ──
-ALLOWED_EMAIL_DOMAIN=                              # Semicolon-separated list of allowed email domains; leave empty to allow all
-                                                   # Example: ALLOWED_EMAIL_DOMAIN=hacettepe.edu.tr;gmail.com
-
-# ── MAP SETTINGS ──
-MAP_INITIAL_LAT=45.4642                            # Map center latitude on first load
-                                                   # Example: MAP_INITIAL_LAT=39.9334 (Ankara)
-MAP_INITIAL_LNG=9.1900                             # Map center longitude on first load
-                                                   # Example: MAP_INITIAL_LNG=32.8597 (Ankara)
-MAP_INITIAL_ZOOM=12                                # Initial zoom level (1 = world, 18 = street level)
-                                                   # Example: MAP_INITIAL_ZOOM=12
-
-# ── LANGUAGE SETTING ──
-DEFAULT_LANG=IT                                    # Default UI language; must match a file name in the i18n/ folder
-                                                   # Example: DEFAULT_LANG=TR  (uses i18n/TR.js)
-
-# ── CASE STUDY (RASTER LAYER) ──
-CASE_STUDY=Milano                                  # Folder name under case_study/; TIF files are read from case_study/<CASE_STUDY>/raw_data/Raster/
-                                                   # Example: CASE_STUDY=Ankara  → reads from case_study/Ankara/raw_data/Raster/
-
-# ── GIS / AGGREGATION SETTINGS ──
-AGGREGATION_LAYER=                                 # PostGIS table name for the aggregation/hexagonal grid layer; leave empty to disable
-                                                   # Example: AGGREGATION_LAYER=h3_milan
-Display_Attribute=                                 # Column(s) shown in the aggregation grid info popup (semicolon-separated)
-                                                   # Example: Display_Attribute=h3_index;district_name
-
-# ── QFIELD SYNC ──
-QFIELD_SYNC_ROOT=                                  # Absolute path to the QField sync folder; leave empty to disable
-                                                   # Example: QFIELD_SYNC_ROOT=/var/www/dide/qfield-sync
-```
-
-> **For Gmail users:** Enable 2-Step Verification in your Google Account, then generate an App Password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) and use it as `SMTP_PASS`.
-
----
-
 ## Security
 
 - Passwords hashed with **bcrypt** (10 salt rounds)
@@ -667,7 +592,7 @@ dide/
 │   └── Milano/                 ← Example: Milan study area (set via CASE_STUDY in .env)
 │       ├── existing_data/      ← SQL data files
 │       ├── raw_data/           ← Raw data (Vector + Raster TIF files)
-│       └── aggregation_layer/  ← H3 grid files
+│       └── aggregation_layer/  ← aggregation layer files
 ├── docs/                       ← Documentation and setup files
 │   ├── initial setup/          ← Initial setup SQL and scripts
 │   └── img/                    ← Documentation images
