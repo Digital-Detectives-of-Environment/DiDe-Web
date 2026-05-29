@@ -21,7 +21,7 @@ const app = express();
 /* ===================== GENEL ===================== */
 const PORT = parseInt(process.env.PORT, 10);
 const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRES = process.env.JWT_EXPIRES;
+const JWT_EXPIRES = '7d';                          // hardcoded
 const ALLOWED_EMAIL_DOMAINS = (process.env.ALLOWED_EMAIL_DOMAIN || '')
   .split(';')
   .map(d => d.trim().toLowerCase())
@@ -56,9 +56,11 @@ let POLYGON_PKS = [];
 
 
 const FRONTEND_ORIGIN = process.env.CORS_ORIGIN;
-const COOKIE_SAMESITE = (process.env.COOKIE_SAMESITE || 'lax').toLowerCase();
-const COOKIE_SECURE =
-  String(process.env.COOKIE_SECURE || (process.env.NODE_ENV === 'production')).toLowerCase() === 'true';
+const COOKIE_SAMESITE = 'lax';                     // hardcoded – removed from .env
+
+// COOKIE_SECURE: production + HTTPS varsa true, aksi halde false.
+// Localhost veya HTTP ortamında baseCookieFlags() zaten false'a düşürür.
+const COOKIE_SECURE = process.env.NODE_ENV === 'production';
 
 app.set('trust proxy', 1);
 
@@ -78,8 +80,8 @@ const BASE_DB_CFG = DATABASE_URL
       ssl: needSSL ? { rejectUnauthorized: false } : undefined,
     }
   : {
-      host: process.env.PGHOST,
-      port: parseInt(process.env.PGPORT, 10),
+      host: process.env.PGHOST || '127.0.0.1',      // hardcoded default – removed from .env
+      port: parseInt(process.env.PGPORT, 10) || 5432, // hardcoded default – removed from .env
       user: process.env.PGUSER,
       password: process.env.PGPASSWORD,
       database: process.env.PGDATABASE,
@@ -138,7 +140,7 @@ if (CAN_SEND_MAIL) {
   transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT, 10),
-    secure: String(process.env.SMTP_SECURE) === 'true',
+    secure: false,                                   // hardcoded – STARTTLS (port 587); removed from .env
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
   });
 }
@@ -175,7 +177,10 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-const RASTER_DIR = path.join(__dirname, 'case_study', 'Milano', 'raw_data', 'Raster');
+// CASE_STUDY: .env'de tanımlı klasör adı (örn: Milano).
+// Tam path: <proje_kökü>/case_study/<CASE_STUDY>/raw_data/Raster
+const CASE_STUDY_NAME = process.env.CASE_STUDY || 'Milano';
+const RASTER_DIR = path.join(__dirname, 'case_study', CASE_STUDY_NAME, 'raw_data', 'Raster');
 
 const VIDEO_EXT_WHITELIST = ['.mp4', '.m4v', '.mov', '.mkv', '.avi', '.wmv', '.3gp', '.3gpp', '.webm', '.ogg', '.ogv', '.mpeg', '.mpg'];
 function hasVideoExtension(filename) {

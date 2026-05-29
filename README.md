@@ -28,9 +28,9 @@
 - [Tech Stack](#tech-stack)
 - [System Requirements](#system-requirements)
 - [Quick Start (Localhost)](#quick-start--localhost)
-- [Data Integration (Case Study)](#data-integration--case-study)
 - [Adding Supervisors and Users](#adding-supervisors-and-users)
 - [Production Deployment (Ubuntu Server)](#production-deployment--ubuntu-server)
+- [Data Integration (Case Study)](#data-integration--case-study)
 - [WFS Service Setup](#wfs-service-setup)
 - [Environment Variables](#environment-variables)
 - [Security](#security)
@@ -77,12 +77,25 @@
 
 ## System Requirements
 
+### For Localhost (Local Development)
+
 - **Node.js** v18 or higher (v22+ recommended)
 - **PostgreSQL** v13 or higher + **PostGIS** extension
 - **npm**
+- **pgAdmin 4** — Required for running SQL queries on your local machine. Download from [pgadmin.org](https://www.pgadmin.org/download/).
 - **OS:** Windows, Linux, or macOS
 
-#### PostgreSQL Installation
+> **Note for localhost users:** All SQL operations in this guide (creating databases, running table scripts, adding data) are performed through the **pgAdmin 4** graphical interface. Instructions below describe exactly where to click in pgAdmin 4.
+
+### For Production (Ubuntu Server)
+
+- **Ubuntu** 22.04 or 24.04 LTS
+- **A registered domain name** — Required to obtain an SSL certificate. Without a domain, HTTPS/SSL cannot be configured.
+- All other dependencies (Node.js, PostgreSQL, Nginx, etc.) are installed automatically by the setup script.
+
+> **Note for production users:** All SQL operations on Ubuntu Server are performed through the **terminal** (psql command-line tool). There is no graphical interface on the server.
+
+#### PostgreSQL Installation (Localhost only)
 
 **Linux (Ubuntu/Debian):**
 ```bash
@@ -98,7 +111,17 @@ brew install postgresql postgis
 brew services start postgresql
 ```
 
-**Windows:**  Download and install from [postgresql.org](https://www.postgresql.org/download/windows/). Install PostGIS via Stack Builder.
+**Windows:** Download and install from [postgresql.org](https://www.postgresql.org/download/windows/). Install PostGIS via Stack Builder.
+
+#### pgAdmin 4 Installation (Localhost only)
+
+Download and install pgAdmin 4 from [pgadmin.org/download](https://www.pgadmin.org/download/). It is available for Windows, macOS, and Linux.
+
+After installation, open pgAdmin 4 and connect to your local PostgreSQL server:
+1. In the left panel, right-click **Servers** → **Register** → **Server**
+2. Under the **General** tab, give it a name (e.g. `Local`)
+3. Under the **Connection** tab: Host = `127.0.0.1`, Port = `5432`, Username = `postgres`
+4. Enter your PostgreSQL password and click **Save**
 
 ---
 
@@ -119,90 +142,89 @@ cd DiDe-Web/
 npm install
 ```
 
-### Step 3: Create the Database
+### Step 3: Create the Database and Core Tables (pgAdmin 4)
 
-```bash
-# Enter the PostgreSQL console
-psql -U postgres
+All database operations on localhost are done through **pgAdmin 4**.
 
-# Create the database
-CREATE DATABASE dide_db;
+**3a — Create the database:**
+1. Open pgAdmin 4 and connect to your local server
+2. In the left panel, right-click **Databases** → **Create** → **Database**
+3. Enter `dide_db` as the database name and click **Save**
 
-# Add PostGIS extensions
-\c dide_db
+**3b — Enable PostGIS extensions:**
+1. In the left panel, expand **Databases** → click on `dide_db`
+2. Click the **Query Tool** button in the toolbar (or press `Alt+Shift+Q`)
+3. Paste the following SQL into the query editor and click the **▶ Execute** button (or press `F5`):
+
+```sql
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
-\q
 ```
 
-### Step 4: Create the Core Tables
+**3c — Create the core tables:**
+1. In pgAdmin 4, with `dide_db` selected, open the **Query Tool**
+2. Click **File** → **Open File** in the Query Tool toolbar
+3. Navigate to `docs/initial setup/1_database_tables.sql` and open it
+4. Click **▶ Execute** (or press `F5`) to run the script
 
-```bash
-psql -U postgres -d dide_db -f "docs/initial setup/1_database_tables.sql"
-```
+This creates the `users`, `event_type`, and `event` tables.
 
-This creates the `users`, `olaylar` (event types), and `olay` (events) tables. For details, see [docs/README.md](docs/README.md).
+### Step 4: Create the `.env` File
 
-### Step 5: Create the `.env` File
-
-Create a `.env` file in the project root directory. For all parameters, see [Environment Variables](#environment-variables). Minimum configuration for local development:
+Create a `.env` file in the project root directory with the following content. See the [Environment Variables](#environment-variables) section for full descriptions of each parameter.
 
 ```env
 # ── SERVER ──
-PORT=3000
-CORS_ORIGIN=http://localhost:3000
+PORT=3000                                          # Port the application runs on
+CORS_ORIGIN=http://localhost:3000                  # Allowed frontend origin(s)
 
 # ── POSTGRESQL DATABASE ──
-PGHOST=127.0.0.1
-PGPORT=5432
-PGUSER=postgres
-PGPASSWORD=your_password
-PGDATABASE=dide_db
-PGPOOL_MAX=150
-
-QFIELD_SYNC_ROOT=
+PGUSER=postgres                                    # PostgreSQL username
+PGPASSWORD=your_password                           # PostgreSQL password
+PGDATABASE=dide_db                                 # Database name
+PGPOOL_MAX=150                                     # Max DB connection pool size
 
 # ── JWT SECURITY ──
-JWT_SECRET=dev-secret
-JWT_EXPIRES=7d
-
-# ── COOKIE SETTINGS ──
-COOKIE_SAMESITE=lax
-COOKIE_SECURE=false                     # Set to true in production
+JWT_SECRET=dev-secret                              # Secret key for JWT tokens — use a strong random value in production
 
 # ── EMAIL VERIFICATION ──
-VERIFY_EMAIL_TEXT=terms_conditions.html
+VERIFY_EMAIL_TEXT=terms_conditions.html            # HTML file shown during email verification
 
 # ── SMTP EMAIL ──
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=your@gmail.com
-SMTP_PASS=app_password
-SMTP_FROM_NAME=DiDe
-SMTP_FROM_EMAIL=your@gmail.com
+SMTP_HOST=smtp.gmail.com                           # SMTP server hostname
+SMTP_PORT=587                                      # SMTP port (587 for STARTTLS)
+SMTP_USER=your@gmail.com                           # SMTP login username
+SMTP_PASS=app_password                             # SMTP password or app password
+SMTP_FROM_NAME=DiDe                                # Display name for outgoing emails
+SMTP_FROM_EMAIL=your@gmail.com                     # Sender email address
 
 # ── SITE SETTINGS ──
-SITE_TITLE=DiDe
-SITE_LOGO_URL=/DiDe-Logo.png
+SITE_TITLE=DiDe                                    # Browser tab title and site name
+SITE_LOGO_URL=/DiDe-Logo.png                       # Path to the logo file (relative to /public)
 
 # ── ALLOWED EMAIL DOMAINS FOR REGISTRATION ──
-ALLOWED_EMAIL_DOMAIN=gmail.com;outlook.com
+ALLOWED_EMAIL_DOMAIN=gmail.com;outlook.com         # Semicolon-separated list; leave empty to allow all
 
 # ── MAP SETTINGS ──
-MAP_INITIAL_LAT=45.4642
-MAP_INITIAL_LNG=9.1900
-MAP_INITIAL_ZOOM=6
+MAP_INITIAL_LAT=45.4642                            # Map center latitude on first load
+MAP_INITIAL_LNG=9.1900                             # Map center longitude on first load
+MAP_INITIAL_ZOOM=12                                # Initial zoom level (1–18)
 
 # ── LANGUAGE SETTING ──
-DEFAULT_LANG=TR                         # TR, EN, IT, etc. (file name in i18n/)
+DEFAULT_LANG=IT                                    # Default UI language: TR, EN, IT (must match a file in i18n/)
+
+# ── CASE STUDY (RASTER LAYER) ──
+CASE_STUDY=Milano                                  # Folder name under case_study/ — TIF files are read from case_study/<CASE_STUDY>/raw_data/Raster/
 
 # ── GIS / AGGREGATION SETTINGS ──
-AGGREGATION_LAYER=                      # e.g. h3_milan
-Display_Attribute=
+AGGREGATION_LAYER=                                 # PostGIS table name for the aggregation grid (e.g. h3_milan); leave empty to disable
+Display_Attribute=                                 # Column(s) to show in the aggregation grid popup (semicolon-separated)
+
+# ── QFIELD SYNC ──
+QFIELD_SYNC_ROOT=                                  # Path to QField sync root folder; leave empty to disable
 ```
 
-### Step 6: Start the Application
+### Step 5: Start the Application
 
 ```bash
 npm start
@@ -222,12 +244,23 @@ When the system is first installed, there are no users. Users and supervisors mu
 Go to the site and click the **Sign Up** button to create a new user.
 
 **Method 2 — Batch SQL Import:**
+
+*On localhost (pgAdmin 4):*
+1. Open pgAdmin 4 → select `dide_db` → open the **Query Tool**
+2. Click **File** → **Open File**, navigate to `docs/initial setup/2_example_experts.sql`, and open it
+3. Click **▶ Execute** to run. This adds 8 test users (default password: `12345Aa`).
+
+*On Ubuntu Server (terminal):*
 ```bash
-psql -U postgres -d dide_db -f "docs/initial setup/2_example_experts.sql"
+sudo -u postgres psql -d dide_db -f "docs/initial setup/2_example_experts.sql"
 ```
-This adds 8 test users (default password: `12345Aa`).
 
 **Method 3 — Manual SQL:**
+
+*On localhost (pgAdmin 4):*
+1. Open pgAdmin 4 → select `dide_db` → open the **Query Tool**
+2. Paste the SQL below and click **▶ Execute**:
+
 ```sql
 INSERT INTO public.users (username, password_hash, role, email, email_verified, is_verified, is_active)
 VALUES (
@@ -239,17 +272,35 @@ VALUES (
 );
 ```
 
+*On Ubuntu Server (terminal):*
+```bash
+sudo -u postgres psql -d dide_db -c "
+INSERT INTO public.users (username, password_hash, role, email, email_verified, is_verified, is_active)
+VALUES (
+  'your_username',
+  crypt('YourPassword123.', gen_salt('bf', 10)),
+  'user',
+  'example@email.com',
+  true, true, true
+);"
+```
+
 ### Adding a Supervisor
 
 Supervisor accounts require **two-factor authentication (2FA)**, so the creation process is different:
 
-1. **Generate a 2FA secret code:**
+**Step 1 — Generate a 2FA secret code:**
 ```bash
 node "docs/initial setup/generate-2fa-secret.js"
 ```
 Note down the BASE32 code from the output.
 
-2. **Add the supervisor to the database:**
+**Step 2 — Add the supervisor to the database:**
+
+*On localhost (pgAdmin 4):*
+1. Open pgAdmin 4 → select `dide_db` → open the **Query Tool**
+2. Paste the SQL below (replace the placeholder values) and click **▶ Execute**:
+
 ```sql
 INSERT INTO public.users (
     username, password_hash, role, name, surname, email,
@@ -266,47 +317,28 @@ INSERT INTO public.users (
 );
 ```
 
-3. **Set up the Authenticator app:**
+*On Ubuntu Server (terminal):*
+```bash
+sudo -u postgres psql -d dide_db -c "
+INSERT INTO public.users (
+    username, password_hash, role, name, surname, email,
+    email_verified, is_verified, is_active,
+    two_factor_secret, two_factor_enabled
+) VALUES (
+    'supervisor_name',
+    crypt('StrongPassword123.', gen_salt('bf', 10)),
+    'supervisor',
+    'FirstName', 'LastName', 'supervisor@example.com',
+    TRUE, TRUE, TRUE,
+    'GENERATED_BASE32_CODE',
+    TRUE
+);"
+```
+
+**Step 3 — Set up the Authenticator app:**
 Enter the BASE32 code into Google Authenticator or a similar app on the supervisor's phone. A 6-digit verification code from this app will be required during login.
 
 For detailed examples, see the `4_adding_a_supervisor.sql` explanation in [docs/README.md](docs/README.md).
-
----
-
-## Data Integration — Case Study
-
-While the system is running, you can integrate study area-specific data (buildings, roads, H3 grid, etc.) into the system. All study area data is kept in the `case_study/` folder.
-
-### Adding Existing Data
-
-1. Run the SQL files in the database:
-```bash
-psql -U postgres -d dide_db -f case_study/Milano/existing_data/buildings.sql
-psql -U postgres -d dide_db -f case_study/Milano/existing_data/roads.sql
-```
-
-2. Log in as a Supervisor → **Administration Panel** → **Existing Data** tab.
-
-3. Select the added tables and configure their visibility:
-   - **Public** → visible to everyone without logging in
-   - **Private** → visible only to logged-in users
-
-### Adding the H3 Aggregation Layer
-
-1. Run the H3 SQL file:
-```bash
-psql -U postgres -d dide_db -f case_study/Milano/aggregation_layer/h3_milan.sql
-```
-
-2. Update the `.env` file:
-```env
-AGGREGATION_LAYER=h3_milan
-Primary_Keys=h3_index
-```
-
-3. Restart the application (`npm start` or `pm2 restart dide`).
-
-For details, see [case_study/README.md](case_study/README.md).
 
 ---
 
@@ -326,7 +358,7 @@ ssh -i your-key.pem ubuntu@SERVER_IP
 sudo mkdir -p /var/www/dide
 sudo chown -R ubuntu:ubuntu /var/www/dide
 cd /var/www/dide
-git clone https://github.com/Digital-Detectives-of-Environment/DiDe-Web.git
+git clone https://github.com/Digital-Detectives-of-Environment/DiDe-Web.git dide
 cd dide
 ```
 
@@ -334,13 +366,16 @@ cd dide
 
 ```bash
 nano .env
-# Paste your environment variables (see "Environment Variables" section)
-# For production, change these:
-#   CORS_ORIGIN=https://yourdomain.com
-#   COOKIE_SECURE=true
-#   COOKIE_SAMESITE=strict
-#   JWT_SECRET=a-very-strong-random-key
 ```
+
+Paste your environment variables. See the [Environment Variables](#environment-variables) section for all parameters. Key values to set for production:
+
+```env
+CORS_ORIGIN=https://yourdomain.com
+JWT_SECRET=a-very-strong-random-key
+```
+
+> `COOKIE_SECURE` is automatically set to `true` in production (when `NODE_ENV=production`). You do not need to add it to `.env`.
 
 ### 4. Run the Automated Setup Script
 
@@ -366,32 +401,86 @@ sudo -u postgres psql -d dide_db -c "SELECT count(*) FROM users;"
 
 ### 6. SSL Certificate (HTTPS)
 
+DiDe uses **Let's Encrypt** with **Certbot** to obtain a free SSL/TLS certificate. Let's Encrypt is a free, automated certificate authority — it issues certificates based on domain ownership verification. This means **you must have a registered domain name** pointing to your server's IP address before running these commands.
+
 ```bash
-sudo apt install certbot python3-certbot-nginx
+sudo apt update
+sudo apt install -y snapd
+sudo snap install core
+sudo snap refresh core
+sudo snap install --classic certbot
+sudo ln -sf /snap/bin/certbot /usr/bin/certbot
 sudo certbot --nginx -d yourdomain.com
 ```
 
-The certificate will be renewed automatically. Update `COOKIE_SECURE=true` in your `.env` file.
+Certbot will automatically detect your Nginx configuration and configure HTTPS. The certificate is valid for 90 days and **renews automatically** via a system timer.
 
-### 7. Connecting QGIS to the Server Database
+After obtaining the certificate, your site will be accessible at `https://yourdomain.com`. The `COOKIE_SECURE` flag is handled automatically by the application — no `.env` change is needed.
 
-To open PostgreSQL for external connections on the server:
+---
 
-```bash
-# Edit PostgreSQL configuration
-sudo nano /etc/postgresql/16/main/postgresql.conf
-# Set: listen_addresses = '*'
+## Data Integration — Case Study
 
-sudo nano /etc/postgresql/16/main/pg_hba.conf
-# Add: host all all YOUR_IP/32 scram-sha-256
+While the system is running, you can integrate study area-specific data (buildings, roads, H3 grid, etc.) into the system. All study area data is kept in the `case_study/` folder.
 
-sudo systemctl restart postgresql
+> The steps below apply to both **localhost** and **production**. SQL execution method differs by environment — use pgAdmin 4 on localhost, and the terminal on Ubuntu Server.
 
-# Open port 5432 in the firewall (only for your IP)
-sudo ufw allow from YOUR_IP to any port 5432
+### Adding Existing Data
+
+**1. Run the SQL files in the database:**
+
+*On localhost (pgAdmin 4):*
+1. Open pgAdmin 4 → select `dide_db` → open the **Query Tool**
+2. Click **File** → **Open File**, navigate to the SQL file, and open it
+3. Click **▶ Execute** to run
+
+```
+case_study/Milano/existing_data/buildings.sql
+case_study/Milano/existing_data/roads.sql
 ```
 
-In QGIS: **Browser → PostgreSQL → New Connection** → enter the server IP, port 5432, and the credentials from your `.env`.
+*On Ubuntu Server (terminal):*
+```bash
+sudo -u postgres psql -d dide_db -f case_study/Milano/existing_data/buildings.sql
+sudo -u postgres psql -d dide_db -f case_study/Milano/existing_data/roads.sql
+```
+
+**2.** Log in as a Supervisor → **Administration Panel** → **Existing Data** tab.
+
+**3.** Select the added tables and configure their visibility:
+- **Public** → visible to everyone without logging in
+- **Private** → visible only to logged-in users
+
+### Adding the H3 Aggregation Layer
+
+**1. Run the H3 SQL file:**
+
+*On localhost (pgAdmin 4):*
+1. Open pgAdmin 4 → select `dide_db` → open the **Query Tool**
+2. Click **File** → **Open File**, navigate to `case_study/Milano/aggregation_layer/h3_milan.sql`, and open it
+3. Click **▶ Execute** to run
+
+*On Ubuntu Server (terminal):*
+```bash
+sudo -u postgres psql -d dide_db -f case_study/Milano/aggregation_layer/h3_milan.sql
+```
+
+**2.** Update the `.env` file:
+```env
+AGGREGATION_LAYER=h3_milan
+Display_Attribute=h3_index
+```
+
+**3.** Restart the application:
+```bash
+# Localhost
+npm start
+
+# Ubuntu Server
+pm2 restart dide
+```
+
+For details, see [case_study/README.md](case_study/README.md).
 
 ---
 
@@ -406,21 +495,15 @@ To set up a WFS (Web Feature Service) with GeoServer in a production environment
 
 ### Setup Steps
 
-1. **Run the script:**
+**1. Run the script:**
 ```bash
 sudo bash GEOSERVER_WFS_setup.sh \
   --env-file /var/www/dide/dide/.env \
   --gs-admin-user admin \
-  --gs-admin-pass geoserver_password
+  --gs-admin-pass geoserver
 ```
 
-2. **Optional parameters:**
-```bash
-  --workspace dide_workspace \          # GeoServer workspace name
-  --datastore dide_datastore \          # Datastore name
-  --server-name yourdomain.com \        # SSL domain name
-  --geoserver-version 2.25.2            # GeoServer version
-```
+> **Important:** The `--gs-admin-pass` value above is the initial GeoServer admin password used during setup. After installation is complete, **change this password immediately** through the GeoServer web interface: open `http://YOUR_SERVER_IP/geoserver/` in a browser → log in with your admin credentials → **Security** → **Users, Groups, Roles** → edit the `admin` user → set a new strong password.
 
 ### What the Script Does
 
@@ -429,7 +512,7 @@ sudo bash GEOSERVER_WFS_setup.sh \
 - Creates a **Flask/Gunicorn**-based authentication service (authenticates WFS requests against DiDe users)
 - Adds WFS location blocks to the **Nginx** configuration (`/wfs`, `/geoserver/wfs`)
 - Creates a **PostGIS datastore** in GeoServer
-- Publishes the `olay` table (active events) as a **WFS layer**
+- Publishes the `event` table (active events) as a **WFS layer**
 
 ### WFS Access
 
@@ -439,7 +522,7 @@ After setup:
 # GeoServer admin panel (in browser):
 http://SERVER_IP/geoserver/
 
-# WFS GetCapabilities (no auth — GeoServer UI):
+# WFS GetCapabilities (GeoServer UI — no auth):
 http://SERVER_IP/geoserver/wfs?service=WFS&request=GetCapabilities
 
 # WFS with DiDe user authentication (Basic Auth):
@@ -452,71 +535,89 @@ WFS is protected by the credentials of active users with the `supervisor` role i
 
 ## Environment Variables
 
-Create a `.env` file in the project root directory:
+Create a `.env` file in the project root directory. Parameters marked as **hardcoded** do not need to be added to `.env` — they are set automatically in the application code.
 
 ```env
 # ── SERVER ──
-PORT=3000
-CORS_ORIGIN=http://localhost:3000
+PORT=3000                                          # Port the application runs on
+                                                   # Example: PORT=3000
+CORS_ORIGIN=http://localhost:3000                  # Comma-separated list of allowed frontend origins
+                                                   # Example (production): CORS_ORIGIN=https://yourdomain.com
 
 # ── POSTGRESQL DATABASE ──
-PGHOST=127.0.0.1
-PGPORT=5432
-PGUSER=postgres
-PGPASSWORD=your_password
-PGDATABASE=dide_db
-PGPOOL_MAX=150
-
-QFIELD_SYNC_ROOT=
+# PGHOST and PGPORT are hardcoded (127.0.0.1 and 5432) — do not add to .env
+PGUSER=postgres                                    # PostgreSQL username
+                                                   # Example: PGUSER=dide_user
+PGPASSWORD=your_password                           # PostgreSQL password (keep secret!)
+                                                   # Example: PGPASSWORD=StrongPass123
+PGDATABASE=dide_db                                 # Name of the database
+                                                   # Example: PGDATABASE=dide_db
+PGPOOL_MAX=150                                     # Max number of DB connections in the pool
+                                                   # Example: PGPOOL_MAX=150
 
 # ── JWT SECURITY ──
-JWT_SECRET=dev-secret
-JWT_EXPIRES=7d
+JWT_SECRET=dev-secret                              # Secret key used to sign JWT tokens — must be a long random string in production
+                                                   # Example: JWT_SECRET=xK9#mP2$qL8vRn5wYz
+# JWT_EXPIRES is hardcoded to 7d — do not add to .env
 
 # ── COOKIE SETTINGS ──
-COOKIE_SAMESITE=lax
-COOKIE_SECURE=false                     # Set to true in production
+# COOKIE_SAMESITE is hardcoded to "lax" — do not add to .env
+# COOKIE_SECURE is set automatically: true in production (NODE_ENV=production), false on localhost — do not add to .env
 
 # ── EMAIL VERIFICATION ──
-VERIFY_EMAIL_TEXT=terms_conditions.html
+VERIFY_EMAIL_TEXT=terms_conditions.html            # HTML file displayed during email verification
+                                                   # Example: VERIFY_EMAIL_TEXT=terms_conditions.html
 
 # ── SMTP EMAIL ──
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=your@gmail.com
-SMTP_PASS=app_password
-SMTP_FROM_NAME=DiDe
-SMTP_FROM_EMAIL=your@gmail.com
+SMTP_HOST=smtp.gmail.com                           # SMTP server hostname
+                                                   # Example: SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587                                      # SMTP port — 587 for STARTTLS (recommended), 465 for SSL
+                                                   # Example: SMTP_PORT=587
+# SMTP_SECURE is hardcoded to false (STARTTLS on port 587) — do not add to .env
+SMTP_USER=your@gmail.com                           # SMTP login username / email address
+                                                   # Example: SMTP_USER=noreply@yourdomain.com
+SMTP_PASS=app_password                             # SMTP password or Gmail App Password
+                                                   # Example: SMTP_PASS=abcd efgh ijkl mnop
+SMTP_FROM_NAME=DiDe                                # Display name shown in the From field of outgoing emails
+                                                   # Example: SMTP_FROM_NAME=DiDe Platform
+SMTP_FROM_EMAIL=your@gmail.com                     # Sender email address
+                                                   # Example: SMTP_FROM_EMAIL=noreply@yourdomain.com
 
 # ── SITE SETTINGS ──
-SITE_TITLE=DiDe
-SITE_LOGO_URL=/DiDe-Logo.png
+SITE_TITLE=DiDe                                    # Browser tab title and page heading
+                                                   # Example: SITE_TITLE=DiDe - Milano
+SITE_LOGO_URL=/DiDe-Logo.png                       # Path to the logo (relative to /public folder)
+                                                   # Example: SITE_LOGO_URL=/my-logo.png
 
 # ── ALLOWED EMAIL DOMAINS FOR REGISTRATION ──
-ALLOWED_EMAIL_DOMAIN=gmail.com;outlook.com
-
-# ── TABLE PAGINATION ──
-TABLE_PAGE_SIZE_EVENTS=25
-TABLE_PAGE_SIZE_TYPES=20
-TABLE_PAGE_SIZE_USERS=30
+ALLOWED_EMAIL_DOMAIN=                              # Semicolon-separated list of allowed email domains; leave empty to allow all
+                                                   # Example: ALLOWED_EMAIL_DOMAIN=hacettepe.edu.tr;gmail.com
 
 # ── MAP SETTINGS ──
-MAP_INITIAL_LAT=45.4642
-MAP_INITIAL_LNG=9.1900
-MAP_INITIAL_ZOOM=6
-MAP_MIN_ZOOM=2
-
-# ── EVENT VISIBILITY (LOGGED-OUT USERS) ──
-SHOW_GOOD_EVENTS_ON_LOGIN=true
-SHOW_BAD_EVENTS_ON_LOGIN=false
+MAP_INITIAL_LAT=45.4642                            # Map center latitude on first load
+                                                   # Example: MAP_INITIAL_LAT=39.9334 (Ankara)
+MAP_INITIAL_LNG=9.1900                             # Map center longitude on first load
+                                                   # Example: MAP_INITIAL_LNG=32.8597 (Ankara)
+MAP_INITIAL_ZOOM=12                                # Initial zoom level (1 = world, 18 = street level)
+                                                   # Example: MAP_INITIAL_ZOOM=12
 
 # ── LANGUAGE SETTING ──
-DEFAULT_LANG=TR                         # TR, EN, IT, etc. (file name in i18n/)
+DEFAULT_LANG=IT                                    # Default UI language; must match a file name in the i18n/ folder
+                                                   # Example: DEFAULT_LANG=TR  (uses i18n/TR.js)
+
+# ── CASE STUDY (RASTER LAYER) ──
+CASE_STUDY=Milano                                  # Folder name under case_study/; TIF files are read from case_study/<CASE_STUDY>/raw_data/Raster/
+                                                   # Example: CASE_STUDY=Ankara  → reads from case_study/Ankara/raw_data/Raster/
 
 # ── GIS / AGGREGATION SETTINGS ──
-AGGREGATION_LAYER=                      # e.g. h3_milan
-Primary_Keys=                                                                     
+AGGREGATION_LAYER=                                 # PostGIS table name for the aggregation/hexagonal grid layer; leave empty to disable
+                                                   # Example: AGGREGATION_LAYER=h3_milan
+Display_Attribute=                                 # Column(s) shown in the aggregation grid info popup (semicolon-separated)
+                                                   # Example: Display_Attribute=h3_index;district_name
+
+# ── QFIELD SYNC ──
+QFIELD_SYNC_ROOT=                                  # Absolute path to the QField sync folder; leave empty to disable
+                                                   # Example: QFIELD_SYNC_ROOT=/var/www/dide/qfield-sync
 ```
 
 > **For Gmail users:** Enable 2-Step Verification in your Google Account, then generate an App Password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) and use it as `SMTP_PASS`.
@@ -535,10 +636,11 @@ Primary_Keys=
 
 **Production recommendations:**
 - Always change `JWT_SECRET` to a strong random value
-- Use HTTPS (`COOKIE_SECURE=true`)
+- Use HTTPS — obtain an SSL certificate with Certbot (see [SSL Certificate](#6-ssl-certificate-https))
 - Never commit your `.env` file to version control
 - Use a strong PostgreSQL password
 - Configure the server firewall (UFW)
+- Change the default GeoServer admin password after setup
 
 ---
 
@@ -548,7 +650,7 @@ Primary_Keys=
 dide/
 ├── index.js                    ← Main server file (Express.js)
 ├── package.json                ← NPM dependencies
-├── .env                        ← Environment variables (must be created)
+├── .env                        ← Environment variables (must be created — never commit)
 ├── GEOSERVER_WFS_setup.sh      ← WFS service setup script
 ├── i18n/                       ← Multi-language translation files
 │   ├── main.js                 ← i18n manager
@@ -562,9 +664,9 @@ dide/
 │   ├── uploads/                ← User uploads (photos/videos)
 │   └── *.svg, *.png            ← Icon and logo files
 ├── case_study/                 ← Study area data
-│   └── Milano/                 ← Example: Milan study area
+│   └── Milano/                 ← Example: Milan study area (set via CASE_STUDY in .env)
 │       ├── existing_data/      ← SQL data files
-│       ├── raw_data/           ← Raw data (Vector + Raster)
+│       ├── raw_data/           ← Raw data (Vector + Raster TIF files)
 │       └── aggregation_layer/  ← H3 grid files
 ├── docs/                       ← Documentation and setup files
 │   ├── initial setup/          ← Initial setup SQL and scripts
@@ -582,9 +684,5 @@ This project is distributed under the [GNU General Public License v3.0](LICENSE)
 
 <div align="center">
 
-![GitHub stars](https://img.shields.io/github/stars/banbar/dide?style=social)
-![GitHub forks](https://img.shields.io/github/forks/banbar/dide?style=social)
-![GitHub issues](https://img.shields.io/github/issues/banbar/dide)
-![GitHub last commit](https://img.shields.io/github/last-commit/banbar/dide)
 
 </div>
