@@ -747,12 +747,15 @@ cat >/tmp/gs_featuretype.xml <<EOF
 EOF
 
 PUBLISH_ERRORS=0
+# recalculate=nativebbox,latlonbbox forces GeoServer to compute the bounding box
+# (otherwise QGIS shows a warning and points are placed incorrectly)
+FT_BASE="${GS_REST}/workspaces/${WORKSPACE}/datastores/${DATASTORE}/featuretypes"
 # Try POST first (new layer); if layer already exists try PUT to update the SQL view
-if gs_post_xml "${GS_REST}/workspaces/${WORKSPACE}/datastores/${DATASTORE}/featuretypes" /tmp/gs_featuretype.xml; then
+if gs_post_xml "${FT_BASE}?recalculate=nativebbox,latlonbbox" /tmp/gs_featuretype.xml; then
   log "Published: ${LAYER_NAME} (EPSG:${srid}, PK: event_id)"
 else
   log "Layer exists — updating SQL view via PUT"
-  if gs_put_xml "${GS_REST}/workspaces/${WORKSPACE}/datastores/${DATASTORE}/featuretypes/${LAYER_NAME}" /tmp/gs_featuretype.xml; then
+  if gs_put_xml "${FT_BASE}/${LAYER_NAME}?recalculate=nativebbox,latlonbbox" /tmp/gs_featuretype.xml; then
     log "Updated: ${LAYER_NAME} (EPSG:${srid}, PK: event_id)"
   else
     echo "WARNING: Failed to publish/update ${LAYER_NAME}" >&2
