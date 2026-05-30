@@ -329,7 +329,9 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now geoserver-auth
+systemctl enable geoserver-auth
+# Always restart to pick up any app.py or env changes from this run
+systemctl restart geoserver-auth
 
 log "Configuring Nginx for WFS auth_request"
 
@@ -658,7 +660,23 @@ log "Found: ${EVENT_SCHEMA}.${EVENT_TABLE} (geom: ${geom_col}, EPSG:${srid})"
 
 # ── Use GeoServer SQL View with explicit primary key (prevents duplicate rows) ──
 LAYER_NAME="dide_events"
-SQL_VIEW_BODY="SELECT * FROM ${EVENT_SCHEMA}.${EVENT_TABLE} WHERE active = true"
+EVENT_TYPE_TABLE="event_type"
+
+event_type_exists="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -tA -c "SELECT 1 FROM information_schema.tables WHERE table_schema=$(sql_quote_literal "$EVENT_SCHEMA") AND table_name=$(sql_quote_literal "$EVENT_TYPE_TABLE") LIMIT 1;")"
+[[ "$event_type_exists" == "1" ]] || die "Table ${EVENT_SCHEMA}.${EVENT_TYPE_TABLE} not found"
+
+# Fetch all columns of event table except deactivated_* ones
+EVENT_COLS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -tA -c "
+  SELECT string_agg('e.' || quote_ident(column_name), ', ' ORDER BY ordinal_position)
+  FROM information_schema.columns
+  WHERE table_schema = $(sql_quote_literal "$EVENT_SCHEMA")
+    AND table_name   = $(sql_quote_literal "$EVENT_TABLE")
+    AND column_name  NOT LIKE 'deactivated%';
+")"
+[[ -n "$EVENT_COLS" ]] || die "Could not fetch columns for ${EVENT_SCHEMA}.${EVENT_TABLE}"
+
+# SQL View: JOIN with event_type to get event_type_name and public_
+SQL_VIEW_BODY="SELECT ${EVENT_COLS}, et.event_type_name, et.public_ FROM ${EVENT_SCHEMA}.${EVENT_TABLE} e LEFT JOIN ${EVENT_SCHEMA}.${EVENT_TYPE_TABLE} et ON e.event_type_id = et.event_type_id WHERE e.active = true"
 
 cat >/tmp/gs_featuretype.xml <<EOF
 <featureType>
@@ -687,11 +705,17 @@ cat >/tmp/gs_featuretype.xml <<EOF
 EOF
 
 PUBLISH_ERRORS=0
+# Try POST first (new layer); if layer already exists try PUT to update the SQL view
 if gs_post_xml "${GS_REST}/workspaces/${WORKSPACE}/datastores/${DATASTORE}/featuretypes" /tmp/gs_featuretype.xml; then
   log "Published: ${LAYER_NAME} (EPSG:${srid}, PK: event_id)"
 else
-  echo "WARNING: Failed to publish ${LAYER_NAME}" >&2
-  PUBLISH_ERRORS=1
+  log "Layer exists — updating SQL view via PUT"
+  if gs_put_xml "${GS_REST}/workspaces/${WORKSPACE}/datastores/${DATASTORE}/featuretypes/${LAYER_NAME}" /tmp/gs_featuretype.xml; then
+    log "Updated: ${LAYER_NAME} (EPSG:${srid}, PK: event_id)"
+  else
+    echo "WARNING: Failed to publish/update ${LAYER_NAME}" >&2
+    PUBLISH_ERRORS=1
+  fi
 fi
 
 if [[ $PUBLISH_ERRORS -gt 0 ]]; then
