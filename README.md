@@ -379,7 +379,7 @@ Create your `.env` file using the parameters described in the [Environment Varia
 - `CORS_ORIGIN=https://yourdomain.com`
 - `JWT_SECRET=a-very-strong-random-key`
 
-> `COOKIE_SECURE` is automatically set to `true` in production (when `NODE_ENV=production`). You do not need to add it to `.env`.
+
 
 ### 4. Run the Automated Setup Script
 
