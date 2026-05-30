@@ -1,8 +1,9 @@
 set -euo pipefail
 
-PROJECT_NAME="dide"
+PROJECT_NAME="DiDe-Web"
 BASE_DIR="/var/www/${PROJECT_NAME}"
 PROJECT_DIR="${BASE_DIR}/${PROJECT_NAME}"
+APP_USER="testharita"
 
 SQL_FILE="docs/initial_setup/1_database_tables.sql"
 
@@ -219,7 +220,7 @@ setup_pm2() {
   pm2 start index.js --name "$PROJECT_NAME"
   pm2 status
   pm2 save
-  sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u dide --hp /home/ubuntu
+  sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u "${APP_USER}" --hp "/home/${APP_USER}"
 }
 
 setup_nginx() {

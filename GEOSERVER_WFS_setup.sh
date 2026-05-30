@@ -11,7 +11,7 @@ AUTH_HOME="/opt/geoserver-auth"
 AUTH_ENV_FILE="/etc/geoserver-auth.env"
 AUTH_BIND="127.0.0.1:5000"
 
-NGINX_SITE_NAME="dide"
+NGINX_SITE_NAME="DiDe-Web"
 NODE_UPSTREAM="127.0.0.1:3000"
 GEOSERVER_UPSTREAM="127.0.0.1:8080"
 
