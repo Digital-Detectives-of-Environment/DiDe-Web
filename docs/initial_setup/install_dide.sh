@@ -211,12 +211,21 @@ setup_pm2() {
 
   cd "$PROJECT_DIR"
 
+  # Run pm2 as APP_USER so the process belongs to the correct user (not root)
+  sudo -u "${APP_USER}" bash -c "
+    export PM2_HOME=/home/${APP_USER}/.pm2
+    pm2 delete '${PROJECT_NAME}' >/dev/null 2>&1 || true
+    pm2 start '${PROJECT_DIR}/index.js' --name '${PROJECT_NAME}'
+    pm2 save
+  "
 
-  pm2 delete "$PROJECT_NAME" >/dev/null 2>&1 || true
-  pm2 start index.js --name "$PROJECT_NAME"
-  pm2 status
-  pm2 save
-  sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u "${APP_USER}" --hp "/home/${APP_USER}"
+  # Register pm2 startup as APP_USER
+  sudo env PATH=$PATH:/usr/bin /usr/local/lib/node_modules/pm2/bin/pm2 startup systemd -u "${APP_USER}" --hp "/home/${APP_USER}"
+
+  sudo -u "${APP_USER}" bash -c "
+    export PM2_HOME=/home/${APP_USER}/.pm2
+    pm2 status
+  "
 }
 
 setup_nginx() {

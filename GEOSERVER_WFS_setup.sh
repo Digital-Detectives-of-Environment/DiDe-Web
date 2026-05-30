@@ -96,16 +96,27 @@ done
 is_root || die "Run as root (use sudo)."
 
 log "Loading environment from $ENV_FILE"
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
 
-: "${PGHOST:=127.0.0.1}"   
-: "${PGPORT:=5432}"
-: "${PGDATABASE:?PGDATABASE missing in env file}"
-: "${PGUSER:?PGUSER missing in env file}"
-: "${PGPASSWORD:?PGPASSWORD missing in env file}"
+# Read .env line by line to avoid set -u errors from empty variables (e.g. QFIELD_SYNC_ROOT=)
+while IFS='=' read -r _key _val || [[ -n "$_key" ]]; do
+  # Skip comments and blank lines
+  [[ "$_key" =~ ^[[:space:]]*# ]] && continue
+  [[ -z "${_key// }" ]] && continue
+  _key="${_key// /}"
+  # Export only valid identifier keys
+  [[ "$_key" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || continue
+  printf -v "$_key" '%s' "${_val:-}"
+  export "$_key"
+done < "$ENV_FILE"
+
+# PGHOST and PGPORT are hardcoded in index.js; not required in .env
+PGHOST="${PGHOST:-127.0.0.1}"
+PGPORT="${PGPORT:-5432}"
+
+# These are required — fail early with a clear message if missing
+[[ -n "${PGDATABASE:-}" ]] || { echo "ERROR: PGDATABASE missing in env file" >&2; exit 1; }
+[[ -n "${PGUSER:-}"     ]] || { echo "ERROR: PGUSER missing in env file"     >&2; exit 1; }
+[[ -n "${PGPASSWORD:-}" ]] || { echo "ERROR: PGPASSWORD missing in env file" >&2; exit 1; }
 export PGPASSWORD
 
 if [[ "$NODE_UPSTREAM" == "127.0.0.1:3000" && -n "${PORT:-}" ]]; then
