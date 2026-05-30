@@ -98,13 +98,17 @@ is_root || die "Run as root (use sudo)."
 log "Loading environment from $ENV_FILE"
 
 # Read .env line by line to avoid set -u errors from empty variables (e.g. QFIELD_SYNC_ROOT=)
-while IFS='=' read -r _key _val || [[ -n "$_key" ]]; do
+while IFS= read -r _line || [[ -n "$_line" ]]; do
   # Skip comments and blank lines
-  [[ "$_key" =~ ^[[:space:]]*# ]] && continue
-  [[ -z "${_key// }" ]] && continue
+  [[ "$_line" =~ ^[[:space:]]*# ]] && continue
+  [[ -z "${_line// }" ]] && continue
+  # Split on first '=' only
+  _key="${_line%%=*}"
+  _val="${_line#*=}"
   _key="${_key// /}"
-  # Export only valid identifier keys
+  # Export only valid identifier keys; strip trailing whitespace from value
   [[ "$_key" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || continue
+  _val="${_val%"${_val##*[![:space:]]}"}"
   printf -v "$_key" '%s' "${_val:-}"
   export "$_key"
 done < "$ENV_FILE"
