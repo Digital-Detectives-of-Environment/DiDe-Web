@@ -8646,6 +8646,33 @@ function importWizardBack() {
     }
 
     try { ensureMapLegend(map); } catch {}
+
+    // İlk açılışta (giriş ekranı) harita HER ZAMAN .env'deki MAP_INITIAL_*
+    // (lat / lng / zoom) değerlerine göre konumlansın. Yukarıdaki public-event
+    // fitBounds'u görünümü (ve zoom'u) ezdiği için config görünümünü EN SON
+    // tekrar uyguluyoruz — logout akışıyla simetrik. Olay işaretçileri yine
+    // yüklenir, yalnızca harita görünümü .env değerlerine sabitlenir.
+    try {
+      if (map) {
+        const __v = getInitialMapView();
+        map.setMinZoom(__v.minZoom);
+        map.setView([__v.lat, __v.lng], __v.zoom, { animate: false });
+        map.invalidateSize();
+      }
+    } catch(e) {
+      console.warn('[INIT] Config görünümü uygulanamadı:', e);
+    }
+    // Raster/geom katmanları asenkron olarak görünümü değiştirebildiği için
+    // kısa bir gecikme sonrası .env değerlerini bir kez daha sabitliyoruz.
+    setTimeout(() => {
+      try {
+        if (map && !currentUser) {
+          const __v = getInitialMapView();
+          map.setView([__v.lat, __v.lng], __v.zoom, { animate: false });
+          map.invalidateSize();
+        }
+      } catch {}
+    }, 300);
   } else {
     goDefaultScreen();
     attachMapClickForLoggedIn();
