@@ -652,6 +652,20 @@ gs_put_xml() {
   return 1
 }
 
+# ── Set GeoServer Proxy Base URL so WFS GetCapabilities returns the public domain ──
+# Without this, GeoServer returns http://example.com URLs and QGIS cannot fetch features.
+if [[ -n "${_GS_PROXY_BASE:-}" ]]; then
+  log "Setting GeoServer Proxy Base URL to ${_GS_PROXY_BASE}"
+  cat >/tmp/gs_settings.xml <<EOF
+<global>
+  <settings>
+    <proxyBaseUrl>${_GS_PROXY_BASE}</proxyBaseUrl>
+  </settings>
+</global>
+EOF
+  gs_put_xml "${GS_REST}/settings" /tmp/gs_settings.xml || echo "WARNING: could not set proxy base URL" >&2
+fi
+
 log "Creating workspace '${WORKSPACE}' (if needed)"
 cat >/tmp/gs_workspace.xml <<EOF
 <workspace><name>${WORKSPACE}</name></workspace>
