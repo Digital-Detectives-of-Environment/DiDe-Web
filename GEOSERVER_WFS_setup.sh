@@ -455,25 +455,44 @@ print('no')
 WFSEOF
 )
 
+    # Write WFS snippet to temp file so Python can read it without heredoc escaping issues
+    echo "${WFS_SNIPPET}" > /tmp/_wfs_snippet.txt
+
     # Inject WFS blocks INSIDE the main server block (the one with listen 443 ssl, or location /)
-    # Uses brace-depth tracking; inserts snippet before the closing "}" of that block.
-    # If multiple blocks have "location /", prefer the one with "listen 443 ssl" (HTTPS block).
-    python3 <<PYEOF
+    python3 - "${NGINX_CONF}" /tmp/_wfs_snippet.txt <<'PYEOF'
 import sys
 
-with open("${NGINX_CONF}", "r") as f:
+conf_path = sys.argv[1]
+snippet_path = sys.argv[2]
+
+with open(conf_path, "r") as f:
     content = f.read()
 
 if "location /geoserver/" in content:
     print("geoserver location already exists, skipping")
     sys.exit(0)
 
-snippet = """${WFS_SNIPPET}"""
+with open(snippet_path, "r") as f:
+    snippet = f.read().rstrip("\n")
 
-lines = content.split("\\n")
+lines = content.split("\n")
+
+# Certbot sometimes joins blocks without newlines (e.g. "}server {")
+# Split such lines so the brace-depth parser can distinguish separate server blocks
+fixed = []
+for line in lines:
+    check = line.replace(" ", "").lower()
+    if "}server" in check:
+        idx = line.index("}")
+        fixed.append(line[:idx+1])
+        rest = line[idx+1:]
+        if rest.strip():
+            fixed.append(rest)
+    else:
+        fixed.append(line)
+lines = fixed
 
 def find_all_server_blocks(lines):
-    """Returns list of (start, end) tuples for all server blocks."""
     blocks = []
     depth = 0
     start = None
@@ -489,26 +508,17 @@ def find_all_server_blocks(lines):
     return blocks
 
 def find_target_block(lines, blocks):
-    """
-    Pick the best server block to inject WFS into:
-    1. Block with 'listen 443 ssl' AND 'location /' (HTTPS app block)
-    2. Block with 'location /' (HTTP app block)
-    3. First block (fallback)
-    """
     https_block = None
     http_block  = None
     for (s, e) in blocks:
-        block_text = "\\n".join(lines[s:e+1])
-        has_location = "location /" in block_text
-        has_ssl      = "listen 443" in block_text or "listen [::]:443" in block_text
-        # Skip pure redirect blocks (no location / or only return/if)
+        block_text = "\n".join(lines[s:e+1])
         if "location /" not in block_text:
             continue
+        has_ssl = "listen 443" in block_text or "listen [::]:443" in block_text
         if has_ssl and https_block is None:
             https_block = (s, e)
         elif not has_ssl and http_block is None:
             http_block = (s, e)
-    # Prefer HTTPS block; fall back to HTTP block; then first block
     return https_block or http_block or (blocks[0] if blocks else (None, None))
 
 blocks = find_all_server_blocks(lines)
@@ -522,11 +532,14 @@ if start_idx is None:
 else:
     lines.insert(end_idx, snippet)
 
-with open("${NGINX_CONF}", "w") as f:
-    f.write("\\n".join(lines))
+with open(conf_path, "w") as f:
+    f.write("\n".join(lines))
 
 print("WFS blocks injected successfully into target server block.")
 PYEOF
+
+    rm -f /tmp/_wfs_snippet.txt
+
 
   fi
 else
