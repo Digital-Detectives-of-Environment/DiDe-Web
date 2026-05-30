@@ -389,6 +389,7 @@ print('no')
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Host \$host;
         proxy_buffering off;
         proxy_read_timeout 120;
     }
@@ -545,7 +546,7 @@ server {
     }
 
     location = /_auth_wfs { internal; proxy_pass http://${AUTH_BIND}/auth; proxy_pass_request_body off; proxy_set_header Content-Length ""; proxy_set_header Authorization \$http_authorization; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header Host \$host; }
-    location /geoserver/ { proxy_pass http://${GEOSERVER_UPSTREAM}/geoserver/; proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto \$scheme; proxy_buffering off; proxy_read_timeout 120; }
+    location /geoserver/ { proxy_pass http://${GEOSERVER_UPSTREAM}/geoserver/; proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto \$scheme; proxy_set_header X-Forwarded-Host \$host; proxy_buffering off; proxy_read_timeout 120; }
     location ^~ /wfs { auth_request /_auth_wfs; error_page 401 = @wfs_401; proxy_set_header Authorization ""; proxy_pass http://${GEOSERVER_UPSTREAM}/geoserver/wfs; proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto \$scheme; proxy_buffering off; proxy_read_timeout 300; }
     location ^~ /geoserver/wfs { auth_request /_auth_wfs; error_page 401 = @wfs_401; proxy_set_header Authorization ""; proxy_pass http://${GEOSERVER_UPSTREAM}/geoserver/wfs; proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto \$scheme; proxy_buffering off; proxy_read_timeout 300; }
     location @wfs_401 { add_header WWW-Authenticate 'Basic realm="DiDe WFS"' always; return 401; }
@@ -565,7 +566,7 @@ server {
     client_max_body_size 50M;
     location / { proxy_pass http://${NODE_UPSTREAM}; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto \$scheme; }
     location = /_auth_wfs { internal; proxy_pass http://${AUTH_BIND}/auth; proxy_pass_request_body off; proxy_set_header Content-Length ""; proxy_set_header Authorization \$http_authorization; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header Host \$host; }
-    location /geoserver/ { proxy_pass http://${GEOSERVER_UPSTREAM}/geoserver/; proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto \$scheme; proxy_buffering off; proxy_read_timeout 120; }
+    location /geoserver/ { proxy_pass http://${GEOSERVER_UPSTREAM}/geoserver/; proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto \$scheme; proxy_set_header X-Forwarded-Host \$host; proxy_buffering off; proxy_read_timeout 120; }
     location ^~ /wfs { auth_request /_auth_wfs; error_page 401 = @wfs_401; proxy_set_header Authorization ""; proxy_pass http://${GEOSERVER_UPSTREAM}/geoserver/wfs; proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto \$scheme; proxy_buffering off; proxy_read_timeout 300; }
     location ^~ /geoserver/wfs { auth_request /_auth_wfs; error_page 401 = @wfs_401; proxy_set_header Authorization ""; proxy_pass http://${GEOSERVER_UPSTREAM}/geoserver/wfs; proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto \$scheme; proxy_buffering off; proxy_read_timeout 300; }
     location @wfs_401 { add_header WWW-Authenticate 'Basic realm="DiDe WFS"' always; return 401; }
