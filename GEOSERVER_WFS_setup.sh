@@ -183,14 +183,28 @@ fi
 
 # Detect domain for GeoServer CSRF whitelist and proxy base URL
 _GS_DOMAIN=""
-for _f in /etc/nginx/sites-available/*; do
-  [[ -f "$_f" ]] || continue
-  _d="$(grep -oP 'server_name\s+\K[^;_\s]+' "$_f" 2>/dev/null | head -1)"
-  if [[ -n "$_d" && "$_d" != "_" && "$_d" != "localhost" ]]; then
-    _GS_DOMAIN="$_d"; break
-  fi
-done
+# 1) Prefer an explicit --server-name argument
 [[ "$NGINX_SERVER_NAME" != "_" && -n "$NGINX_SERVER_NAME" ]] && _GS_DOMAIN="$NGINX_SERVER_NAME"
+# 2) Otherwise read server_name from nginx config (skip _, localhost, example.com)
+if [[ -z "$_GS_DOMAIN" ]]; then
+  for _f in /etc/nginx/sites-available/*; do
+    [[ -f "$_f" ]] || continue
+    while read -r _d; do
+      if [[ -n "$_d" && "$_d" != "_" && "$_d" != "localhost" && "$_d" != "example.com" ]]; then
+        _GS_DOMAIN="$_d"; break 2
+      fi
+    done < <(grep -oP 'server_name\s+\K[^;_\s]+' "$_f" 2>/dev/null)
+  done
+fi
+# 3) Fallback: use the Let's Encrypt certificate directory name (most reliable)
+if [[ -z "$_GS_DOMAIN" || "$_GS_DOMAIN" == "example.com" ]]; then
+  for _le in /etc/letsencrypt/live/*/; do
+    [[ -d "$_le" ]] || continue
+    _cand="$(basename "$_le")"
+    [[ "$_cand" == "README" ]] && continue
+    _GS_DOMAIN="$_cand"; break
+  done
+fi
 
 # Build proxy base URL (https if cert exists, otherwise http)
 _GS_PROXY_BASE=""
@@ -658,11 +672,15 @@ gs_put_xml() {
 
 # ── Set GeoServer Proxy Base URL so WFS GetCapabilities returns the public domain ──
 # Without this, GeoServer returns http://example.com URLs and QGIS cannot fetch features.
+# IMPORTANT: charset MUST be included — a partial settings PUT nulls it and breaks
+# GetCapabilities with "java.lang.IllegalArgumentException: Null charset name".
 if [[ -n "${_GS_PROXY_BASE:-}" ]]; then
   log "Setting GeoServer Proxy Base URL to ${_GS_PROXY_BASE}"
   cat >/tmp/gs_settings.xml <<EOF
 <global>
   <settings>
+    <charset>UTF-8</charset>
+    <numDecimals>8</numDecimals>
     <proxyBaseUrl>${_GS_PROXY_BASE}</proxyBaseUrl>
   </settings>
 </global>
