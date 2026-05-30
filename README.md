@@ -399,8 +399,6 @@ The script will automatically:
 
 ```bash
 pm2 status
-sudo systemctl status nginx --no-pager
-sudo -u postgres psql -d dide_db -c "SELECT count(*) FROM users;"
 ```
 
 ### 6. SSL Certificate (HTTPS)
