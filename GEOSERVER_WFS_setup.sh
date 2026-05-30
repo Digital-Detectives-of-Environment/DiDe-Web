@@ -676,7 +676,8 @@ EVENT_COLS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -tA -
 [[ -n "$EVENT_COLS" ]] || die "Could not fetch columns for ${EVENT_SCHEMA}.${EVENT_TABLE}"
 
 # SQL View: JOIN with event_type to get event_type_name and public_
-SQL_VIEW_BODY="SELECT ${EVENT_COLS}, et.event_type_name, et.public_ FROM ${EVENT_SCHEMA}.${EVENT_TABLE} e LEFT JOIN ${EVENT_SCHEMA}.${EVENT_TYPE_TABLE} et ON e.event_type_id = et.event_type_id WHERE e.active = true"
+# event.event_type column holds event_type_id as integer — JOIN on that
+SQL_VIEW_BODY="SELECT ${EVENT_COLS}, et.event_type_name, et.public_ FROM ${EVENT_SCHEMA}.${EVENT_TABLE} e LEFT JOIN ${EVENT_SCHEMA}.${EVENT_TYPE_TABLE} et ON e.event_type = et.event_type_id WHERE e.active = true"
 
 cat >/tmp/gs_featuretype.xml <<EOF
 <featureType>
