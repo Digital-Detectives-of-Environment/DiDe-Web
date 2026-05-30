@@ -1,8 +1,8 @@
 set -euo pipefail
 
 PROJECT_NAME="DiDe-Web"
-BASE_DIR="/var/www/${PROJECT_NAME}"
-PROJECT_DIR="${BASE_DIR}/${PROJECT_NAME}"
+BASE_DIR="/var/www/dide"   
+PROJECT_DIR="${BASE_DIR}/DiDe-Web"
 APP_USER="testharita"
 
 SQL_FILE="docs/initial_setup/1_database_tables.sql"
