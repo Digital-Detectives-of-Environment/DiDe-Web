@@ -91,18 +91,15 @@ read_env_vars() {
   PGDATABASE="$(get_env_value PGDATABASE "$ENV_FILE")"
   PGPASSWORD="$(get_env_value PGPASSWORD "$ENV_FILE")"
   PGUSER="$(get_env_value PGUSER "$ENV_FILE")"
-  PGHOST="$(get_env_value PGHOST "$ENV_FILE")"
-  PGPORT="$(get_env_value PGPORT "$ENV_FILE")"
   PORT="$(get_env_value PORT "$ENV_FILE")"
 
   POLYGON_FILE="$(get_env_value AGGREGATION_LAYER "$ENV_FILE")"
 
-  PGDATABASE="${PGDATABASE}"
-  PGPASSWORD="${PGPASSWORD}"
-  PGUSER="${PGUSER}"
-  PGHOST="${PGHOST}"
-  PGPORT="${PGPORT}"
-  PORT="${PORT}"
+  # PGHOST and PGPORT are hardcoded in index.js; use defaults if not in .env
+  PGHOST="$(get_env_value PGHOST "$ENV_FILE")"
+  PGHOST="${PGHOST:-127.0.0.1}"
+  PGPORT="$(get_env_value PGPORT "$ENV_FILE")"
+  PGPORT="${PGPORT:-5432}"
 
   echo "DB_NAME       = $PGDATABASE"
   echo "DB_USER       = $PGUSER"

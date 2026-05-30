@@ -101,7 +101,7 @@ set -a
 source "$ENV_FILE"
 set +a
 
-: "${PGHOST:?PGHOST missing in env file}"
+: "${PGHOST:=127.0.0.1}"   
 : "${PGPORT:=5432}"
 : "${PGDATABASE:?PGDATABASE missing in env file}"
 : "${PGUSER:?PGUSER missing in env file}"
