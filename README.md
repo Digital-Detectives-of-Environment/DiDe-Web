@@ -364,6 +364,7 @@ ssh -i your-key.pem ubuntu@SERVER_IP
 sudo mkdir -p /var/www/dide
 sudo chown -R ubuntu:ubuntu /var/www/dide
 cd /var/www/dide
+sudo apt update && sudo apt install -y git
 git clone https://github.com/Digital-Detectives-of-Environment/DiDe-Web.git
 cd DiDe-Web
 ```
