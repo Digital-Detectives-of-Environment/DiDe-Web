@@ -181,6 +181,27 @@ if [[ ! -f "$GEOSERVER_HOME/start.jar" ]]; then
   chown -R geoserver:geoserver "$GEOSERVER_HOME"
 fi
 
+# Detect domain for GeoServer CSRF whitelist and proxy base URL
+_GS_DOMAIN=""
+for _f in /etc/nginx/sites-available/*; do
+  [[ -f "$_f" ]] || continue
+  _d="$(grep -oP 'server_name\s+\K[^;_\s]+' "$_f" 2>/dev/null | head -1)"
+  if [[ -n "$_d" && "$_d" != "_" && "$_d" != "localhost" ]]; then
+    _GS_DOMAIN="$_d"; break
+  fi
+done
+[[ "$NGINX_SERVER_NAME" != "_" && -n "$NGINX_SERVER_NAME" ]] && _GS_DOMAIN="$NGINX_SERVER_NAME"
+
+# Build proxy base URL (https if cert exists, otherwise http)
+_GS_PROXY_BASE=""
+if [[ -n "$_GS_DOMAIN" ]]; then
+  if [[ -f "/etc/letsencrypt/live/${_GS_DOMAIN}/fullchain.pem" ]]; then
+    _GS_PROXY_BASE="https://${_GS_DOMAIN}/geoserver"
+  else
+    _GS_PROXY_BASE="http://${_GS_DOMAIN}/geoserver"
+  fi
+fi
+
 log "Configuring systemd service for GeoServer"
 cat >/etc/systemd/system/geoserver.service <<EOF
 [Unit]
@@ -192,7 +213,12 @@ User=geoserver
 Group=geoserver
 WorkingDirectory=${GEOSERVER_HOME}
 Environment=GEOSERVER_DATA_DIR=${GEOSERVER_DATA_DIR}
-ExecStart=/usr/bin/java -Xms512m -Xmx2048m -DGEOSERVER_DATA_DIR=${GEOSERVER_DATA_DIR} -jar start.jar
+Environment=GEOSERVER_CSRF_WHITELIST=${_GS_DOMAIN:-*}
+ExecStart=/usr/bin/java -Xms512m -Xmx2048m \
+  -DGEOSERVER_DATA_DIR=${GEOSERVER_DATA_DIR} \
+  -DGEOSERVER_CSRF_DISABLED=false \
+  -DPROXY_BASE_URL=${_GS_PROXY_BASE} \
+  -jar start.jar
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
@@ -202,7 +228,8 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now geoserver
+systemctl enable geoserver
+systemctl restart geoserver
 
 log "Waiting for GeoServer on ${GEOSERVER_UPSTREAM}"
 for i in {1..60}; do
