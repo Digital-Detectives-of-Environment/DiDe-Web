@@ -3,7 +3,7 @@ set -euo pipefail
 PROJECT_NAME="DiDe-Web"
 BASE_DIR="/var/www/dide"   
 PROJECT_DIR="${BASE_DIR}/DiDe-Web"
-APP_USER="dide"
+APP_USER="DiDe-Web"
 
 SQL_FILE="docs/initial_setup/1_database_tables.sql"
 
