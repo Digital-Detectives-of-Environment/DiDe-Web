@@ -620,6 +620,140 @@ function renderLayerList(mapInstance, layers, listId){
   });
 }
 
+/* ===================== Existing Data geometry: colors + selection + value popup ===================== */
+// Eklenen poligon/line verilerinin renkleri (mor poligon, turuncu line)
+const COLOR_GEOM_POLYGON  = '#9333ea'; // mor — eklenen poligonlar (önceden #3b82f6 / other events ile aynıydı)
+const COLOR_GEOM_LINE     = '#ff6600'; // turuncu — eklenen line'lar (değişmedi)
+const COLOR_GEOM_SELECTED = '#06b6d4'; // seçim rengi — tıklanan poligon/line
+
+// Tıklanan geometri katmanının temel stilini üretir (seçim kaldırılırken geri yüklemek için de kullanılır)
+function _geomBaseStyle(feature){
+  const isLine = feature && feature.geometry && feature.geometry.type && feature.geometry.type.includes('Line');
+  return {
+    weight: isLine ? 2 : 4,
+    opacity: 0.85,
+    color: isLine ? COLOR_GEOM_LINE : COLOR_GEOM_POLYGON,
+    fillColor: COLOR_GEOM_POLYGON
+  };
+}
+
+// O an seçili olan alt katman (haritalar arası tek seçim)
+let __selectedGeomLayer = null;
+
+// Existing Data "Value" eşlemeleri (önbellekli):
+//   nameById   : event_type (FK id) -> event_type_name  (yedek çözüm)
+//   colByTable : layer_table(lowercase) -> attribute_column (asıl çözüm)
+let __vtValueMaps = null;
+let __vtValueMapsPromise = null;
+function invalidateVtValueMap(){ __vtValueMaps = null; __vtValueMapsPromise = null; }
+async function getVtValueMap(){
+  if (__vtValueMaps) return __vtValueMaps;
+  if (__vtValueMapsPromise) return __vtValueMapsPromise;
+  __vtValueMapsPromise = (async () => {
+    const nameById = {};
+    const colByTable = {};
+    // Önce yetkili liste (supervisor); başarısızsa (giriş yapılmamış) public listeye düş.
+    const endpoints = ['/api/veri-tipi/list', '/api/public/veri-tipi/list'];
+    for (const url of endpoints) {
+      try {
+        const r = await fetch(url);
+        if (!r.ok) continue;
+        const d = await r.json();
+        (d.rows || []).forEach(rw => {
+          if (!rw) return;
+          if (rw.event_type_id != null) nameById[String(rw.event_type_id)] = rw.event_type;
+          if (rw.layer_table && rw.attribute_column) {
+            colByTable[String(rw.layer_table).toLowerCase()] = rw.attribute_column;
+          }
+        });
+        break; // başarılı listeden sonra dur
+      } catch(e){ /* sıradaki endpoint'i dene */ }
+    }
+    __vtValueMaps = { nameById, colByTable };
+    return __vtValueMaps;
+  })();
+  return __vtValueMapsPromise;
+}
+
+// Bir feature için gösterilecek "Value" metnini çözer.
+// Öncelik: Existing Data'da seçilen sütunun (attribute_column) bu feature'daki gerçek değeri.
+function _resolveGeomValue(feature, table, maps){
+  const props = (feature && feature.properties) ? feature.properties : {};
+  maps = maps || {};
+  const colByTable = maps.colByTable || {};
+  const nameById   = maps.nameById   || {};
+
+  // 1) Asıl çözüm: seçilen sütunun feature üzerindeki değeri
+  const attrCol = table ? colByTable[String(table).toLowerCase()] : null;
+  if (attrCol) {
+    let raw = props[attrCol];
+    if (raw == null) {
+      // sütun adı büyük/küçük harf farkıyla gelebilir
+      const key = Object.keys(props).find(k => k.toLowerCase() === String(attrCol).toLowerCase());
+      if (key) raw = props[key];
+    }
+    if (raw != null && raw !== '') return String(raw);
+  }
+
+  // 2) Yedek: event_type (FK) -> event_type_name
+  if (props.event_type != null && nameById[String(props.event_type)] != null){
+    const v = nameById[String(props.event_type)];
+    if (v != null && v !== '') return String(v);
+  }
+  return null;
+}
+
+// Tıklanınca: seçim rengini uygular ve "Value" gösteren bir popup (marker) açar.
+// Popup kapandığında (çarpı veya boşluğa tıklama) geometri eski (mor/turuncu) rengine döner.
+function _attachGeomInteractivity(geoLayer, table, maps){
+  geoLayer.eachLayer(sub => {
+    if (!sub || !sub.feature || typeof sub.setStyle !== 'function') return;
+    const feature = sub.feature;
+    const isLine = feature.geometry && feature.geometry.type && feature.geometry.type.includes('Line');
+
+    // Value popup'ını bir kez bağla
+    const val = _resolveGeomValue(feature, table, maps);
+    const label = (typeof window.t === 'function' ? window.t('vtValue') : 'Value');
+    const valText = (val != null) ? escapeHtml(val) : '—';
+    const html =
+      '<div style="min-width:120px;">' +
+        '<div style="font-size:0.72rem;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:var(--muted,#6b7280);margin-bottom:2px;">' + escapeHtml(label) + '</div>' +
+        '<div style="font-size:1rem;font-weight:700;color:var(--text,#111827);">' + valText + '</div>' +
+      '</div>';
+    try { sub.bindPopup(html, { autoPan: true }); } catch {}
+
+    sub.on('click', (e) => {
+      // Önceki seçimi eski rengine döndür
+      if (__selectedGeomLayer && __selectedGeomLayer !== sub){
+        try { __selectedGeomLayer.setStyle(_geomBaseStyle(__selectedGeomLayer.feature)); } catch {}
+      }
+      // Bu geometriyi seçim rengine boya
+      try {
+        sub.setStyle({
+          color: COLOR_GEOM_SELECTED,
+          fillColor: COLOR_GEOM_SELECTED,
+          weight: isLine ? 4 : 5,
+          opacity: 1
+        });
+        if (sub.bringToFront) sub.bringToFront();
+      } catch {}
+      __selectedGeomLayer = sub;
+
+      try { sub.openPopup(e && e.latlng ? e.latlng : undefined); } catch {}
+
+      if (e && e.originalEvent && window.L && L.DomEvent) {
+        try { L.DomEvent.stopPropagation(e); } catch {}
+      }
+    });
+
+    // Popup kapandığında: seçilmemiş (mor/turuncu) renge geri dön
+    sub.on('popupclose', () => {
+      try { sub.setStyle(_geomBaseStyle(sub.feature)); } catch {}
+      if (__selectedGeomLayer === sub) __selectedGeomLayer = null;
+    });
+  });
+}
+
 async function loadGeomLayersForMap(isPublic){
   if(!map) return;
 
@@ -643,6 +777,9 @@ async function loadGeomLayersForMap(isPublic){
   const data = await r.json();
   const tables = (data.tables || []).filter(x => x.geomType === 'line' || x.geomType === 'polygon');
 
+  invalidateVtValueMap();
+  const vmap = await getVtValueMap();
+
   for(const t of tables){
     const geoUrl = isPublic
       ? `/api/public/geo/${encodeURIComponent(t.table)}`
@@ -654,13 +791,10 @@ async function loadGeomLayersForMap(isPublic){
     if(!fc.features || fc.features.length === 0) continue;
 
     const layer = L.geoJSON(fc, {
-      style: (f)=>({
-        weight: f.geometry && f.geometry.type && f.geometry.type.includes('Line') ? 2 : 4,
-        opacity: 0.85,
-        color: f.geometry && f.geometry.type && f.geometry.type.includes('Line') ? '#ff6600' : '#3b82f6'
-      })
+      style: (f)=>_geomBaseStyle(f)
     });
 
+    _attachGeomInteractivity(layer, t.table, vmap);
     layer.addTo(map);
 
     __geomLayers.push({
@@ -699,6 +833,9 @@ async function loadGeomLayersForEventsMap(){
     const data = await r.json();
     const tables = (data.tables || []).filter(x => x.geomType === 'line' || x.geomType === 'polygon');
 
+    invalidateVtValueMap();
+    const vmap = await getVtValueMap();
+
     for(const t of tables){
       if (__eventsGeomLayers.some(x => x.table === t.table)) continue;
       const gr = await fetch(`/api/geo/${encodeURIComponent(t.table)}`);
@@ -707,12 +844,9 @@ async function loadGeomLayersForEventsMap(){
       if(!fc.features || fc.features.length === 0) continue;
 
       const layer = L.geoJSON(fc, {
-        style: (f)=>({
-          weight: f.geometry && f.geometry.type && f.geometry.type.includes('Line') ? 2 : 4,
-          opacity: 0.85,
-          color: f.geometry && f.geometry.type && f.geometry.type.includes('Line') ? '#ff6600' : '#3b82f6'
-        })
+        style: (f)=>_geomBaseStyle(f)
       });
+      _attachGeomInteractivity(layer, t.table, vmap);
       layer.addTo(eventsMap);
 
       __eventsGeomLayers.push({
@@ -5049,6 +5183,9 @@ async function loadGeomLayersForRegionsMap() {
       .filter(x => x.geomType === 'line' || x.geomType === 'polygon')
       .filter(x => x.table.toLowerCase() !== polyTable);
 
+    invalidateVtValueMap();
+    const vmap = await getVtValueMap();
+
     for (const tbl of tables) {
       // Dedupe
       if (__regionsGeomLayers.some(x => x.table === tbl.table)) continue;
@@ -5059,12 +5196,9 @@ async function loadGeomLayersForRegionsMap() {
       if (!fc.features || fc.features.length === 0) continue;
 
       const layer = L.geoJSON(fc, {
-        style: (f) => ({
-          weight: f.geometry && f.geometry.type && f.geometry.type.includes('Line') ? 2 : 4,
-          opacity: 0.85,
-          color: f.geometry && f.geometry.type && f.geometry.type.includes('Line') ? '#ff6600' : '#3b82f6'
-        })
+        style: (f) => _geomBaseStyle(f)
       });
+      _attachGeomInteractivity(layer, tbl.table, vmap);
       layer.addTo(regionsMap);
 
       __regionsGeomLayers.push({

@@ -408,6 +408,28 @@ app.get('/api/table-columns/:table', mustAuth, mustSupervisor, async (req,res)=>
 });
 
 
+app.get('/api/public/veri-tipi/list', async (req,res)=>{
+  try{
+    // Giriş yapmadan (public) Value eşlemesi için: layer_table -> attribute_column
+    // ve event_type_id -> event_type_name. Yalnızca aktif kayıtlar; hassas alan döndürülmez.
+    const q = `
+      SELECT
+        event_type_id,
+        COALESCE(NULLIF(layer_table,''), 'asis') AS layer_table,
+        COALESCE(NULLIF(attribute_column,''), 'event_type_name') AS attribute_column,
+        event_type_name AS event_type,
+        is_point, is_line, is_polygon
+      FROM public.event_type
+      WHERE active = TRUE
+      ORDER BY is_point DESC, layer_table ASC, attribute_column ASC, event_type_name ASC;
+    `;
+    const { rows } = await pool.query(q);
+    return res.json({ ok:true, rows });
+  }catch(e){
+    return res.status(500).json({ error:'sunucu_hatasi' });
+  }
+});
+
 app.get('/api/veri-tipi/list', mustAuth, mustSupervisor, async (req,res)=>{
   try{
     const q = `
