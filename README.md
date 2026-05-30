@@ -497,7 +497,7 @@ To set up a WFS (Web Feature Service) with GeoServer in a production environment
 **1. Run the script:**
 ```bash
 sudo bash GEOSERVER_WFS_setup.sh \
-  --env-file /var/www/dide/dide/.env \
+  --env-file /var/www/dide/DiDe-Web/.env \
   --gs-admin-user admin \
   --gs-admin-pass geoserver
 ```
@@ -519,13 +519,13 @@ After setup:
 
 ```bash
 # GeoServer admin panel (in browser):
-http://SERVER_IP/geoserver/
+https://SERVER_IP/geoserver/
 
 # WFS GetCapabilities (GeoServer UI — no auth):
-http://SERVER_IP/geoserver/wfs?service=WFS&request=GetCapabilities
+https://SERVER_IP/geoserver/wfs?service=WFS&request=GetCapabilities
 
 # WFS with DiDe user authentication (Basic Auth):
-curl -u "username:password" "http://SERVER_IP/wfs?service=WFS&request=GetCapabilities"
+curl -u "username:password" "https://SERVER_IP/wfs?service=WFS&request=GetCapabilities"
 ```
 
 WFS is protected by the credentials of active users with the `supervisor` role in the DiDe database. You can connect from QGIS or other GIS software using Basic Auth.
