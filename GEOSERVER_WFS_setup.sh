@@ -335,10 +335,34 @@ log "Configuring Nginx for WFS auth_request"
 
 NGINX_CONF="/etc/nginx/sites-available/${NGINX_SITE_NAME}"
 
-# ── Only ADD WFS blocks if they don't already exist — never overwrite the whole config ──
+# ── Only ADD WFS blocks if they don't already exist in the HTTPS block ──
+# If WFS exists only in HTTP block (not HTTPS), re-inject into HTTPS block.
 if [[ -f "$NGINX_CONF" ]]; then
-  if grep -q '/_auth_wfs' "$NGINX_CONF"; then
-    log "WFS blocks already exist in nginx config — skipping nginx changes"
+  _has_wfs_in_https=$(python3 -c "
+import sys
+with open('${NGINX_CONF}') as f:
+    content = f.read()
+
+lines = content.split('\n')
+depth = 0
+start = None
+for i, line in enumerate(lines):
+    opens = line.count('{')
+    closes = line.count('}')
+    if depth == 0 and opens > 0 and 'server' in line:
+        start = i
+    depth += opens - closes
+    if start is not None and depth == 0:
+        block = '\n'.join(lines[start:i+1])
+        if ('listen 443' in block or 'listen [::]:443' in block) and '/_auth_wfs' in block:
+            print('yes')
+            sys.exit(0)
+        start = None
+print('no')
+" 2>/dev/null || echo "no")
+
+  if [[ "$_has_wfs_in_https" == "yes" ]]; then
+    log "WFS blocks already exist in HTTPS nginx config — skipping nginx changes"
   else
     log "Injecting WFS location blocks into existing nginx config"
     cp "$NGINX_CONF" "${NGINX_CONF}.bak.$(date +%s)"
@@ -401,8 +425,9 @@ if [[ -f "$NGINX_CONF" ]]; then
 WFSEOF
 )
 
-    # Inject WFS blocks INSIDE the main server block (the one with location /)
+    # Inject WFS blocks INSIDE the main server block (the one with listen 443 ssl, or location /)
     # Uses brace-depth tracking; inserts snippet before the closing "}" of that block.
+    # If multiple blocks have "location /", prefer the one with "listen 443 ssl" (HTTPS block).
     python3 <<PYEOF
 import sys
 
@@ -417,58 +442,60 @@ snippet = """${WFS_SNIPPET}"""
 
 lines = content.split("\\n")
 
-# ── Find the server block that contains "location /" (the main app block) ──
-# We track brace depth per-character to be precise, then work line by line.
-
-# Pass 1: find line index where the target server block starts.
-# The target block is the FIRST server block that contains "location /" somewhere
-# inside it (i.e. the main HTTPS or HTTP app block, not the redirect stub).
-
-def find_main_server_block(lines):
-    """
-    Returns (start_line, end_line) indices (inclusive) of the server block
-    that contains a 'location /' directive.  Falls back to the first server
-    block if none has 'location /'.
-    """
-    blocks = []          # list of (start, end) tuples
+def find_all_server_blocks(lines):
+    """Returns list of (start, end) tuples for all server blocks."""
+    blocks = []
     depth = 0
     start = None
     for i, line in enumerate(lines):
         opens  = line.count("{")
         closes = line.count("}")
-        if depth == 0 and opens > 0 and ("server" in line or start is not None):
-            if "server" in line and depth == 0:
-                start = i
+        if depth == 0 and opens > 0 and "server" in line:
+            start = i
         depth += opens - closes
         if start is not None and depth == 0:
             blocks.append((start, i))
             start = None
+    return blocks
 
-    # Pick the block that has "location /"
+def find_target_block(lines, blocks):
+    """
+    Pick the best server block to inject WFS into:
+    1. Block with 'listen 443 ssl' AND 'location /' (HTTPS app block)
+    2. Block with 'location /' (HTTP app block)
+    3. First block (fallback)
+    """
+    https_block = None
+    http_block  = None
     for (s, e) in blocks:
         block_text = "\\n".join(lines[s:e+1])
-        if "location /" in block_text:
-            return s, e
+        has_location = "location /" in block_text
+        has_ssl      = "listen 443" in block_text or "listen [::]:443" in block_text
+        # Skip pure redirect blocks (no location / or only return/if)
+        if "location /" not in block_text:
+            continue
+        if has_ssl and https_block is None:
+            https_block = (s, e)
+        elif not has_ssl and http_block is None:
+            http_block = (s, e)
+    # Prefer HTTPS block; fall back to HTTP block; then first block
+    return https_block or http_block or (blocks[0] if blocks else (None, None))
 
-    # Fallback: first block
-    return blocks[0] if blocks else (None, None)
-
-start_idx, end_idx = find_main_server_block(lines)
+blocks = find_all_server_blocks(lines)
+start_idx, end_idx = find_target_block(lines, blocks)
 
 if start_idx is None:
-    # Last-resort fallback: insert before the very last standalone "}"
     for i in range(len(lines)-1, -1, -1):
         if lines[i].strip() == "}":
             lines.insert(i, snippet)
             break
 else:
-    # Insert snippet BEFORE the closing "}" of the target server block
     lines.insert(end_idx, snippet)
 
 with open("${NGINX_CONF}", "w") as f:
     f.write("\\n".join(lines))
 
-print("WFS blocks injected successfully.")
+print("WFS blocks injected successfully into target server block.")
 PYEOF
 
   fi
