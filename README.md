@@ -365,7 +365,7 @@ sudo mkdir -p /var/www/dide
 sudo chown -R ubuntu:ubuntu /var/www/dide
 cd /var/www/dide
 git clone https://github.com/Digital-Detectives-of-Environment/DiDe-Web.git
-cd dide
+cd DiDe-Web
 ```
 
 ### 3. Create the `.env` File
