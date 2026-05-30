@@ -88,18 +88,17 @@ read_env_vars() {
   log "Reading database settings from within the .env file..."
   ENV_FILE="$PROJECT_DIR/.env"
 
-  PGDATABASE="$(get_env_value PGDATABASE "$ENV_FILE")"
-  PGPASSWORD="$(get_env_value PGPASSWORD "$ENV_FILE")"
-  PGUSER="$(get_env_value PGUSER "$ENV_FILE")"
-  PORT="$(get_env_value PORT "$ENV_FILE")"
+  # Read values from .env; use safe defaults to avoid set -u errors on empty vars
+  PGDATABASE="$(get_env_value PGDATABASE "$ENV_FILE")"; PGDATABASE="${PGDATABASE:-}"
+  PGPASSWORD="$(get_env_value PGPASSWORD "$ENV_FILE")"; PGPASSWORD="${PGPASSWORD:-}"
+  PGUSER="$(get_env_value PGUSER "$ENV_FILE")";         PGUSER="${PGUSER:-}"
+  PORT="$(get_env_value PORT "$ENV_FILE")";             PORT="${PORT:-}"
 
-  POLYGON_FILE="$(get_env_value AGGREGATION_LAYER "$ENV_FILE")"
+  POLYGON_FILE="$(get_env_value AGGREGATION_LAYER "$ENV_FILE")"; POLYGON_FILE="${POLYGON_FILE:-}"
 
-  # PGHOST and PGPORT are hardcoded in index.js; use defaults if not in .env
-  PGHOST="$(get_env_value PGHOST "$ENV_FILE")"
-  PGHOST="${PGHOST:-127.0.0.1}"
-  PGPORT="$(get_env_value PGPORT "$ENV_FILE")"
-  PGPORT="${PGPORT:-5432}"
+  # PGHOST and PGPORT are hardcoded in index.js; not required in .env
+  PGHOST="127.0.0.1"
+  PGPORT="5432"
 
   echo "DB_NAME       = $PGDATABASE"
   echo "DB_USER       = $PGUSER"
