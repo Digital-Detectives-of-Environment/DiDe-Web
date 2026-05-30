@@ -2114,6 +2114,17 @@ startTotpListener();
 
 /* ===================== Site config ===================== */
 app.get('/api/config', (_req, res) => {
+  // .env değişip sunucu yeniden başlatıldığında tarayıcı ESKİ değerleri
+  // önbellekten döndürmesin diye config yanıtı asla cache'lenmemeli.
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  res.set('Surrogate-Control', 'no-store');
+
+  const mapLat = parseFloat(process.env.MAP_INITIAL_LAT);
+  const mapLng = parseFloat(process.env.MAP_INITIAL_LNG);
+  const mapZoom = parseInt(process.env.MAP_INITIAL_ZOOM, 10);
+
   res.json({
     siteTitle: process.env.SITE_TITLE,
     siteLogoUrl: process.env.SITE_LOGO_URL,
@@ -2122,9 +2133,9 @@ app.get('/api/config', (_req, res) => {
     pageSizeEvents: TABLE_PAGE_SIZE_EVENTS,
     pageSizeTypes: TABLE_PAGE_SIZE_TYPES,
     pageSizeUsers: TABLE_PAGE_SIZE_USERS,
-    mapInitialLat: parseFloat(process.env.MAP_INITIAL_LAT),
-    mapInitialLng: parseFloat(process.env.MAP_INITIAL_LNG),
-    mapInitialZoom: parseInt(process.env.MAP_INITIAL_ZOOM, 10),
+    mapInitialLat: Number.isFinite(mapLat) ? mapLat : 39.9334,
+    mapInitialLng: Number.isFinite(mapLng) ? mapLng : 32.8597,
+    mapInitialZoom: Number.isFinite(mapZoom) ? mapZoom : 6,
     mapMinZoom: MAP_MIN_ZOOM,
     showGoodEventsOnLogin: SHOW_GOOD_EVENTS_ON_LOGIN,
     showBadEventsOnLogin: SHOW_BAD_EVENTS_ON_LOGIN,

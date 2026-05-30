@@ -81,9 +81,36 @@ let APP_CONFIG = {
   displayAttrs: []
 };
 
+/* ---------------------------------------------------------------------------
+ * /api/config her zaman taze okunsun (tarayıcı önbelleğinden ESKİ .env
+ * değerleri dönmesin). Cache-bust query + no-store ile garanti altına alıyoruz.
+ * ------------------------------------------------------------------------- */
+function fetchConfigFresh() {
+  return fetch('/api/config?_=' + Date.now(), { cache: 'no-store' });
+}
+
+/* ---------------------------------------------------------------------------
+ * Haritaların başlangıç görünümü için TEK kaynak. Tüm haritalar (ana harita,
+ * events haritası, regions haritası, supervisor görünüm paneli ...) bu helper'ı
+ * kullanır; böylece hepsi her zaman .env'deki güncel MAP_INITIAL_* değerlerine
+ * bağlı kalır ve farklı yerlerde farklı sabit (hardcoded) koordinatlar oluşmaz.
+ * ------------------------------------------------------------------------- */
+function getInitialMapView() {
+  const lat = Number(APP_CONFIG.mapInitialLat);
+  const lng = Number(APP_CONFIG.mapInitialLng);
+  const zoom = Number(APP_CONFIG.mapInitialZoom);
+  const minZoom = Number(APP_CONFIG.mapMinZoom);
+  return {
+    lat: Number.isFinite(lat) ? lat : 39.9334,
+    lng: Number.isFinite(lng) ? lng : 32.8597,
+    zoom: Number.isFinite(zoom) ? zoom : 6,
+    minZoom: Number.isFinite(minZoom) ? minZoom : 2
+  };
+}
+
 async function loadAppConfig() {
   try {
-    const resp = await fetch('/api/config');
+    const resp = await fetchConfigFresh();
     if (resp.ok) {
       const config = await resp.json();
       if (typeof config.showGoodEventsOnLogin === 'string') {
@@ -104,14 +131,11 @@ async function loadAppConfig() {
       console.log('[CONFIG] polygonTable =', APP_CONFIG.polygonTable, '| polygonPk1 =', APP_CONFIG.polygonPk1);
       
       if (map) {
-        const minZoom = Number(APP_CONFIG.mapMinZoom) || 2;
-        const lat = Number(APP_CONFIG.mapInitialLat) || 39.9334;
-        const lng = Number(APP_CONFIG.mapInitialLng) || 32.8597;
-        const zoom = Number(APP_CONFIG.mapInitialZoom) || 6;
-        
-        map.setMinZoom(minZoom);
+        const v = getInitialMapView();
+
+        map.setMinZoom(v.minZoom);
         map.setMaxZoom(18);
-        map.setView([lat, lng], zoom, { animate: false });
+        map.setView([v.lat, v.lng], v.zoom, { animate: false });
         map.invalidateSize();
       } else {
         createOrUpdateMapFromConfig();
@@ -124,10 +148,11 @@ async function loadAppConfig() {
 }
 
 function createOrUpdateMapFromConfig() {
-  const minZoom = Number(APP_CONFIG.mapMinZoom);
-  const lat = Number(APP_CONFIG.mapInitialLat);
-  const lng = Number(APP_CONFIG.mapInitialLng);
-  const zoom = Number(APP_CONFIG.mapInitialZoom);
+  const v = getInitialMapView();
+  const minZoom = v.minZoom;
+  const lat = v.lat;
+  const lng = v.lng;
+  const zoom = v.zoom;
 
   if (!map) {
     map = L.map('map', {
@@ -335,7 +360,7 @@ function isStrongPassword(pw){ return PW_REGEX.test(String(pw||'')); }
 
 async function applySiteConfig(){
   try{
-    const r = await fetch('/api/config');
+    const r = await fetchConfigFresh();
     if(!r.ok) throw 0;
     const cfg = await r.json();
     
@@ -2269,10 +2294,11 @@ function ensureEventsMap() {
     host.style.height = desiredHeight + 'px';
   }
   
-  const minZoom = Number(APP_CONFIG.mapMinZoom);
-  const lat = Number(APP_CONFIG.mapInitialLat);
-  const lng = Number(APP_CONFIG.mapInitialLng);
-  const zoom = Number(APP_CONFIG.mapInitialZoom);
+  const __v = getInitialMapView();
+  const minZoom = __v.minZoom;
+  const lat = __v.lat;
+  const lng = __v.lng;
+  const zoom = __v.zoom;
   
   if (!eventsMap) {
     eventsMap = L.map('events-map', {
@@ -4943,10 +4969,11 @@ function ensureRegionsMap() {
   if (!host) return;
 
   if (!regionsMap) {
-    const lat = Number(APP_CONFIG.mapInitialLat) || 39.87;
-    const lng = Number(APP_CONFIG.mapInitialLng) || 32.75;
-    const zoom = Number(APP_CONFIG.mapInitialZoom) || 13;
-    const minZoom = Number(APP_CONFIG.mapMinZoom) || 3;
+    const __v = getInitialMapView();
+    const lat = __v.lat;
+    const lng = __v.lng;
+    const zoom = __v.zoom;
+    const minZoom = __v.minZoom;
 
     regionsMap = L.map('regions-map', {
       zoomControl: true, attributionControl: false, minZoom, maxZoom: 18
@@ -5892,7 +5919,7 @@ function initTabs() {
 
 async function loadPageSizeSettings() {
   try {
-    const r = await fetch('/api/config');
+    const r = await fetchConfigFresh();
     if (!r.ok) throw 0;
     const cfg = await r.json();
     
@@ -7404,10 +7431,8 @@ function setSupervisorMode(mode) {
       try { 
         if (map) {
           map.invalidateSize();
-          const lat = Number(APP_CONFIG.mapInitialLat);
-          const lng = Number(APP_CONFIG.mapInitialLng);
-          const zoom = Number(APP_CONFIG.mapInitialZoom);
-          map.setView([lat, lng], zoom, { animate: false });
+          const __v = getInitialMapView();
+          map.setView([__v.lat, __v.lng], __v.zoom, { animate: false });
           
           ensureMapLegend(map);
         }
@@ -7467,10 +7492,8 @@ function setSupervisorMode(mode) {
               }
             } catch {}
           } else {
-            const lat = Number(APP_CONFIG.mapInitialLat);
-            const lng = Number(APP_CONFIG.mapInitialLng);
-            const zoom = Number(APP_CONFIG.mapInitialZoom);
-            map.setView([lat, lng], zoom, { animate: false });
+            const __v = getInitialMapView();
+            map.setView([__v.lat, __v.lng], __v.zoom, { animate: false });
           }
           
           ensureMapLegend(map);
@@ -7616,7 +7639,20 @@ async function login(){
 
     const mapEl = document.getElementById('map');
     if (mapEl) mapEl.classList.remove('blur-background');
-    
+
+    // Kullanıcı girişinde harita her zaman .env'deki güncel MAP_INITIAL_*
+    // değerlerine göre konumlansın (logout ile simetrik davranış).
+    try {
+      if (map) {
+        const __v = getInitialMapView();
+        map.setMinZoom(__v.minZoom);
+        map.setView([__v.lat, __v.lng], __v.zoom, { animate: false });
+        map.invalidateSize();
+      }
+    } catch(e) {
+      console.warn('[LOGIN] Map could not be centered to config:', e);
+    }
+
     toast(t('loginSuccessful'), 'success');
   } catch(e) {
     setError(qs('#login-error'), t('loginError') + ': ' + e.message);
@@ -7674,6 +7710,15 @@ async function logout(){
   
   document.body.classList.remove('supervisor-mode-form', 'supervisor-mode-admin', 'supervisor-readonly-map');
   qs('#sup-panel-toggle')?.remove();
+
+  // Supervisor "görünüm paneli" (form modu) html/body üzerinde overflow:hidden
+  // bırakıyordu; logout sonrası bu kilit kalkmadığı için harita yerine beyaz
+  // ekran kalıyor ve refresh gerekiyordu. Burada kilidi sıfırlıyoruz.
+  document.documentElement.style.overflow = '';
+  document.body.style.overflow = '';
+  // Ana harita arka planda görünür olmalı.
+  const __logoutMapEl = document.getElementById('map');
+  if (__logoutMapEl) __logoutMapEl.classList.remove('hidden');
   
   const submitBtn = qs('#submit-btn');
   if (submitBtn) {
@@ -7736,11 +7781,20 @@ async function logout(){
 
   try {
     if (map) {
-      const lat = Number(APP_CONFIG.mapInitialLat);
-      const lng = Number(APP_CONFIG.mapInitialLng);
-      const zoom = Number(APP_CONFIG.mapInitialZoom);
-      map.setView([lat, lng], zoom, { animate: false });
+      const __v = getInitialMapView();
+      map.setView([__v.lat, __v.lng], __v.zoom, { animate: false });
       map.invalidateSize();
+      try { fitMapHeight(); } catch {}
+      // Supervisor görünüm panelinden çıkışta layout değiştiği için haritayı
+      // bir tick sonra tekrar boyutlandırıyoruz; aksi halde beyaz/gri kalıyordu.
+      setTimeout(() => {
+        try {
+          if (map) {
+            map.invalidateSize();
+            map.setView([__v.lat, __v.lng], __v.zoom, { animate: false });
+          }
+        } catch {}
+      }, 250);
     }
   } catch(e) {
     console.warn('Map could not be reloaded:', e);
@@ -8535,13 +8589,9 @@ function importWizardBack() {
   await loadAppConfig(); 
   await loadPageSizeSettings();
   try {
-    const minZ = APP_CONFIG.mapMinZoom;
-    const lat  = APP_CONFIG.mapInitialLat;
-    const lng  = APP_CONFIG.mapInitialLng;
-    const z    = APP_CONFIG.mapInitialZoom;
-
-    try { map.setMinZoom(minZ); } catch {}
-    try { map.setView([lat, lng], z, { animate:false }); } catch {}
+    const __v = getInitialMapView();
+    try { map.setMinZoom(__v.minZoom); } catch {}
+    try { map.setView([__v.lat, __v.lng], __v.zoom, { animate:false }); } catch {}
   } catch(e){
     console.warn('[MAP INIT] .env/config values could not be applied:', e);
   }
