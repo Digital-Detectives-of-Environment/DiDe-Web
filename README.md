@@ -20,6 +20,8 @@
 
 </div>
 
+Production Installation & GeoServer WFS Setup: https://youtu.be/gM3-DGbRWYY
+---
 ---
 
 ## Table of Contents
