@@ -14,34 +14,78 @@ INSERT INTO public.users (
     is_active
 ) VALUES
 -- 1
-('berk',
+('unimib1',
  crypt('12345Aa!.', gen_salt('bf', 10)),
  'user',
  NULL,
  NULL,
- 'hu@hacettepe.edu.tr',
+ 'unimib1@unimib.it',
  true,
  true,
  true
 ),
 -- 2
-('marco',
+('unimib2',
  crypt('12345Aa!.', gen_salt('bf', 10)),
  'user',
  NULL,
  NULL,
- 'marco@polimi.it',
+ 'unimib2@unimib.it',
  true,
  true,
  true
 ),
 -- 3
-('ibrahim',
+('secam1',
  crypt('12345Aa!.', gen_salt('bf', 10)),
  'user',
  NULL,
  NULL,
- 'ibrahim@unimi.it',
+ 'secam1@secam.net',
+ true,
+ true,
+ true
+),
+-- 4
+('polimi1',
+ crypt('12345Aa!.', gen_salt('bf', 10)),
+ 'user',
+ NULL,
+ NULL,
+ 'polimi1@polimi.it',
+ true,
+ true,
+ true
+),
+--5
+('iss1',
+ crypt('12345Aa!.', gen_salt('bf', 10)),
+ 'user',
+ NULL,
+ NULL,
+ 'iss1@iss.it',
+ true,
+ true,
+ true
+),
+--6
+('lombardia1',
+ crypt('12345Aa!.', gen_salt('bf', 10)),
+ 'user',
+ NULL,
+ NULL,
+ 'lombardia1@regione.lombardia.it',
+ true,
+ true,
+ true
+),
+--7
+('hacettepe1',
+ crypt('12345Aa!.', gen_salt('bf', 10)),
+ 'user',
+ NULL,
+ NULL,
+ 'hacettepe1@hacettepe.edu.tr',
  true,
  true,
  true
