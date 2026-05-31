@@ -233,6 +233,7 @@ Environment=LC_ALL=C.UTF-8
 ExecStart=/usr/bin/java -Xms512m -Xmx2048m \
   -Dfile.encoding=UTF-8 \
   -Dsun.jnu.encoding=UTF-8 \
+  -Dorg.geotools.referencing.forceXY=true \
   -DGEOSERVER_DATA_DIR=${GEOSERVER_DATA_DIR} \
   -DGEOSERVER_CSRF_DISABLED=false \
   -DPROXY_BASE_URL=${_GS_PROXY_BASE} \
