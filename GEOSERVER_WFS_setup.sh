@@ -637,7 +637,11 @@ EOF
 fi
 
 nginx -t || die "Nginx config test failed — your original config was preserved in .bak"
-systemctl reload nginx
+# Ensure nginx is enabled and use reload-or-restart so it also starts the
+# service when it is not currently active (plain 'reload' fails on a stopped
+# service with: "nginx.service is not active, cannot reload").
+systemctl enable nginx >/dev/null 2>&1 || true
+systemctl reload-or-restart nginx
 
 log "Checking Postgres connectivity"
 psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -c "SELECT 1;" >/dev/null
