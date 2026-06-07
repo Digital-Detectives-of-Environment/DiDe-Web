@@ -21,7 +21,15 @@ need_cmd() {
 get_env_value() {
   local key="$1"
   local env_file="$2"
-  grep -E "^${key}=" "$env_file" | head -n 1 | sed -E "s/^${key}=//"
+  local val
+  val="$(grep -E "^${key}=" "$env_file" | head -n 1 | sed -E "s/^${key}=//")"
+  # Strip inline comments that start with whitespace + '#'  (e.g. "value   # note")
+  val="$(printf '%s' "$val" | sed -E 's/[[:space:]]+#.*$//')"
+  # Strip leading/trailing whitespace
+  val="$(printf '%s' "$val" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+  # Strip a single pair of surrounding quotes if present
+  val="$(printf '%s' "$val" | sed -E 's/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/')"
+  printf '%s' "$val"
 }
 
 require_root_sudo() {
@@ -40,7 +48,28 @@ install_base_packages() {
 
 install_postgres_postgis() {
   log "PostgreSQL + PostGIS is being installed..."
-  sudo apt install -y postgresql postgresql-contrib postgis
+  sudo apt install -y postgresql postgresql-contrib
+
+  # Detect the installed PostgreSQL major version so we can install the PostGIS
+  # package that matches it. The generic 'postgis' package does not always pull
+  # in the version-specific extension control files (postgis.control), which is
+  # what causes: "could not open extension control file .../postgis.control".
+  local PG_VER=""
+  if command -v pg_lsclusters >/dev/null 2>&1; then
+    PG_VER="$(pg_lsclusters -h 2>/dev/null | awk 'NR==1{print $1}')"
+  fi
+  if [ -z "$PG_VER" ] && [ -d /usr/lib/postgresql ]; then
+    PG_VER="$(ls -1 /usr/lib/postgresql 2>/dev/null | sort -V | tail -n 1)"
+  fi
+
+  if [ -n "$PG_VER" ]; then
+    log "Detected PostgreSQL ${PG_VER}; installing matching PostGIS package..."
+    sudo apt install -y "postgresql-${PG_VER}-postgis-3" "postgresql-${PG_VER}-postgis-3-scripts" \
+      || sudo apt install -y postgis
+  else
+    log "Could not detect PostgreSQL version; falling back to generic postgis package..."
+    sudo apt install -y postgis
+  fi
 }
 
 install_nginx() {
