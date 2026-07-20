@@ -50,11 +50,26 @@ const POLYGON_TABLE = POLYGON_FILE
 const DISPLAY_ATTR_RAW = (process.env.Display_Attribute || '').trim();
 const DISPLAY_ATTRS = DISPLAY_ATTR_RAW ? DISPLAY_ATTR_RAW.split(';').map(s => s.trim()).filter(Boolean) : [];
 
-// restrictGNSS: TRUE ise kullanıcı olay eklerken YALNIZCA GPS butonunu kullanabilir;
-// haritaya tıklayarak olay ekleyemez ve olay bildirim formu açılmaz.
-// FALSE (veya tanımsız) ise hem haritaya tıklayarak hem de GPS butonuyla olay eklenebilir.
-const RESTRICT_GNSS = String(process.env.restrictGNSS || process.env.RESTRICT_GNSS || 'false')
-  .trim().toLowerCase() === 'true';
+// restrictGNSS: olay ekleme yöntemini kontrol eder. Bu parametre ZORUNLUDUR;
+// boş bırakılamaz ve yalnızca "true" veya "false" olabilir. Boş ya da geçersiz
+// bir değer verilirse sistem başlamaz (aşağıda doğrulanır).
+//   restrictGNSS=True  -> Kullanıcı olay eklerken YALNIZCA GPS butonunu kullanabilir;
+//                         haritaya tıklayarak olay ekleyemez ve bildirim formu açılmaz.
+//   restrictGNSS=False -> Hem haritaya tıklayarak hem de GPS butonuyla olay eklenebilir.
+const RESTRICT_GNSS_RAW  = String(process.env.restrictGNSS || process.env.RESTRICT_GNSS || '').trim();
+const RESTRICT_GNSS_NORM = RESTRICT_GNSS_RAW.toLowerCase();
+if (RESTRICT_GNSS_NORM !== 'true' && RESTRICT_GNSS_NORM !== 'false') {
+  console.error(`\n[FATAL] restrictGNSS is missing or invalid in your .env file.`);
+  console.error(`        This parameter is REQUIRED and must be set to either "true" or "false".`);
+  console.error(`          restrictGNSS=true  -> Users can add an event ONLY by pressing the GPS button;`);
+  console.error(`                                clicking on the map does nothing (no event, no report form).`);
+  console.error(`          restrictGNSS=false -> Users can add an event BOTH by clicking on the map`);
+  console.error(`                                and by pressing the GPS button.`);
+  console.error(`        Current value: "${RESTRICT_GNSS_RAW}" (empty values are not allowed).`);
+  console.error(`        System cannot start. Exiting.\n`);
+  process.exit(1);
+}
+const RESTRICT_GNSS = RESTRICT_GNSS_NORM === 'true';
 
 // PKs auto-detected from database (populated in ensureDbSqlHelpers)
 let POLYGON_PKS = [];
