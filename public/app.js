@@ -78,7 +78,10 @@ let APP_CONFIG = {
   polygonPk1: null,
   polygonPk2: null,
   polygonPks: [],
-  displayAttrs: []
+  displayAttrs: [],
+  // restrictGNSS: true ise haritaya tıklayarak olay eklenemez (sadece GPS butonu).
+  // Güvenli varsayılan: false → mevcut davranış (harita tıklaması + GPS) korunur.
+  restrictGnss: false
 };
 
 /* ---------------------------------------------------------------------------
@@ -8278,6 +8281,13 @@ function attachMapClickForLoggedIn(){
   if (!map) return;
   
   map.on('click', (e) => {
+    // restrictGNSS=true: olay yalnızca GPS butonu ile eklenebilir.
+    // Bu durumda haritaya tıklamak tamamen etkisizdir; ne siyah pin bırakılır,
+    // ne olay formu açılır, ne de devam eden GPS (canlı konum) oturumu bozulur.
+    if (boolFromConfigValue(APP_CONFIG.restrictGnss)) {
+      return;
+    }
+
     stopLiveLocation(); 
     
     if (!allowBlackMarker()) {

@@ -50,6 +50,12 @@ const POLYGON_TABLE = POLYGON_FILE
 const DISPLAY_ATTR_RAW = (process.env.Display_Attribute || '').trim();
 const DISPLAY_ATTRS = DISPLAY_ATTR_RAW ? DISPLAY_ATTR_RAW.split(';').map(s => s.trim()).filter(Boolean) : [];
 
+// restrictGNSS: TRUE ise kullanıcı olay eklerken YALNIZCA GPS butonunu kullanabilir;
+// haritaya tıklayarak olay ekleyemez ve olay bildirim formu açılmaz.
+// FALSE (veya tanımsız) ise hem haritaya tıklayarak hem de GPS butonuyla olay eklenebilir.
+const RESTRICT_GNSS = String(process.env.restrictGNSS || process.env.RESTRICT_GNSS || 'false')
+  .trim().toLowerCase() === 'true';
+
 // PKs auto-detected from database (populated in ensureDbSqlHelpers)
 let POLYGON_PKS = [];
 
@@ -2167,6 +2173,7 @@ app.get('/api/config', (_req, res) => {
     polygonPks: POLYGON_PKS.map(p => p.name),
     displayAttrs: DISPLAY_ATTRS,
     defaultLang: DEFAULT_LANG.toLowerCase(),
+    restrictGnss: RESTRICT_GNSS,
   });
 });
 /* ===================== AUTH ===================== */
