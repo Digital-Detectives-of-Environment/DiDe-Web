@@ -58,7 +58,7 @@ Production Installation & GeoServer WFS Setup: https://youtu.be/KignczcfDlg
 
 **Aggregation Layer** — Hexagonal grid-based region selection and region-based event management.
 
-**Raster Layer Support** — Display GeoTIFF files as background layers on the map.,
+**Raster Layer Support** — Display GeoTIFF files as background layers on the map.
 
 **Security** — JWT tokens, 2FA/TOTP, email verification, bcrypt password hashing, XSS and SQL injection protection.
 
