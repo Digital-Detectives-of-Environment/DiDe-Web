@@ -124,6 +124,7 @@ window.i18nLangs.it = {
     closeEventError: 'Si è verificato un errore durante la chiusura dell\'evento.',
     solver_cannot_add: 'Gli utenti Solver (chiusori di eventi) non possono aggiungere eventi.',
     solver_only_for_users: 'L\'autorizzazione Solver può essere concessa solo agli utenti normali.',
+    solver_only_time_dependent: 'Gli utenti Solver possono chiudere solo eventi di tipi dipendenti dal tempo.',
     
     events: 'Eventi',
     addEvent: 'Aggiungi evento',

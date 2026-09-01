@@ -6009,11 +6009,30 @@ async function loadOlayTypes() {
 
     if (sel) {
       sel.innerHTML = `<option value="">-- ${t('pleaseSelect')} --</option>`;
-      list.forEach(o => {
+
+      // Hiyerarşik sıralama (yalnızca olay bildirim formu dropdown'u için):
+      //   1) Zamana bağlı olay türleri en üstte (kendi içinde alfabetik)
+      //   2) Ardından zamana bağlı olmayan türler (kendi içinde alfabetik)
+      const isTdOf = (o) => (o.time_dependent === true || o.time_dependent === 'true' || o.time_dependent === 1);
+      let collator;
+      try {
+        const lang = (typeof window.getLanguage === 'function') ? window.getLanguage() : undefined;
+        collator = new Intl.Collator(lang, { sensitivity: 'base', numeric: true });
+      } catch (_) {
+        collator = { compare: (a, b) => String(a).localeCompare(String(b)) };
+      }
+      const sortedForPicker = [...list].sort((a, b) => {
+        const aTd = isTdOf(a) ? 0 : 1;
+        const bTd = isTdOf(b) ? 0 : 1;
+        if (aTd !== bTd) return aTd - bTd; // zamana bağlı olanlar önce
+        return collator.compare(a.event_type_name || '', b.event_type_name || '');
+      });
+
+      sortedForPicker.forEach(o => {
         if(o.is_point === false) return;
         const opt = document.createElement('option');
         opt.value = String(o.event_type_id);
-        const isTd = (o.time_dependent === true || o.time_dependent === 'true' || o.time_dependent === 1);
+        const isTd = isTdOf(o);
         if (isTd) {
           // Time-dependent event types: shown in a distinct color with a small clock logo.
           opt.textContent = '⏱ ' + o.event_type_name;
@@ -6506,6 +6525,35 @@ function isSolverUser() {
   return !!(currentUser && currentUser.role === 'user' && currentUser.solver === true);
 }
 
+// Header'daki rol rozetini role-bazlı logo ile doldurur (yazı yerine görsel).
+// Logo dosyaları: public/user_adding_role.jpeg (olay ekleyen), public/user_solver_role.jpeg (solver).
+// Logo yüklenemezse otomatik olarak metin yedeğine (Open Event / Solver) düşer.
+function applyUserModeBadge() {
+  const modeBadge = qs('#user-mode-badge');
+  if (!modeBadge) return;
+
+  if (currentUser && currentUser.role === 'user') {
+    const solver = isSolverUser();
+    const label = solver ? t('solver') : t('openEvent');
+    const src = solver ? '/user_solver_role.jpeg' : '/user_adding_role.jpeg';
+
+    modeBadge.classList.toggle('is-solver', solver);
+    modeBadge.classList.toggle('is-opener', !solver);
+
+    const safeLabel = escapeHtml(label);
+    modeBadge.innerHTML =
+      `<img class="user-mode-logo" src="${src}" alt="${safeLabel}" title="${safeLabel}" ` +
+      `onerror="this.style.display='none'; var s=this.nextElementSibling; if(s) s.style.display='inline-flex';" />` +
+      `<span class="user-mode-fallback" style="display:none;">${safeLabel}</span>`;
+
+    show(modeBadge);
+  } else {
+    modeBadge.innerHTML = '';
+    modeBadge.classList.remove('is-solver', 'is-opener');
+    hide(modeBadge);
+  }
+}
+
 function allowBlackMarker() {
   if (window.SUPERVISOR_NO_ADD) return false;
   // Solver kullanıcılar olay ekleyemez (siyah pin bırakamaz).
@@ -6522,6 +6570,11 @@ function addSolverCloseButton(btnRow, evt, opts = {}) {
   if (evt.created_by_role_name !== 'user') return;
   // Kendi olayıysa zaten Sil butonu mevcut, tekrar Kapat gösterme.
   if (evt.is_mine) return;
+  // Solver YALNIZCA zamana bağlı (time-dependent) olay türlerinden eklenen olayları kapatabilir.
+  const isTimeDependent = (evt.event_type_time_dependent === true
+    || evt.event_type_time_dependent === 'true'
+    || evt.event_type_time_dependent === 1);
+  if (!isTimeDependent) return;
 
   const cb = document.createElement('button');
   cb.className = 'btn danger solver-close-btn';
@@ -7895,26 +7948,10 @@ function reflectAuth(){
     if (!shouldShow2) headerLocBtn2.classList.add('hidden');
   }
 
-  // Header rozeti: normal kullanıcı -> "Open Event", solver -> kırmızı "Solver"
-  const modeBadge = qs('#user-mode-badge');
-  if (modeBadge) {
-    if (currentUser && currentUser.role === 'user') {
-      if (isSolverUser()) {
-        modeBadge.textContent = t('solver');
-        modeBadge.classList.add('is-solver');
-        modeBadge.classList.remove('is-opener');
-      } else {
-        modeBadge.textContent = t('openEvent');
-        modeBadge.classList.add('is-opener');
-        modeBadge.classList.remove('is-solver');
-      }
-      show(modeBadge);
-    } else {
-      modeBadge.textContent = '';
-      modeBadge.classList.remove('is-solver', 'is-opener');
-      hide(modeBadge);
-    }
-  }
+  // Header rozeti: rol yazısı yerine role-bazlı logo gösterilir.
+  // Olay ekleyen -> /user_adding_role.jpeg, Solver (olay kapatan) -> /user_solver_role.jpeg
+  // Logo yüklenemezse metin yedeğine (Open Event / Solver) düşer.
+  applyUserModeBadge();
 
   if (currentUser){
     if (who) { 
@@ -9456,10 +9493,9 @@ async function updateUIWithNewLanguage() {
     whoami.textContent = t('greeting', { username: currentUser.username, role: currentUser.role });
   }
 
-  // Header modu rozetini (Open Event / Solver) dile göre tazele
-  const modeBadgeLang = document.querySelector('#user-mode-badge');
-  if (modeBadgeLang && currentUser && currentUser.role === 'user') {
-    modeBadgeLang.textContent = isSolverUser() ? t('solver') : t('openEvent');
+  // Header modu rozetini (Open Event / Solver logosu) dile göre tazele
+  if (currentUser && currentUser.role === 'user' && typeof applyUserModeBadge === 'function') {
+    applyUserModeBadge();
   }
   
   const loginCard = document.querySelector('#login-card h2');

@@ -3170,6 +3170,31 @@ app.delete('/api/event/:id', requireAuth, async (req, res) => {
   const id = +req.params.id;
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
 
+  // Solver (olay kapatan) kullanıcı YALNIZCA zamana bağlı olay türlerinden eklenen
+  // olayları kapatabilir. Diğer türlere erişimi engellenir.
+  if (req.user.role === 'user' && req.user.solver === true) {
+    try {
+      const chk = await pool.query(
+        `SELECT COALESCE(et.time_dependent, false) AS time_dependent
+           FROM event e
+           LEFT JOIN event_type et ON et.event_type_id = e.event_type
+          WHERE e.event_id = $1 AND COALESCE(e.active, true) = true`,
+        [id]
+      );
+      if (!chk.rowCount) {
+        return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+      }
+      const td = chk.rows[0].time_dependent;
+      const isTd = (td === true || td === 'true' || td === 1);
+      if (!isTd) {
+        return res.status(403).json({ error: 'solver_only_time_dependent', message: getErrorMessage(req, 'solver_only_time_dependent') });
+      }
+    } catch (e) {
+      console.error('solver time-dependent check error:', e);
+      return res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+    }
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

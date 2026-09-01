@@ -129,6 +129,7 @@ window.i18nLangs.tr = {
     closeEventError: 'Olay kapatılırken hata oluştu.',
     solver_cannot_add: 'Solver (olay kapatan) kullanıcılar olay ekleyemez.',
     solver_only_for_users: 'Solver yetkisi yalnızca normal kullanıcılara verilebilir.',
+    solver_only_time_dependent: 'Solver yalnızca zamana bağlı olay türlerinden eklenen olayları kapatabilir.',
     
     events: 'Olaylar',
     addEvent: 'Olay Ekle',

@@ -213,9 +213,31 @@ header{
   font-size: clamp(12px, 2vw, 14px);
 }
 
-/* Header modu rozeti: Open Event (mavi) / Solver (kırmızı) */
+/* Header modu rozeti: rol yazısı yerine role-bazlı logo gösterilir. */
 .user-mode-badge{
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  line-height: 1;
+  vertical-align: middle;
+}
+.user-mode-badge.hidden{ display: none; }
+
+/* Rol logosu (asıl gösterilen görsel) */
+.user-mode-logo{
+  display: inline-block;
+  height: clamp(22px, 4.4vw, 28px);
+  width: auto;
+  max-width: 120px;
+  object-fit: contain;
+  border-radius: 6px;
+  vertical-align: middle;
+}
+
+/* Metin yedeği: yalnızca logo yüklenemezse görünür (pill görünümü) */
+.user-mode-fallback{
+  display: none;
   align-items: center;
   white-space: nowrap;
   font-weight: 700;
@@ -225,15 +247,13 @@ header{
   border-radius: 999px;
   border: 1.5px solid transparent;
   letter-spacing: .2px;
-}
-.user-mode-badge.hidden{ display: none; }
-.user-mode-badge.is-opener{
   color: #fff;
+}
+.user-mode-badge.is-opener .user-mode-fallback{
   background: var(--primary);
   border-color: var(--primary);
 }
-.user-mode-badge.is-solver{
-  color: #fff;
+.user-mode-badge.is-solver .user-mode-fallback{
   background: var(--danger);
   border-color: var(--danger);
 }
@@ -3039,7 +3059,11 @@ th:has(#btn-add-type){
   #users-table td[data-cell="solver"]{
     white-space: nowrap;
   }
-  .user-mode-badge{
+  .user-mode-logo{
+    height: 22px;
+    max-width: 96px;
+  }
+  .user-mode-fallback{
     padding: 3px 6px;
     max-width: 42vw;
     overflow: hidden;

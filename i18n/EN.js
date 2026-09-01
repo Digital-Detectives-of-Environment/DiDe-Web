@@ -129,6 +129,7 @@ window.i18nLangs.en = {
     closeEventError: 'An error occurred while closing the event.',
     solver_cannot_add: 'Solver (event closer) users cannot add events.',
     solver_only_for_users: 'The Solver permission can only be granted to regular users.',
+    solver_only_time_dependent: 'Solver users can only close events from time-dependent event types.',
     
     events: 'Events',
     addEvent: 'Add Event',
