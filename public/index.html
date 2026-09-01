@@ -323,6 +323,7 @@
         </button>
         <button id="btn-theme-toggle" class="icon-btn" type="button" aria-label="Theme"></button>
         <span id="whoami" class="hidden"></span>
+        <span id="user-mode-badge" class="user-mode-badge hidden"></span>
         <button id="btn-open-login" class="btn" data-i18n="login">Login</button>
         <button id="btn-logout" class="btn hidden" data-i18n="logout">Logout</button>
       </div>
@@ -567,6 +568,11 @@
                       <span class="filter-icon" data-column="creator" data-i18n-title="search">▼</span>
                       <div class="filter-dropdown" data-column="creator"></div>
                     </th>
+                    <th>
+                      <span data-i18n="timeDependentColumn">Time-dependent</span>
+                      <span class="filter-icon" data-column="timedependent" data-i18n-title="search">▼</span>
+                      <div class="filter-dropdown" data-column="timedependent"></div>
+                    </th>
                     <th data-i18n="actions">Actions</th>
                   </tr>
                 </thead>
@@ -612,6 +618,7 @@
                       <span class="filter-icon" data-column="verified" data-i18n-title="search">▼</span>
                       <div class="filter-dropdown" data-column="verified"></div>
                     </th>
+                    <th data-i18n="solver">Solver</th>
                     <th data-i18n="actions">Actions</th>
                   </tr>
                 </thead>
@@ -662,6 +669,11 @@
                       <span data-i18n="addedDate">Date Added</span>
                       <span class="filter-icon" data-column="date" data-i18n-title="search">▼</span>
                       <div class="filter-dropdown" data-column="date"></div>
+                    </th>
+                    <th>
+                      <span data-i18n="timeDependentColumn">Time-dependent</span>
+                      <span class="filter-icon" data-column="timedependent" data-i18n-title="search">▼</span>
+                      <div class="filter-dropdown" data-column="timedependent"></div>
                     </th>
                     <th data-i18n="actions">Actions</th>
                   </tr>
@@ -822,6 +834,60 @@
       </div>
       <div class="row gap6" style="margin-top:8px;">
         <button id="vt-update-save-btn" class="btn primary" type="button" data-i18n="save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ TIME-DEPENDENT: STEP 1 (is it time-dependent?) ============ -->
+  <div id="td-choice-modal" class="modal" aria-hidden="true">
+    <div class="box" style="width:min(460px, 92vw);">
+      <div class="head">
+        <h4 style="margin:0;" data-i18n="addEventType">Add Event Type</h4>
+        <button id="td-choice-x" class="btn ghost td-x-btn" type="button" title="Close" aria-label="Close">×</button>
+      </div>
+      <p id="td-choice-question" style="margin:14px 4px 18px; font-weight:500;" data-i18n="timeDependentQuestion">Is this event type time-dependent?</p>
+      <div style="display:flex; gap:16px; justify-content:center; margin-bottom:8px;">
+        <button id="td-choice-yes" type="button" class="td-choice-tile">
+          <span class="td-choice-mark td-yes">✓</span>
+          <span class="td-choice-label" data-i18n="timeDependentYes">Time-dependent</span>
+        </button>
+        <button id="td-choice-no" type="button" class="td-choice-tile">
+          <span class="td-choice-mark td-no">✕</span>
+          <span class="td-choice-label" data-i18n="notTimeDependent">Not time-dependent</span>
+        </button>
+      </div>
+      <div style="display:flex; justify-content:flex-end; margin-top:14px;">
+        <button id="td-choice-next" type="button" class="btn primary td-next-btn" style="display:none;" title="Next" aria-label="Next">→</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ TIME-DEPENDENT: STEP 2 (validity period) ============ -->
+  <div id="td-duration-modal" class="modal" aria-hidden="true">
+    <div class="box" style="width:min(460px, 92vw);">
+      <div class="head">
+        <button id="td-duration-back" class="back-btn" type="button" title="Back" aria-label="Back" style="border:none; background:transparent; cursor:pointer; font-size:20px;">←</button>
+        <h4 style="margin:0; flex:1; text-align:center;" data-i18n="validityPeriodTitle">How long will this event type remain?</h4>
+        <button id="td-duration-x" class="btn ghost td-x-btn" type="button" title="Close" aria-label="Close">×</button>
+      </div>
+      <p style="margin:12px 4px 6px; font-weight:500;" data-i18n="howManyDays">How Many Days?</p>
+      <div id="td-duration-inputs" style="display:flex; flex-direction:column; gap:10px; margin:8px 0 4px;"></div>
+      <div style="display:flex; justify-content:flex-end; margin-top:16px;">
+        <button id="td-duration-finish" type="button" class="btn primary" data-i18n="finish">Finish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ TIME-DEPENDENT: cancel confirmation ============ -->
+  <div id="td-cancel-modal" class="modal" aria-hidden="true">
+    <div class="box" style="width:min(420px, 92vw);">
+      <div class="head">
+        <h4 style="margin:0;" data-i18n="cancel">Cancel</h4>
+      </div>
+      <p style="margin:14px 4px 18px;" data-i18n="confirmCancelEventType">Are you sure you want to cancel adding this event type?</p>
+      <div class="row gap6" style="justify-content:flex-end;">
+        <button id="td-cancel-no" class="btn ghost" type="button" data-i18n="no">No</button>
+        <button id="td-cancel-yes" class="btn danger" type="button" data-i18n="yes">Yes</button>
       </div>
     </div>
   </div>

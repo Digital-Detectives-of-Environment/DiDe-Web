@@ -213,6 +213,31 @@ header{
   font-size: clamp(12px, 2vw, 14px);
 }
 
+/* Header modu rozeti: Open Event (mavi) / Solver (kırmızı) */
+.user-mode-badge{
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  font-weight: 700;
+  line-height: 1;
+  font-size: clamp(10px, 1.8vw, 12px);
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1.5px solid transparent;
+  letter-spacing: .2px;
+}
+.user-mode-badge.hidden{ display: none; }
+.user-mode-badge.is-opener{
+  color: #fff;
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.user-mode-badge.is-solver{
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
 @media (max-width: 768px){
   .wrap{ 
     flex-wrap: nowrap !important;
@@ -1944,6 +1969,7 @@ body.modal-open{
 
 .toast.success{ background:#065f46; }
 .toast.error{ background:#7f1d1d; }
+.toast.info{ background:#2563eb; }
 
 /* ==========
    Yardımcılar
@@ -2897,5 +2923,126 @@ th:has(#btn-add-type){
   .grid-warning-banner {
     padding: 12px 14px;
     gap: 8px;
+  }
+}
+/* ==================== Time-dependent event type flow ==================== */
+.td-x-btn{
+  font-size:20px;
+  line-height:1;
+  padding:2px 10px;
+  border-radius:8px;
+}
+.td-next-btn{
+  font-size:20px;
+  line-height:1;
+  min-width:52px;
+  padding:6px 14px;
+}
+.td-choice-tile{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  width:150px;
+  min-height:110px;
+  padding:14px 10px;
+  border:2px solid var(--border);
+  border-radius:12px;
+  background:var(--surface);
+  color:var(--text);
+  cursor:pointer;
+  transition:border-color .15s, box-shadow .15s, transform .05s;
+}
+.td-choice-tile:hover{ border-color:var(--primary); }
+.td-choice-tile:active{ transform:scale(.98); }
+.td-choice-tile.selected{
+  border-color:var(--primary);
+  box-shadow:0 0 0 3px rgba(37,99,235,.20);
+}
+.td-choice-mark{
+  font-size:34px;
+  line-height:1;
+  font-weight:700;
+}
+.td-choice-mark.td-yes{ color:#16a34a; }
+.td-choice-mark.td-no{ color:var(--danger); }
+.td-choice-label{
+  font-size:14px;
+  font-weight:600;
+}
+.td-duration-field{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.td-duration-field label{
+  font-weight:500;
+  min-width:90px;
+}
+.td-duration-field input{
+  flex:1;
+  max-width:180px;
+}
+/* Time-dependent option inside the user event-type <select> */
+#event_type option.td-option{
+  color:#b45309;
+  font-weight:600;
+}
+/* ==========================================================
+   Solver (olay kapatan) — kullanıcı tablosu hücresi
+   ========================================================== */
+.solver-toggle{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  cursor:pointer;
+  user-select:none;
+}
+.solver-toggle input[type="checkbox"]{
+  width:18px;
+  height:18px;
+  min-width:18px;
+  cursor:pointer;
+  accent-color: var(--danger);
+  margin:0;
+}
+.solver-toggle input[type="checkbox"]:disabled{
+  cursor:not-allowed;
+  opacity:.6;
+}
+.solver-toggle-text{
+  font-size: clamp(12px, 1.8vw, 13px);
+  color: var(--muted, #6b7280);
+  min-width: 30px;
+}
+.solver-toggle input[type="checkbox"]:checked ~ .solver-toggle-text{
+  color: var(--danger);
+  font-weight:700;
+}
+.solver-na{
+  color: var(--muted, #9ca3af);
+  display:inline-block;
+  text-align:center;
+  width:100%;
+}
+/* Popup içindeki Kapat butonu (solver) */
+.solver-close-btn{
+  font-weight:600;
+}
+
+/* Mobil uyum: dar ekranlarda hücreyi ve rozeti sıkıştır */
+@media (max-width: 576px){
+  .solver-toggle{ gap:6px; }
+  .solver-toggle-text{ min-width: 26px; }
+  #users-table td[data-cell="solver"]{
+    white-space: nowrap;
+  }
+  .user-mode-badge{
+    padding: 3px 6px;
+    max-width: 42vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }

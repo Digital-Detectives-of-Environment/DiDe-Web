@@ -81,7 +81,11 @@ let APP_CONFIG = {
   displayAttrs: [],
   // restrictGNSS: true ise haritaya tıklayarak olay eklenemez (sadece GPS butonu).
   // Güvenli varsayılan: false → mevcut davranış (harita tıklaması + GPS) korunur.
-  restrictGnss: false
+  restrictGnss: false,
+
+  // Which time units the supervisor may enter for a time-dependent event type.
+  // Populated from /api/config (EVENT_TYPE_VALIDITY_UNITS). Falls back to days.
+  eventTypeValidityUnits: ['days']
 };
 
 /* ---------------------------------------------------------------------------
@@ -369,6 +373,9 @@ async function applySiteConfig(){
     
     APP_CONFIG.siteTitle = cfg.siteTitle;
     APP_CONFIG.allowedEmailDomains = cfg.allowedDomains;
+    if (Array.isArray(cfg.eventTypeValidityUnits) && cfg.eventTypeValidityUnits.length) {
+      APP_CONFIG.eventTypeValidityUnits = cfg.eventTypeValidityUnits;
+    }
     
     if(cfg.siteTitle){
       document.title = cfg.siteTitle;
@@ -3245,6 +3252,13 @@ function applyFilters(tableKey) {
       }
       
       if (!selectedValues) continue;
+
+      // Time-dependent column: compare against localized display strings.
+      if (column === 'timedependent') {
+        const v = timeDependentDisplayValue(tableKey, item);
+        if (!selectedValues.includes(v)) return false;
+        continue;
+      }
       
       let itemValue = '';
       
@@ -3354,8 +3368,65 @@ function matchDateQuery(dateStr, query) {
   }
 }
 
+// Localized display string for the time-dependent column, shared by the filter
+// dropdown, applyFilters and the table renderers so every comparison matches.
+function timeDependentDisplayValue(tableKey, item) {
+  const isTd = tableKey === 'events'
+    ? (item.event_type_time_dependent === true || item.event_type_time_dependent === 'true' || item.event_type_time_dependent === 1)
+    : (item.time_dependent === true || item.time_dependent === 'true' || item.time_dependent === 1);
+  return isTd ? t('timeDependent') : t('notTimeDependent');
+}
+
+// Dedicated dropdown for the "time-dependent" column: exactly two options
+// (time-dependent / not), each with its own checkbox and a clock logo.
+function buildTimeDependentFilterDropdown(tableKey, data, state) {
+  const options = [t('timeDependent'), t('notTimeDependent')];
+
+  const isAllSelected = !state.filters.timedependent
+    || !Array.isArray(state.filters.timedependent)
+    || state.filters.timedependent.length === options.length;
+
+  let html = `
+    <div class="filter-options-container">
+      <label class="filter-option">
+        <input type="checkbox" class="filter-select-all" ${isAllSelected ? 'checked' : ''} />
+        <span>(${t('selectAll')})</span>
+      </label>
+  `;
+
+  options.forEach(value => {
+    let count = 0;
+    state.filtered.forEach(item => {
+      if (timeDependentDisplayValue(tableKey, item) === value) count++;
+    });
+
+    let checked = false;
+    if (!state.filters.timedependent || !Array.isArray(state.filters.timedependent)) {
+      checked = true;
+    } else if (state.filters.timedependent.length === 0) {
+      checked = false;
+    } else {
+      checked = state.filters.timedependent.includes(value);
+    }
+
+    html += `
+      <label class="filter-option">
+        <input type="checkbox" class="filter-checkbox" value="${escapeHtml(value)}" ${checked ? 'checked' : ''} />
+        <span>${escapeHtml(value)} (${count})</span>
+      </label>
+    `;
+  });
+
+  html += `</div>`;
+  return html;
+}
+
 function buildFilterDropdown(tableKey, column, data) {
   const state = tableStates[tableKey];
+
+  if (column === 'timedependent') {
+    return buildTimeDependentFilterDropdown(tableKey, data, state);
+  }
 
   if (tableKey === 'events' && column === 'date') {
     return buildDateFilterDropdown(data, state);
@@ -4780,6 +4851,8 @@ function addEventMarkerToLayer(e){
     btnRow.appendChild(db);
   }
 
+  addSolverCloseButton(btnRow, e, { publicMode: false });
+
   m.bindPopup(content);
   m.on('popupopen', () => populateEventMedia(content, e));
 }
@@ -5552,7 +5625,7 @@ function renderTypeTableRows(data) {
   tb.innerHTML = '';
   
   if (data.length === 0) {
-    tb.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);">${t('noRecordsFound')}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);">${t('noRecordsFound')}</td></tr>`;
     return;
   }
   
@@ -5581,10 +5654,14 @@ function renderTypeTableRows(data) {
       ? `<button class="btn danger" data-del-type="${t.event_type_id}">${window.t('delete')}</button>`
       : `<button class="btn danger" disabled title="${window.t('noPermission')}">${window.t('delete')}</button>`;
     
+    const isTd = (t.time_dependent === true || t.time_dependent === 'true' || t.time_dependent === 1);
+    const tdText = isTd ? window.t('timeDependent') : window.t('notTimeDependent');
+
     tr.innerHTML = `
       <td>${escapeHtml(t.event_type_name)}</td>
       <td>${goodText}</td>
       <td>${escapeHtml(t.created_by_name || '-')}</td>
+      <td>${escapeHtml(tdText)}</td>
       <td>${updateBtn}${deleteBtn}</td>
     `;
     tb.appendChild(tr);
@@ -5699,7 +5776,7 @@ function renderUserTableRows(data) {
   tb.innerHTML = '';
   
   if (data.length === 0) {
-    tb.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);">${t('noRecordsFound')}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);">${t('noRecordsFound')}</td></tr>`;
     return;
   }
   
@@ -5721,6 +5798,21 @@ function renderUserTableRows(data) {
       : `<button class="btn danger" disabled title="${t('noPermission')}">${t('delete')}</button>`;
     
     const regDateStr = u.registration_date ? formatDate(u.registration_date) : '-';
+
+    // Solver sütunu: yalnızca 'user' rolündeki hesaplar için işaretlenebilir.
+    // Değer boolean olarak veritabanına yazılır; arayüzde Evet/Hayır (checkbox) olarak gösterilir.
+    const isRegularUser = (u.role === 'user');
+    const solverChecked = (u.solver === true || u.solver === 'true' || u.solver === 'yes' || u.solver === 1);
+    let solverCell;
+    if (isRegularUser) {
+      solverCell = `
+        <label class="solver-toggle" title="${t('solverToggleHint')}">
+          <input type="checkbox" data-solver-user="${u.id}" ${solverChecked ? 'checked' : ''} />
+          <span class="solver-toggle-text">${solverChecked ? t('yes') : t('no')}</span>
+        </label>`;
+    } else {
+      solverCell = `<span class="solver-na" title="${t('solverOnlyForUsers')}">—</span>`;
+    }
     
     tr.innerHTML = `
       <td>${escapeHtml(u.username)}</td>
@@ -5728,9 +5820,49 @@ function renderUserTableRows(data) {
       <td>${escapeHtml(u.email || '')}</td>
       <td>${regDateStr}</td>
       <td>${u.email_verified ? t('yes') : t('no')}</td>
+      <td data-cell="solver">${solverCell}</td>
       <td>${deleteBtn}</td>
     `;
     tb.appendChild(tr);
+  });
+
+  // Solver checkbox olaylarını bağla
+  qsa('[data-solver-user]').forEach(cb => {
+    cb.onchange = async () => {
+      const id = cb.getAttribute('data-solver-user');
+      const desired = cb.checked;
+      cb.disabled = true;
+      try {
+        const resp = await fetch('/api/admin/users/' + id + '/solver', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ solver: desired })
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          cb.checked = !desired; // geri al
+          toast((data.message || data.error || t('unknownError')), 'error');
+        } else {
+          toast(desired ? t('solverEnabled') : t('solverDisabled'), 'success');
+          // Yerel state'i güncelle ki filtre/sayfalama sonrası tutarlı kalsın
+          if (tableStates.users && Array.isArray(tableStates.users.data)) {
+            const rec = tableStates.users.data.find(x => String(x.id) === String(id));
+            if (rec) rec.solver = desired;
+          }
+          const txt = cb.parentElement && cb.parentElement.querySelector('.solver-toggle-text');
+          if (txt) txt.textContent = desired ? t('yes') : t('no');
+          // Eğer kendi hesabımızsa (supervisor değil ama olası) me bilgisini tazele
+          if (currentUser && String(currentUser.id) === String(id)) {
+            try { await checkMe(); reflectAuth(); } catch {}
+          }
+        }
+      } catch (e) {
+        cb.checked = !desired;
+        toast(t('unknownError') + ': ' + e.message, 'error');
+      } finally {
+        cb.disabled = false;
+      }
+    };
   });
   
   qsa('[data-del-user]:not([disabled])').forEach(b => {
@@ -5800,7 +5932,7 @@ function renderEventTableRows(data) {
   }
   
   if (data.length === 0) {
-    tb.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);">${t('noRecordsFound')}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--muted);">${t('noRecordsFound')}</td></tr>`;
     return;
   }
   
@@ -5815,6 +5947,9 @@ function renderEventTableRows(data) {
     
     const rawDate = o.created_at || o.eklenme_tarihi || null;
     const dateStr = rawDate ? formatDate(rawDate) : '-';
+
+    const isTd = (o.event_type_time_dependent === true || o.event_type_time_dependent === 'true' || o.event_type_time_dependent === 1);
+    const tdText = isTd ? t('timeDependent') : t('notTimeDependent');
     
     const tr = document.createElement('tr');
     tr.dataset.olayId = o.event_id;
@@ -5828,6 +5963,7 @@ function renderEventTableRows(data) {
       <td>${hasPhoto}</td>
       <td>${hasVideo}</td>
       <td>${dateStr}</td>
+      <td>${escapeHtml(tdText)}</td>
       <td><button class="btn danger" data-del-event="${o.event_id}">${t('delete')}</button></td>
     `;
     tb.appendChild(tr);
@@ -5877,7 +6013,17 @@ async function loadOlayTypes() {
         if(o.is_point === false) return;
         const opt = document.createElement('option');
         opt.value = String(o.event_type_id);
-        opt.textContent = o.event_type_name;
+        const isTd = (o.time_dependent === true || o.time_dependent === 'true' || o.time_dependent === 1);
+        if (isTd) {
+          // Time-dependent event types: shown in a distinct color with a small clock logo.
+          opt.textContent = '⏱ ' + o.event_type_name;
+          opt.classList.add('td-option');
+          opt.dataset.timeDependent = 'true';
+          opt.style.color = '#b45309';
+          opt.style.fontWeight = '600';
+        } else {
+          opt.textContent = o.event_type_name;
+        }
         sel.appendChild(opt);
       });
 
@@ -6072,60 +6218,334 @@ async function loadPageSizeSettings() {
 }
 
 /* ==================== EVENT TYPE CREATION ==================== */
+
+// Flow state for the multi-step time-dependent event type wizard.
+let __tdFlow = { name: '', isPublic: false, timeDependent: false, returnModal: null };
+
+// Map a backend error code (or HTTP status) to a localized popup message.
+function eventTypeErrorMessage(status, data) {
+  const code = data && (data.error || '');
+  if (code === 'o_adi_gerekli') return t('pleaseEnterTypeName');
+  if (code === 'duplicate_active_event_type') return t('duplicateActiveTypeError');
+  if (code === 'duplicate_inactive_event_type') return t('duplicateInactiveTypeError');
+  if (code === 'gecersiz_valid_time') return t('invalidValidTime');
+  // Legacy / unknown fallback
+  const msg = (data && (data.message || data.error)) || t('unknownError');
+  return t('typeAddFailed') + ': ' + msg;
+}
+
+// STEP 0 — user clicks "Add": validate the name first; only open the
+// time-dependent wizard if there are no errors.
 qs('#btn-add-type')?.addEventListener('click', async () => {
   const name = qs('#new-type-name')?.value.trim();
   const goodRadioYes = qs('#new-type-good-yes');
   const good = goodRadioYes ? goodRadioYes.checked : false;
-  
-  if (!name) { 
-    toast(t('pleaseEnterTypeName'), 'error'); 
-    return; 
+
+  // 1) Name not entered → dedicated popup, do not open the wizard.
+  if (!name) {
+    toast(t('pleaseEnterTypeName'), 'error', 4000);
+    return;
   }
-  
+
   const btn = qs('#btn-add-type');
   if (btn) btn.disabled = true;
-  
+
   try {
-    const r = await fetch('/api/admin/event_types', {
+    // 2) Ask the server whether the name is free. This distinguishes
+    //    "active duplicate" from "inactive duplicate" as separate popups.
+    const r = await fetch('/api/admin/event_types/validate', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({event_type_name: name, "public": good})
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event_type_name: name })
     });
     const data = await r.json().catch(() => ({}));
-    
+
     if (!r.ok) {
-      const errorMsg = data.message || data.error || t('unknownError');
-      
-      if (r.status === 409 || errorMsg.toLowerCase().includes('duplicate') || errorMsg.toLowerCase().includes('zaten')) {
-        toast(t('duplicateTypeError'), 'error', 4000);
-      } else {
-        toast(t('typeAddFailed') + ': ' + errorMsg, 'error');
-      }
-      throw new Error(errorMsg);
+      toast(eventTypeErrorMessage(r.status, data), 'error', 4000);
+      return;
     }
-    
-    const nt = qs('#new-type-name');
-    if (nt) nt.value = '';
-    
-    const goodYes = qs('#new-type-good-yes');
-    const goodNo = qs('#new-type-good-no');
-    if (goodYes) goodYes.checked = true;
-    if (goodNo) goodNo.checked = false;
-    
-    await loadOlayTypes();
-    toast(t('newTypeAdded'), 'success');
-  } catch(e) {
-    console.error('Type add error:', e);
+
+    // No errors → start the time-dependent wizard.
+    __tdFlow = { name, isPublic: good, timeDependent: false, returnModal: null };
+    openTdChoiceModal();
+  } catch (e) {
+    console.error('Type validate error:', e);
+    toast(t('typeAddFailed'), 'error');
   } finally {
     if (btn) btn.disabled = false;
   }
 });
 
+/* -------- STEP 1: is the event type time-dependent? -------- */
+function openTdChoiceModal() {
+  const modal = qs('#td-choice-modal');
+  const yes = qs('#td-choice-yes');
+  const no  = qs('#td-choice-no');
+  const next = qs('#td-choice-next');
+  if (!modal) return;
+
+  // reset selection UI
+  yes?.classList.remove('selected');
+  no?.classList.remove('selected');
+  if (next) next.style.display = 'none';
+  __tdFlow.timeDependent = false;
+  __tdFlow.returnModal = 'choice';
+
+  showModal(modal);
+}
+
+/* -------- STEP 2: validity period -------- */
+function openTdDurationModal() {
+  const modal = qs('#td-duration-modal');
+  const wrap  = qs('#td-duration-inputs');
+  if (!modal || !wrap) return;
+
+  const units = Array.isArray(APP_CONFIG.eventTypeValidityUnits) && APP_CONFIG.eventTypeValidityUnits.length
+    ? APP_CONFIG.eventTypeValidityUnits
+    : ['days'];
+
+  const unitLabel = { days: t('unitDays'), months: t('unitMonths'), seconds: t('unitSeconds') };
+
+  wrap.innerHTML = '';
+  units.forEach(u => {
+    const field = document.createElement('div');
+    field.className = 'td-duration-field';
+    field.innerHTML = `
+      <label for="td-dur-${u}">${escapeHtml(unitLabel[u] || u)}</label>
+      <input id="td-dur-${u}" type="text" inputmode="numeric" autocomplete="off"
+             data-unit="${u}" placeholder="0" />
+    `;
+    wrap.appendChild(field);
+  });
+
+  // Integer-only: strip anything that is not a digit as the user types.
+  wrap.querySelectorAll('input[data-unit]').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const cleaned = inp.value.replace(/[^0-9]/g, '');
+      if (inp.value !== cleaned) inp.value = cleaned;
+    });
+    inp.addEventListener('keydown', (e) => {
+      // Block obvious non-integer keys (e, E, +, -, ., ,)
+      if (['e', 'E', '+', '-', '.', ','].includes(e.key)) e.preventDefault();
+    });
+  });
+
+  __tdFlow.returnModal = 'duration';
+  showModal(modal);
+}
+
+// Convert entered units into a single float number of DAYS (mirrors the server).
+function tdCollectDays() {
+  const wrap = qs('#td-duration-inputs');
+  if (!wrap) return { totalDays: 0, anyEntered: false };
+  const factor = { days: 1, months: 30, seconds: 1 / 86400 };
+  let totalDays = 0;
+  let anyEntered = false;
+  wrap.querySelectorAll('input[data-unit]').forEach(inp => {
+    const unit = inp.getAttribute('data-unit');
+    const raw = (inp.value || '').trim();
+    if (raw === '') return;
+    if (!/^\d+$/.test(raw)) return; // not a whole number → ignore
+    const n = parseInt(raw, 10);
+    if (!Number.isFinite(n) || n <= 0) return;
+    anyEntered = true;
+    totalDays += n * (factor[unit] || 0);
+  });
+  return { totalDays, anyEntered };
+}
+
+// Actually create the event type (used for both normal and time-dependent).
+async function finalizeEventTypeCreate(timeDependent, validTimeDays) {
+  const payload = {
+    event_type_name: __tdFlow.name,
+    "public": __tdFlow.isPublic,
+    time_dependent: !!timeDependent,
+    valid_time: timeDependent ? validTimeDays : null
+  };
+
+  try {
+    const r = await fetch('/api/admin/event_types', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await r.json().catch(() => ({}));
+
+    if (!r.ok) {
+      toast(eventTypeErrorMessage(r.status, data), 'error', 4000);
+      return false;
+    }
+
+    // Success: reset the form and close every wizard modal.
+    const nt = qs('#new-type-name');
+    if (nt) nt.value = '';
+    const goodYes = qs('#new-type-good-yes');
+    const goodNo = qs('#new-type-good-no');
+    if (goodYes) goodYes.checked = true;
+    if (goodNo) goodNo.checked = false;
+
+    closeAllTdModals();
+    // Show the success popup immediately (blue) so it is not lost behind reloads.
+    toast(t('newTypeAdded'), 'info', 3200);
+    await loadOlayTypes();
+    try { await Promise.all([loadExistingEvents(), refreshAdminEvents()]); } catch {}
+    return true;
+  } catch (e) {
+    console.error('Type add error:', e);
+    toast(t('typeAddFailed'), 'error');
+    return false;
+  }
+}
+
+function closeAllTdModals() {
+  ['#td-choice-modal', '#td-duration-modal', '#td-cancel-modal'].forEach(sel => {
+    const m = qs(sel);
+    if (m) closeModal(m);
+  });
+  __tdFlow.returnModal = null;
+}
+
+// The × button asks for confirmation before discarding the whole flow.
+function openTdCancelConfirm(fromModal) {
+  __tdFlow.returnModal = fromModal;
+  const m = qs('#td-cancel-modal');
+  if (m) showModal(m);
+}
+
+/* -------- Wire up the wizard buttons (elements exist at load time) -------- */
+(function wireTimeDependentFlow() {
+  const yes = qs('#td-choice-yes');
+  const no  = qs('#td-choice-no');
+  const next = qs('#td-choice-next');
+
+  // ✓ = time-dependent: select it and reveal the → (next) button.
+  yes?.addEventListener('click', () => {
+    __tdFlow.timeDependent = true;
+    yes.classList.add('selected');
+    no?.classList.remove('selected');
+    if (next) next.style.display = 'inline-flex';
+  });
+
+  // ✗ = normal event type: add it directly with a success popup.
+  no?.addEventListener('click', async () => {
+    __tdFlow.timeDependent = false;
+    no.classList.add('selected');
+    yes?.classList.remove('selected');
+    if (next) next.style.display = 'none';
+    no.disabled = true;
+    try {
+      await finalizeEventTypeCreate(false, null);
+    } finally {
+      no.disabled = false;
+    }
+  });
+
+  // → : proceed from the time-dependent choice to the duration screen.
+  next?.addEventListener('click', () => {
+    if (!__tdFlow.timeDependent) return;
+    const choice = qs('#td-choice-modal');
+    if (choice) closeModal(choice);
+    openTdDurationModal();
+  });
+
+  // Duration screen: back arrow returns to the choice screen.
+  qs('#td-duration-back')?.addEventListener('click', () => {
+    const dur = qs('#td-duration-modal');
+    if (dur) closeModal(dur);
+    openTdChoiceModal();
+    // keep the previous "time-dependent" selection highlighted
+    const y = qs('#td-choice-yes'); const n2 = qs('#td-choice-next');
+    if (y) y.classList.add('selected');
+    if (n2) n2.style.display = 'inline-flex';
+    __tdFlow.timeDependent = true;
+  });
+
+  // Finish: validate integer input, convert to days, create.
+  qs('#td-duration-finish')?.addEventListener('click', async () => {
+    const { totalDays, anyEntered } = tdCollectDays();
+    if (!anyEntered || !(totalDays > 0)) {
+      toast(t('pleaseEnterValidInteger'), 'error', 4000);
+      return;
+    }
+    const finishBtn = qs('#td-duration-finish');
+    if (finishBtn) finishBtn.disabled = true;
+    try {
+      await finalizeEventTypeCreate(true, totalDays);
+    } finally {
+      if (finishBtn) finishBtn.disabled = false;
+    }
+  });
+
+  // × buttons on both wizard steps → confirmation.
+  qs('#td-choice-x')?.addEventListener('click', () => openTdCancelConfirm('choice'));
+  qs('#td-duration-x')?.addEventListener('click', () => openTdCancelConfirm('duration'));
+
+  // Cancel confirmation: "No" returns to where we were; "Yes" discards all.
+  qs('#td-cancel-no')?.addEventListener('click', () => {
+    const c = qs('#td-cancel-modal');
+    if (c) closeModal(c);
+    // re-show the modal the user came from
+    if (__tdFlow.returnModal === 'duration') {
+      const m = qs('#td-duration-modal'); if (m) showModal(m);
+    } else {
+      const m = qs('#td-choice-modal'); if (m) showModal(m);
+    }
+  });
+
+  qs('#td-cancel-yes')?.addEventListener('click', () => {
+    // Discard everything and return to the default add screen.
+    __tdFlow = { name: '', isPublic: false, timeDependent: false, returnModal: null };
+    closeAllTdModals();
+  });
+})();
+
 /* ==================== MAP AND EVENT MANAGEMENT ==================== */
+
+// Kullanıcı bir "solver" (olay kapatan) mı? Solver, olay ekleyemez; yalnızca kapatabilir.
+function isSolverUser() {
+  return !!(currentUser && currentUser.role === 'user' && currentUser.solver === true);
+}
 
 function allowBlackMarker() {
   if (window.SUPERVISOR_NO_ADD) return false;
+  // Solver kullanıcılar olay ekleyemez (siyah pin bırakamaz).
+  if (isSolverUser()) return false;
   return !!(currentUser && currentUser.role === 'user');
+}
+
+// Solver için popup'a "Kapat" (Close) butonu ekler. Kullanıcıların eklediği aktif
+// olayları kapatır (soft-delete: active=false). Kendi olayları için ayrı Sil butonu vardır.
+function addSolverCloseButton(btnRow, evt, opts = {}) {
+  if (!btnRow || !evt) return;
+  if (!isSolverUser()) return;
+  // Sadece normal kullanıcı (event-adder) tarafından eklenen olaylar kapatılır.
+  if (evt.created_by_role_name !== 'user') return;
+  // Kendi olayıysa zaten Sil butonu mevcut, tekrar Kapat gösterme.
+  if (evt.is_mine) return;
+
+  const cb = document.createElement('button');
+  cb.className = 'btn danger solver-close-btn';
+  cb.textContent = t('closeEvent');
+  cb.onclick = async () => {
+    if (!confirm(t('confirmCloseEvent'))) return;
+    cb.disabled = true;
+    try {
+      const resp = await fetch(`/api/event/${evt.event_id}`, { method: 'DELETE' });
+      if (!resp.ok) {
+        const d = await resp.json().catch(() => ({}));
+        toast((d.message || d.error || t('closeEventError')), 'error');
+      } else {
+        toast(t('eventClosed'), 'success');
+      }
+      await loadExistingEvents({ publicMode: !!opts.publicMode });
+    } catch (err) {
+      console.error('close event error:', err);
+      toast(t('closeEventError'), 'error');
+    } finally {
+      cb.disabled = false;
+    }
+  };
+  btnRow.appendChild(cb);
 }
 
 function updateClickMarkerFromInputs(){
@@ -6295,6 +6715,8 @@ function recreatePopupContent(evt, marker) {
     btnRow.appendChild(db);
   }
 
+  addSolverCloseButton(btnRow, evt, { publicMode: false });
+
   marker.setPopupContent(content);
   populateEventMedia(content, evt);
 }
@@ -6424,6 +6846,8 @@ async function loadExistingEvents(opts = {}) {
         };
         btnRow.appendChild(db);
       }
+
+      addSolverCloseButton(btnRow, e2, { publicMode });
 
       m.bindPopup(content);
       m.on('popupopen', () => {
@@ -7460,8 +7884,36 @@ function reflectAuth(){
 
   const headerLocBtn = qs('#btn-use-location');
   if (headerLocBtn) {
-    const shouldShow = currentUser && currentUser.role === 'user';
+    // Solver olay ekleyemeyeceği için konum (GPS ile ekle) butonu solver'a gösterilmez.
+    const shouldShow = currentUser && currentUser.role === 'user' && !isSolverUser();
     headerLocBtn.style.display = shouldShow ? 'inline-flex' : 'none';
+  }
+  const headerLocBtn2 = qs('#btn-use-location-header');
+  if (headerLocBtn2) {
+    const shouldShow2 = currentUser && currentUser.role === 'user' && !isSolverUser();
+    // Mevcut görünürlük 'hidden' sınıfıyla yönetiliyor; solver için ekleme kapalı.
+    if (!shouldShow2) headerLocBtn2.classList.add('hidden');
+  }
+
+  // Header rozeti: normal kullanıcı -> "Open Event", solver -> kırmızı "Solver"
+  const modeBadge = qs('#user-mode-badge');
+  if (modeBadge) {
+    if (currentUser && currentUser.role === 'user') {
+      if (isSolverUser()) {
+        modeBadge.textContent = t('solver');
+        modeBadge.classList.add('is-solver');
+        modeBadge.classList.remove('is-opener');
+      } else {
+        modeBadge.textContent = t('openEvent');
+        modeBadge.classList.add('is-opener');
+        modeBadge.classList.remove('is-solver');
+      }
+      show(modeBadge);
+    } else {
+      modeBadge.textContent = '';
+      modeBadge.classList.remove('is-solver', 'is-opener');
+      hide(modeBadge);
+    }
   }
 
   if (currentUser){
@@ -9003,6 +9455,12 @@ async function updateUIWithNewLanguage() {
   if (whoami && currentUser) {
     whoami.textContent = t('greeting', { username: currentUser.username, role: currentUser.role });
   }
+
+  // Header modu rozetini (Open Event / Solver) dile göre tazele
+  const modeBadgeLang = document.querySelector('#user-mode-badge');
+  if (modeBadgeLang && currentUser && currentUser.role === 'user') {
+    modeBadgeLang.textContent = isSolverUser() ? t('solver') : t('openEvent');
+  }
   
   const loginCard = document.querySelector('#login-card h2');
   if (loginCard) loginCard.textContent = t('login');
@@ -9331,7 +9789,8 @@ function updateTableHeaders() {
     rebuildHeader(headers[2], t('email'), true);          
     rebuildHeader(headers[3], t('registrationDate'), true);
     rebuildHeader(headers[4], t('verified'), true);      
-    rebuildHeader(headers[5], t('actions'), false);       
+    rebuildHeader(headers[5], t('solver'), false);        
+    rebuildHeader(headers[6], t('actions'), false);       
   }
 }
 document.addEventListener('DOMContentLoaded', () => {

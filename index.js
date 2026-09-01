@@ -71,6 +71,93 @@ if (RESTRICT_GNSS_NORM !== 'true' && RESTRICT_GNSS_NORM !== 'false') {
 }
 const RESTRICT_GNSS = RESTRICT_GNSS_NORM === 'true';
 
+// ==================== EVENT_TYPE_VALIDITY_UNITS ====================
+// "Validity period for the event type to be displayed".
+// Controls which time units the supervisor is allowed to enter when creating a
+// time-dependent event type. Value is a semicolon-separated list built from the
+// canonical units: days, months, seconds. Any subset / combination is allowed
+// (e.g. "days", "months", "seconds", "days;months", "days;months;seconds").
+// Order does not matter. Singular aliases (day, month, second) are also accepted.
+// If the parameter is missing or contains an invalid token, the system will NOT
+// start and a meaningful English error is printed.
+const EVENT_TYPE_VALIDITY_UNITS_RAW = String(process.env.EVENT_TYPE_VALIDITY_UNITS || '').trim();
+
+// canonical unit -> conversion factor to DAYS
+const VALIDITY_UNIT_TO_DAYS = {
+  days: 1,
+  months: 30,          // 1 month is treated as 30 days
+  seconds: 1 / 86400,  // 1 day = 86400 seconds
+};
+// aliases -> canonical
+const VALIDITY_UNIT_ALIASES = {
+  day: 'days', days: 'days',
+  month: 'months', months: 'months',
+  second: 'seconds', seconds: 'seconds',
+};
+
+function parseValidityUnits(raw) {
+  const errors = [];
+  if (!raw) {
+    errors.push('EVENT_TYPE_VALIDITY_UNITS is missing or empty.');
+    return { units: [], errors };
+  }
+  const tokens = raw.split(';').map(s => s.trim()).filter(s => s.length > 0);
+  if (tokens.length === 0) {
+    errors.push('EVENT_TYPE_VALIDITY_UNITS contains no valid tokens (only separators / whitespace found).');
+    return { units: [], errors };
+  }
+  const seen = new Set();
+  const units = [];
+  for (const tok of tokens) {
+    const canonical = VALIDITY_UNIT_ALIASES[tok.toLowerCase()];
+    if (!canonical) {
+      errors.push(`Invalid unit "${tok}" in EVENT_TYPE_VALIDITY_UNITS. Allowed units are: days, months, seconds.`);
+      continue;
+    }
+    if (seen.has(canonical)) {
+      errors.push(`Duplicate unit "${tok}" (resolves to "${canonical}") in EVENT_TYPE_VALIDITY_UNITS.`);
+      continue;
+    }
+    seen.add(canonical);
+    units.push(canonical);
+  }
+  return { units, errors };
+}
+
+const { units: EVENT_TYPE_VALIDITY_UNITS, errors: EVENT_TYPE_VALIDITY_UNITS_ERRORS } = parseValidityUnits(EVENT_TYPE_VALIDITY_UNITS_RAW);
+
+if (EVENT_TYPE_VALIDITY_UNITS_ERRORS.length > 0 || EVENT_TYPE_VALIDITY_UNITS.length === 0) {
+  console.error(`\n[FATAL] EVENT_TYPE_VALIDITY_UNITS is missing or invalid in your .env file.`);
+  console.error(`        This parameter is REQUIRED. It defines which time units the supervisor`);
+  console.error(`        can use when creating a time-dependent event type.`);
+  console.error(`        It must be a semicolon-separated list of these units: days, months, seconds.`);
+  console.error(`        Examples of valid values:`);
+  console.error(`          EVENT_TYPE_VALIDITY_UNITS=days`);
+  console.error(`          EVENT_TYPE_VALIDITY_UNITS=months`);
+  console.error(`          EVENT_TYPE_VALIDITY_UNITS=seconds`);
+  console.error(`          EVENT_TYPE_VALIDITY_UNITS=days;months`);
+  console.error(`          EVENT_TYPE_VALIDITY_UNITS=days;months;seconds`);
+  console.error(`        Current value: "${EVENT_TYPE_VALIDITY_UNITS_RAW}"`);
+  for (const err of EVENT_TYPE_VALIDITY_UNITS_ERRORS) {
+    console.error(`          - ${err}`);
+  }
+  console.error(`        System cannot start. Exiting.\n`);
+  process.exit(1);
+}
+
+// Convert a duration object {days, months, seconds} into a single float number of DAYS.
+// Only keys present in EVENT_TYPE_VALIDITY_UNITS are taken into account.
+function validityToDays(parts) {
+  let totalDays = 0;
+  for (const unit of EVENT_TYPE_VALIDITY_UNITS) {
+    const v = Number(parts?.[unit]);
+    if (Number.isFinite(v) && v > 0) {
+      totalDays += v * VALIDITY_UNIT_TO_DAYS[unit];
+    }
+  }
+  return totalDays;
+}
+
 // PKs auto-detected from database (populated in ensureDbSqlHelpers)
 let POLYGON_PKS = [];
 
@@ -362,6 +449,33 @@ async function distinctUnassignedValues(table, column) {
 async function ensureTargetHasOlayTuru(table) {
   table = assertSafeIdent(table,'table');
   await pool.query(`ALTER TABLE public.${table} ADD COLUMN IF NOT EXISTS event_type integer`);
+}
+
+// Time-dependent expiry sweep.
+// Any active event whose event_type is time-dependent and whose lifetime
+// (created_at + valid_time days) has elapsed is deactivated: active=false and
+// deactivated_at set to the exact expiry instant. Idempotent — once a row is
+// deactivated it no longer matches, so repeated calls update 0 rows.
+async function deactivateExpiredEvents(db = pool) {
+  try {
+    const r = await db.query(`
+      UPDATE public.event e
+         SET active = false,
+             deactivated_at = e.created_at + (et.valid_time * interval '1 day')
+        FROM public.event_type et
+       WHERE e.event_type = et.event_type_id
+         AND COALESCE(e.active, true) = true
+         AND COALESCE(et.time_dependent, false) = true
+         AND et.valid_time IS NOT NULL
+         AND et.valid_time > 0
+         AND e.created_at IS NOT NULL
+         AND (e.created_at + (et.valid_time * interval '1 day')) <= now()
+    `);
+    return r.rowCount || 0;
+  } catch (e) {
+    console.error('[expiry] deactivateExpiredEvents error:', e.message);
+    return 0;
+  }
 }
 
 function publicGoodBadWhere() {
@@ -1184,7 +1298,7 @@ async function requireAuth(req, res, next) {
     let u = getCachedUser(payload.sub);
     if (!u) {
       const { rows } = await pool.query(
-        `SELECT id, username, role, email, COALESCE(is_active,true) AS is_active
+        `SELECT id, username, role, email, COALESCE(solver,false) AS solver, COALESCE(is_active,true) AS is_active
          FROM users WHERE id=$1`,
         [payload.sub]
       );
@@ -1200,7 +1314,7 @@ async function requireAuth(req, res, next) {
       res.clearCookie('token', cookieOpts(0, req));
       return res.status(403).json({ error: 'user_inactive', message: getErrorMessage(req, 'user_inactive') });
     }
-    req.user = { id: u.id, username: u.username, role: u.role, email: u.email };
+    req.user = { id: u.id, username: u.username, role: u.role, email: u.email, solver: (u.solver === true) };
     next();
   } catch {
     res.clearCookie('token', cookieOpts(0, req));
@@ -1222,13 +1336,13 @@ async function tryAuth(req, _res, next) {
     const payload = jwt.verify(t, JWT_SECRET);
 
     const { rows } = await pool.query(
-      `SELECT id, username, role, email, COALESCE(is_active,true) AS is_active
+      `SELECT id, username, role, email, COALESCE(solver,false) AS solver, COALESCE(is_active,true) AS is_active
        FROM users WHERE id=$1`,
       [payload.sub]
     );
     if (rows.length && rows[0].is_active) {
       const u = rows[0];
-      req.user = { id: u.id, username: u.username, role: u.role, email: u.email };
+      req.user = { id: u.id, username: u.username, role: u.role, email: u.email, solver: (u.solver === true) };
     }
   } catch {
     
@@ -1665,6 +1779,13 @@ async function ensureDbSqlHelpers() {
   await run('event_type drop created_by legacy', `ALTER TABLE public.event_type DROP COLUMN IF EXISTS created_by`);
   await run('event_type add public',               `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS "public" boolean DEFAULT false`);
 
+  // Time-dependency support:
+  //  - time_dependent: TRUE if this event type expires after a while, FALSE otherwise.
+  //  - valid_time    : validity period stored as a float number of DAYS
+  //                    (NULL when the event type is not time-dependent).
+  await run('event_type add time_dependent',       `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS time_dependent boolean DEFAULT false`);
+  await run('event_type add valid_time',           `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS valid_time double precision`);
+
   // Rename event_type."public" → "public_"  (idempotent: handles new & existing installs)
   await tx('event_type rename public to public_', async (c) => {
     const has_public = await c.query(
@@ -1690,6 +1811,11 @@ async function ensureDbSqlHelpers() {
 
   // users: kayıt tarihi (e-posta doğrulandığı an yazılır)
   await run('users add registration_date',    `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS registration_date timestamptz`);
+
+  // users: solver (olay kapatan) yetkisi — yalnızca 'user' rolü için anlamlıdır.
+  // true iken kullanıcı olay ekleyemez, yalnızca kullanıcıların eklediği olayları kapatabilir.
+  await run('users add solver',               `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS solver boolean DEFAULT false`);
+  await run('users solver default false',      `UPDATE public.users SET solver=false WHERE solver IS NULL`);
 
   await tx('event_type unique(event_type_name)', async (c) => {
     try {
@@ -2189,6 +2315,7 @@ app.get('/api/config', (_req, res) => {
     displayAttrs: DISPLAY_ATTRS,
     defaultLang: DEFAULT_LANG.toLowerCase(),
     restrictGnss: RESTRICT_GNSS,
+    eventTypeValidityUnits: EVENT_TYPE_VALIDITY_UNITS,
   });
 });
 /* ===================== AUTH ===================== */
@@ -2650,7 +2777,8 @@ app.get('/api/event_types', requireAuth, async (req, res) => {
   try {
     const r = await pool.query(`
       SELECT event_type_id, event_type_name, "public_" AS "public", created_by_id, created_by_name,
-             is_point, is_line, is_polygon 
+             is_point, is_line, is_polygon,
+             COALESCE(time_dependent, false) AS time_dependent, valid_time
       FROM event_type 
       WHERE COALESCE(active,true)=true 
       ORDER BY event_type_id
@@ -2676,6 +2804,10 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
   }
 
   try {
+    // Deactivate any time-dependent events whose lifetime has elapsed so they
+    // dynamically disappear from the map and the query below (active=true only).
+    await deactivateExpiredEvents();
+
     const myId = req.user?.id || 0;
     const myUser = req.user?.username || '';
     
@@ -2688,6 +2820,8 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
         o.event_type AS event_type_id,
         l.event_type_name     AS event_type_name,
         l."public_"      AS event_type_public,
+        COALESCE(l.time_dependent, false) AS event_type_time_dependent,
+        l.valid_time          AS event_type_valid_time,
         o.description,
         o.created_by_id              AS created_by_id,
         o.created_by_name            AS created_by_username,
@@ -2812,6 +2946,10 @@ app.get('/api/qfield/events', tryAuth, async (req, res) => {
 /* ===================== Olay Ekleme / Güncelleme (TEXT JSON) ===================== */
 app.post('/api/submit_olay', requireAuth, async (req, res) => {
   try {
+    // Solver (olay kapatan) kullanıcılar olay ekleyemez; yalnızca olay kapatabilir.
+    if (req.user.role === 'user' && req.user.solver === true) {
+      return res.status(403).json({ error: 'solver_cannot_add', message: getErrorMessage(req, 'solver_cannot_add') });
+    }
     const { p_id, event_type, description, latitude, longitude } = req.body || {};
     const lat = parseFloat(latitude), lng = parseFloat(longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng))
@@ -3070,29 +3208,77 @@ app.delete('/api/event/:id', requireAuth, async (req, res) => {
 
 /* ===================== Admin / Supervisor ===================== */
 const adminOnly = [requireAuth, requireAnyRole(['admin', 'supervisor'])];
+// Shared duplicate check used by both the validation endpoint and create endpoint.
+// Returns null when the name is free, otherwise an { status, error } describing which
+// of the three distinct error situations occurred.
+async function checkEventTypeName(event_type_name) {
+  if (!event_type_name) {
+    // Name was not entered at all.
+    return { status: 400, error: 'o_adi_gerekli' };
+  }
+  const existing = await pool.query(
+    `SELECT event_type_id, COALESCE(active, true) AS active
+       FROM event_type
+      WHERE LOWER(event_type_name) = LOWER($1)`,
+    [event_type_name]
+  );
+  if (existing.rowCount > 0) {
+    const anyActive = existing.rows.some(r => r.active === true);
+    if (anyActive) {
+      // An active event type with this name already exists.
+      return { status: 409, error: 'duplicate_active_event_type' };
+    }
+    // Exists in DB but every matching record is inactive (active = false).
+    return { status: 409, error: 'duplicate_inactive_event_type' };
+  }
+  return null;
+}
+
+// Pre-flight validation: the frontend calls this BEFORE opening the
+// "is this event type time-dependent?" screen so that the three distinct
+// errors (empty name / active duplicate / inactive duplicate) can be shown
+// as separate popups without creating anything yet.
+app.post('/api/admin/event_types/validate', adminOnly, async (req, res) => {
+  const event_type_name = norm(req.body?.event_type_name);
+  try {
+    const problem = await checkEventTypeName(event_type_name);
+    if (problem) {
+      return res.status(problem.status).json({ error: problem.error, message: getErrorMessage(req, problem.error) });
+    }
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error('validate event_type error:', e);
+    return res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
 app.post('/api/admin/event_types', adminOnly, async (req, res) => {
   const event_type_name = norm(req.body?.event_type_name);
   const isPublic = req.body?.["public"] === true || req.body?.["public"] === 'true';
-  
-  if (!event_type_name) return res.status(400).json({ error: 'o_adi_gerekli', message: getErrorMessage(req, 'o_adi_gerekli') });
-  try {
-    const existing = await pool.query(
-      `SELECT event_type_id, active FROM event_type WHERE LOWER(event_type_name) = LOWER($1)`,
-      [event_type_name]
-    );
-    
-    if (existing.rowCount > 0) {
-      return res.status(409).json({ 
-        error: 'duplicate_event_type',
-        message: getErrorMessage(req, 'duplicate_event_type')
-      });
+
+  // time-dependency inputs
+  const timeDependent = req.body?.time_dependent === true || req.body?.time_dependent === 'true';
+  let validTime = null;
+  if (timeDependent) {
+    const vt = Number(req.body?.valid_time);
+    if (!Number.isFinite(vt) || vt <= 0) {
+      // A time-dependent event type must have a positive validity period (in days).
+      return res.status(400).json({ error: 'gecersiz_valid_time', message: getErrorMessage(req, 'gecersiz_valid_time') });
     }
-    
+    validTime = vt;
+  }
+
+  try {
+    const problem = await checkEventTypeName(event_type_name);
+    if (problem) {
+      return res.status(problem.status).json({ error: problem.error, message: getErrorMessage(req, problem.error) });
+    }
+
     const r = await pool.query(
-      `INSERT INTO event_type (event_type_name, active, "public_", created_by_name, created_by_role_name, created_by_id)
-       VALUES ($1, true, $2, $3, $4, $5)
-       RETURNING event_type_id, event_type_name, "public_" AS "public", created_by_name, created_by_id, created_at`,
-      [event_type_name, isPublic, req.user.username, req.user.role, req.user.id]
+      `INSERT INTO event_type (event_type_name, active, "public_", created_by_name, created_by_role_name, created_by_id, time_dependent, valid_time)
+       VALUES ($1, true, $2, $3, $4, $5, $6, $7)
+       RETURNING event_type_id, event_type_name, "public_" AS "public", created_by_name, created_by_id, created_at, time_dependent, valid_time`,
+      [event_type_name, isPublic, req.user.username, req.user.role, req.user.id, timeDependent, validTime]
     );
     res.json({ ok: true, created: r.rows[0] });
   } catch (e) {
@@ -3280,7 +3466,7 @@ app.get('/api/admin/users', adminOnly, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, username, name, surname, email, role, email_verified, is_verified,
               COALESCE(is_active, true) AS is_active, deleted_by, deleted_by_role, deleted_by_id, deleted_at,
-              registration_date
+              registration_date, COALESCE(solver, false) AS solver
        FROM users
        WHERE ${where}
        ORDER BY id`
@@ -3373,6 +3559,40 @@ app.post('/api/admin/users', adminOnly, async (req, res) => {
   } finally {
     try { await client.query(`SELECT set_config('app.password_plain', NULL, true)`); } catch {}
     client.release();
+  }
+});
+
+// Solver (olay kapatan) yetkisini aç/kapa. Yalnızca 'user' rolündeki hesaplar için geçerlidir.
+// solver=true iken kullanıcı olay ekleyemez, yalnızca kullanıcı olaylarını kapatabilir.
+app.patch('/api/admin/users/:id/solver', adminOnly, async (req, res) => {
+  const id = +req.params.id;
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
+
+  const raw = req.body?.solver;
+  const solver = (raw === true || raw === 'true' || raw === 1 || raw === '1' || raw === 'yes');
+
+  try {
+    const found = await pool.query('SELECT id, role FROM users WHERE id=$1', [id]);
+    if (!found.rowCount) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+
+    const victimRole = found.rows[0].role;
+    // Solver bayrağı sadece normal kullanıcı (event-adder) hesapları için anlamlı.
+    if (victimRole !== 'user') {
+      return res.status(400).json({ error: 'solver_only_for_users', message: getErrorMessage(req, 'solver_only_for_users') });
+    }
+
+    const upd = await pool.query(
+      `UPDATE users SET solver=$2 WHERE id=$1 RETURNING id, username, role, COALESCE(solver,false) AS solver`,
+      [id, solver]
+    );
+
+    // Onbelleği temizle ki değişiklik anında etkili olsun (30sn TTL beklemeden).
+    try { _userCache.delete(id); } catch {}
+
+    res.json({ ok: true, user: upd.rows[0] });
+  } catch (e) {
+    console.error('PATCH /api/admin/users/:id/solver error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 });
 
@@ -3904,6 +4124,8 @@ async function ensureOlaylarSchema(){
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS is_polygon boolean DEFAULT false`);
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS layer_table text`);
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS attribute_column text`);
+    await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS time_dependent boolean DEFAULT false`);
+    await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS valid_time double precision`);
   } catch(e) {
     console.error('[SCHEMA] event_type column ekleme hatası:', e.message);
   } finally {
@@ -3917,6 +4139,12 @@ ensureOlaylarSchema().then(() => {
   // Yuk altinda baglanti kopmasini onle
   server.keepAliveTimeout = 65000;
   server.headersTimeout = 66000;
+
+  // Time-dependent expiry: run once at startup and then periodically so events
+  // are deactivated (active=false, deactivated_at set) promptly even when no one
+  // is refreshing the map. The reads (/api/events_all) also sweep on demand.
+  deactivateExpiredEvents().catch(() => {});
+  setInterval(() => { deactivateExpiredEvents().catch(() => {}); }, 60 * 1000);
 });
 
 // QField ve LISTEN/NOTIFY sadece worker 0'da calissin (tekrar onleme)
