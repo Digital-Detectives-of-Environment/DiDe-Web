@@ -130,6 +130,19 @@ window.i18nLangs.en = {
     solver_cannot_add: 'Solver (event closer) users cannot add events.',
     solver_only_for_users: 'The Solver permission can only be granted to regular users.',
     solver_only_time_dependent: 'Solver users can only close events from time-dependent event types.',
+
+    // Likes / points / profile overlay
+    numLikes: 'Likes',
+    like: 'Like',
+    points: 'Points',
+    posts: 'Posts',
+    likes: 'Likes',
+    postsPoint: 'Points',
+    deactivatedAt: 'Deactivated At',
+    deletedPosts: 'Deleted',
+    openMap: 'Open map',
+    goToTable: 'Go to table',
+    like_only_users: 'Only users can like posts.',
     
     events: 'Events',
     addEvent: 'Add Event',

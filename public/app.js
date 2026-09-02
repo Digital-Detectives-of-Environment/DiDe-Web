@@ -5776,7 +5776,7 @@ function renderUserTableRows(data) {
   tb.innerHTML = '';
   
   if (data.length === 0) {
-    tb.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);">${t('noRecordsFound')}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--muted);">${t('noRecordsFound')}</td></tr>`;
     return;
   }
   
@@ -5821,6 +5821,9 @@ function renderUserTableRows(data) {
       <td>${regDateStr}</td>
       <td>${u.email_verified ? t('yes') : t('no')}</td>
       <td data-cell="solver">${solverCell}</td>
+      <td>${(u.num_events != null ? u.num_events : 0)}</td>
+      <td>${(u.liked_point != null ? u.liked_point : 0)}</td>
+      <td>${(u.posts_point != null ? u.posts_point : 0)}</td>
       <td>${deleteBtn}</td>
     `;
     tb.appendChild(tr);
@@ -5932,7 +5935,7 @@ function renderEventTableRows(data) {
   }
   
   if (data.length === 0) {
-    tb.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--muted);">${t('noRecordsFound')}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--muted);">${t('noRecordsFound')}</td></tr>`;
     return;
   }
   
@@ -5964,6 +5967,7 @@ function renderEventTableRows(data) {
       <td>${hasVideo}</td>
       <td>${dateStr}</td>
       <td>${escapeHtml(tdText)}</td>
+      <td>${(o.num_likes != null ? o.num_likes : 0)}</td>
       <td><button class="btn danger" data-del-event="${o.event_id}">${t('delete')}</button></td>
     `;
     tb.appendChild(tr);
@@ -6547,6 +6551,7 @@ function applyUserModeBadge() {
       `<span class="user-mode-fallback" style="display:none;">${safeLabel}</span>`;
 
     show(modeBadge);
+    try { if (typeof wireProfileBadgeClick === 'function') wireProfileBadgeClick(); } catch {}
   } else {
     modeBadge.innerHTML = '';
     modeBadge.classList.remove('is-solver', 'is-opener');
@@ -6599,6 +6604,85 @@ function addSolverCloseButton(btnRow, evt, opts = {}) {
     }
   };
   btnRow.appendChild(cb);
+}
+
+// Beğeni (like) kontrolü — giriş yapmış 'user' rolündeki kullanıcılar (olay ekleyen + solver)
+// gönderileri beğenebilir. Beğeni sayısı dinamik güncellenir, tekrar tıklayınca geri alınır.
+function addLikeControl(container, evt, opts = {}) {
+  if (!container || !evt) return;
+  if (!currentUser || currentUser.role !== 'user') return; // yalnızca kullanıcılar beğenebilir
+
+  const wrap = document.createElement('div');
+  wrap.className = 'like-control';
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'like-btn' + (evt.i_liked ? ' liked' : '');
+  btn.setAttribute('aria-label', t('like'));
+  btn.title = t('like');
+
+  const heart = document.createElement('span');
+  heart.className = 'like-heart';
+  heart.textContent = evt.i_liked ? '♥' : '♡';
+
+  const count = document.createElement('span');
+  count.className = 'like-count';
+  count.textContent = String(evt.num_likes != null ? evt.num_likes : 0);
+
+  const label = document.createElement('span');
+  label.className = 'like-label';
+  label.textContent = t('numLikes');
+
+  btn.appendChild(heart);
+  wrap.appendChild(btn);
+  wrap.appendChild(count);
+  wrap.appendChild(label);
+
+  btn.onclick = async (e) => {
+    e.stopPropagation();
+    btn.disabled = true;
+    try {
+      const resp = await fetch(`/api/event/${evt.event_id}/like`, { method: 'POST' });
+      const d = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        toast((d.message || d.error || t('unknownError')), 'error');
+      } else {
+        evt.i_liked = !!d.liked;
+        evt.num_likes = d.num_likes;
+        heart.textContent = d.liked ? '♥' : '♡';
+        btn.classList.toggle('liked', !!d.liked);
+        count.textContent = String(d.num_likes);
+        // Diğer görünümlerdeki (varsa) aynı olayın verisini de tazele
+        try { if (typeof syncEventLikeInStates === 'function') syncEventLikeInStates(evt.event_id, d.num_likes, d.liked); } catch {}
+      }
+    } catch (err) {
+      toast(t('unknownError') + ': ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  container.appendChild(wrap);
+}
+
+// Beğeni değişince tablo state'lerindeki ilgili event kaydını günceller (varsa)
+function syncEventLikeInStates(eventId, numLikes, liked) {
+  try {
+    ['events'].forEach(k => {
+      const st = tableStates[k];
+      if (!st) return;
+      [st.data, st.filtered].forEach(arr => {
+        if (!Array.isArray(arr)) return;
+        const rec = arr.find(x => String(x.event_id) === String(eventId));
+        if (rec) { rec.num_likes = numLikes; rec.i_liked = liked; }
+      });
+    });
+    if (typeof renderTable === 'function' && tableStates.events) {
+      // Süpervizör olaylar tablosu açıksa beğeni sütununu tazele
+      const tab = qs('#events-tab');
+      if (tab && tab.classList.contains('active')) renderTable('events');
+    }
+  } catch {}
 }
 
 function updateClickMarkerFromInputs(){
@@ -6769,6 +6853,9 @@ function recreatePopupContent(evt, marker) {
   }
 
   addSolverCloseButton(btnRow, evt, { publicMode: false });
+
+  // Beğeni (like) kontrolü — pop-up'ın altında görünür
+  addLikeControl(content, evt, { publicMode: false });
 
   marker.setPopupContent(content);
   populateEventMedia(content, evt);
@@ -9801,7 +9888,9 @@ function updateTableHeaders() {
     rebuildHeader(headers[4], t('photo'), true);          
     rebuildHeader(headers[5], t('video'), true);          
     rebuildHeader(headers[6], t('addedDate'), true);      
-    rebuildHeader(headers[7], t('actions'), false);       
+    rebuildHeader(headers[7], t('timeDependentColumn'), true);
+    rebuildHeader(headers[8], t('numLikes'), false);      
+    rebuildHeader(headers[9], t('actions'), false);       
   }
   
   // Types Table
@@ -9826,7 +9915,10 @@ function updateTableHeaders() {
     rebuildHeader(headers[3], t('registrationDate'), true);
     rebuildHeader(headers[4], t('verified'), true);      
     rebuildHeader(headers[5], t('solver'), false);        
-    rebuildHeader(headers[6], t('actions'), false);       
+    rebuildHeader(headers[6], t('posts'), false);         
+    rebuildHeader(headers[7], t('likes'), false);         
+    rebuildHeader(headers[8], t('postsPoint'), false);    
+    rebuildHeader(headers[9], t('actions'), false);       
   }
 }
 document.addEventListener('DOMContentLoaded', () => {
@@ -9944,3 +10036,339 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+/* =====================================================================
+   PROFİL OVERLAY MODÜLÜ (tam ekran, mobil uyumlu, dil destekli)
+   - Sayfa 1: Profil (logo + kullanıcı adı/rol + puan + büyük harita logosu)
+   - Sayfa 2: Gönderiler / Silinenler tablosu (5 satır/sayfa, sayfalı)
+   - Harita görünümü: yalnızca kullanıcının kendi olayları; tablo<->harita geçişli
+   ===================================================================== */
+const __pf = {
+  posts: [],
+  page: 1,
+  perPage: 5,
+  solver: false,
+  map: null,
+  markers: {},
+  focusId: null,
+  highlightId: null
+};
+
+function pfEl(id){ return document.getElementById(id); }
+
+function pfRoleImage(){
+  return isSolverUser() ? '/user_solver_role.jpeg' : '/user_adding_role.jpeg';
+}
+
+async function openProfileOverlay(){
+  const ov = pfEl('profile-overlay');
+  if (!ov) return;
+  if (!currentUser || currentUser.role !== 'user') return; // yalnızca kullanıcı hesapları
+
+  __pf.solver = isSolverUser();
+
+  // Overlay'i göster
+  ov.classList.remove('hidden');
+  ov.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+  pfShowPage(0);
+  pfCloseMap(); // harita kapalı başlasın
+
+  // Avatar + başlık
+  const av = pfEl('profile-avatar');
+  if (av) { av.src = pfRoleImage(); av.onerror = function(){ this.style.visibility='hidden'; }; }
+
+  // Gönderiler/Silinenler başlığı ve tablo başlıkları solver'a göre
+  const postsTitle = pfEl('profile-posts-title');
+  if (postsTitle) postsTitle.textContent = __pf.solver ? t('deletedPosts') : t('posts');
+
+  // Verileri çek
+  try {
+    const [statsR, postsR] = await Promise.all([
+      fetch('/api/me/stats').then(r => r.json()).catch(() => ({})),
+      fetch('/api/me/posts').then(r => r.json()).catch(() => ({ posts: [] }))
+    ]);
+    pfRenderProfile(statsR);
+    __pf.posts = Array.isArray(postsR.posts) ? postsR.posts : [];
+    __pf.page = 1;
+    pfRenderPostsTable();
+  } catch (e) {
+    console.error('profile load error:', e);
+  }
+}
+
+function pfRenderProfile(stats){
+  const uname = pfEl('profile-username');
+  const role = pfEl('profile-role');
+  const score = pfEl('profile-score-value');
+  if (uname) uname.textContent = (stats && stats.username) ? stats.username : (currentUser ? currentUser.username : '');
+  if (role) {
+    role.textContent = __pf.solver ? t('solver') : t('openEvent');
+    role.classList.toggle('is-solver', __pf.solver);
+    role.classList.toggle('is-opener', !__pf.solver);
+  }
+  if (score) {
+    // Olay ekleyen: hesaplanan puan; Solver: kapattığı olay sayısını puan olarak gösterelim
+    const val = __pf.solver ? (stats.closed_count != null ? stats.closed_count : 0)
+                            : (stats.posts_point != null ? stats.posts_point : 0);
+    score.textContent = String(val);
+  }
+}
+
+function pfTotalPages(){
+  return Math.max(1, Math.ceil(__pf.posts.length / __pf.perPage));
+}
+
+function pfRenderPostsTable(){
+  const tb = pfEl('profile-posts-tbody');
+  if (!tb) return;
+  tb.innerHTML = '';
+
+  if (__pf.posts.length === 0){
+    tb.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted,#888);padding:16px;">${t('noRecordsFound')}</td></tr>`;
+    pfRenderPagination();
+    return;
+  }
+
+  const start = (__pf.page - 1) * __pf.perPage;
+  const pageRows = __pf.posts.slice(start, start + __pf.perPage);
+
+  pageRows.forEach(p => {
+    const tr = document.createElement('tr');
+    tr.className = 'profile-post-row';
+    tr.dataset.eventId = p.event_id;
+    if (String(__pf.highlightId) === String(p.event_id)) tr.classList.add('pf-row-highlight');
+
+    const typeName = p.event_type_name ? escapeHtml(p.event_type_name) : '-';
+    const createdStr = p.created_at ? formatDate(p.created_at) : '-';
+    const deacStr = p.deactivated_at ? formatDate(p.deactivated_at) : '-';
+    const likes = (p.num_likes != null ? p.num_likes : 0);
+
+    tr.innerHTML = `
+      <td>${typeName}</td>
+      <td>${createdStr}</td>
+      <td>${deacStr}</td>
+      <td>${likes}</td>
+      <td class="profile-map-col">
+        <button class="pf-row-map icon-btn" type="button" data-i18n-title="openMap" title="${t('openMap')}">
+          <img src="/map-view.svg" alt="map" width="18" height="18" onerror="this.onerror=null;this.src='/useposition.svg';" />
+        </button>
+      </td>`;
+
+    // Satıra tıkla → haritada göster
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('.pf-row-map')) return; // buton kendi handler'ında
+      pfOpenMap(p.event_id);
+    });
+    const mapBtn = tr.querySelector('.pf-row-map');
+    if (mapBtn) mapBtn.addEventListener('click', (e) => { e.stopPropagation(); pfOpenMap(p.event_id); });
+
+    tb.appendChild(tr);
+  });
+
+  pfRenderPagination();
+}
+
+function pfRenderPagination(){
+  const pag = pfEl('profile-pagination');
+  if (!pag) return;
+  pag.innerHTML = '';
+  const total = pfTotalPages();
+  if (total <= 1) return;
+
+  const mkBtn = (label, page, disabled, active) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pf-page-btn' + (active ? ' active' : '');
+    b.textContent = label;
+    b.disabled = !!disabled;
+    if (!disabled && !active) b.onclick = () => { __pf.page = page; pfRenderPostsTable(); };
+    return b;
+  };
+
+  pag.appendChild(mkBtn('‹', __pf.page - 1, __pf.page <= 1, false));
+  for (let i = 1; i <= total; i++){
+    pag.appendChild(mkBtn(String(i), i, false, i === __pf.page));
+  }
+  pag.appendChild(mkBtn('›', __pf.page + 1, __pf.page >= total, false));
+}
+
+/* ---- Harita görünümü ---- */
+function pfEnsureMap(){
+  if (__pf.map) return __pf.map;
+  const el = pfEl('profile-map');
+  if (!el || typeof L === 'undefined') return null;
+  __pf.map = L.map(el, { zoomControl: true, worldCopyJump: false });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors', noWrap: true
+  }).addTo(__pf.map);
+  __pf.map.setView([39.0, 35.0], 5);
+  return __pf.map;
+}
+
+function pfPopupHtml(p){
+  const typeName = p.event_type_name ? escapeHtml(p.event_type_name) : '-';
+  const desc = p.description ? `<div class="pf-pop-desc">${escapeHtml(p.description)}</div>` : '';
+  const likes = (p.num_likes != null ? p.num_likes : 0);
+  return `
+    <div class="pf-popup">
+      <div class="pf-pop-type">${typeName}</div>
+      ${desc}
+      <div class="pf-pop-likes"><span class="pf-pop-likes-label">${t('numLikes')}:</span> <b>${likes}</b></div>
+      <button class="pf-pop-table icon-btn" type="button" data-event-id="${p.event_id}" title="${t('goToTable')}">
+        <img src="/map-view.svg" alt="table" width="18" height="18" onerror="this.onerror=null;this.src='/useposition.svg';" />
+        <span class="pf-pop-table-txt">${t('goToTable')}</span>
+      </button>
+    </div>`;
+}
+
+function pfOpenMap(focusEventId){
+  const view = pfEl('profile-map-view');
+  if (!view) return;
+  view.classList.remove('hidden');
+  const m = pfEnsureMap();
+  if (!m) return;
+
+  // Markerları (yeniden) çiz
+  Object.values(__pf.markers).forEach(mk => { try { m.removeLayer(mk); } catch {} });
+  __pf.markers = {};
+
+  const pts = [];
+  __pf.posts.forEach(p => {
+    const lat = parseFloat(p.latitude), lng = parseFloat(p.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const mk = L.circleMarker([lat, lng], {
+      radius: 9, color: '#b91c1c', weight: 2, fillColor: '#ef4444', fillOpacity: 0.85
+    }).addTo(m);
+    mk.bindPopup(pfPopupHtml(p), { maxWidth: 260 });
+    mk.on('popupopen', (ev) => {
+      const node = ev.popup.getElement();
+      if (!node) return;
+      const btn = node.querySelector('.pf-pop-table');
+      if (btn) btn.onclick = () => pfGotoTableForEvent(p.event_id);
+    });
+    __pf.markers[p.event_id] = mk;
+    pts.push([lat, lng]);
+  });
+
+  // Boyutu düzelt ve odakla
+  setTimeout(() => {
+    try { m.invalidateSize(); } catch {}
+    if (focusEventId != null && __pf.markers[focusEventId]){
+      const mk = __pf.markers[focusEventId];
+      m.setView(mk.getLatLng(), 15, { animate: false });
+      mk.openPopup();
+    } else if (pts.length){
+      try { m.fitBounds(L.latLngBounds(pts).pad(0.2)); } catch { m.setView(pts[0], 12); }
+    }
+  }, 60);
+}
+
+function pfCloseMap(){
+  const view = pfEl('profile-map-view');
+  if (view) view.classList.add('hidden');
+}
+
+// Haritadaki pop-up'tan tabloya geç: ilgili olayın bulunduğu sayfaya git ve satırı vurgula
+function pfGotoTableForEvent(eventId){
+  const idx = __pf.posts.findIndex(p => String(p.event_id) === String(eventId));
+  if (idx >= 0){
+    __pf.page = Math.floor(idx / __pf.perPage) + 1;
+    __pf.highlightId = eventId;
+  }
+  pfCloseMap();
+  pfShowPage(1); // gönderiler sayfasına kaydır
+  pfRenderPostsTable();
+  // Vurgulanan satıra kaydır
+  setTimeout(() => {
+    const row = document.querySelector(`.profile-post-row[data-event-id="${eventId}"]`);
+    if (row) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, 80);
+}
+
+/* ---- Sayfa gösterimi / kaydırma ---- */
+function pfShowPage(index){
+  const pager = pfEl('profile-pager');
+  if (!pager) return;
+  const slides = pager.querySelectorAll('.profile-slide');
+  if (!slides.length) return;
+  const target = slides[index] || slides[0];
+  pager.scrollTo({ left: target.offsetLeft, behavior: 'smooth' });
+  // Noktaları güncelle
+  document.querySelectorAll('.profile-dot').forEach((d, i) => d.classList.toggle('is-active', i === index));
+}
+
+function closeProfileOverlay(){
+  const ov = pfEl('profile-overlay');
+  if (!ov) return;
+  ov.classList.add('hidden');
+  ov.setAttribute('aria-hidden', 'true');
+  document.body.style.overflow = '';
+  pfCloseMap();
+  __pf.highlightId = null;
+}
+
+// Overlay olaylarını bağla
+function initProfileOverlay(){
+  const closeBtn = pfEl('profile-close');
+  if (closeBtn) closeBtn.onclick = closeProfileOverlay;
+
+  const bigMap = pfEl('profile-map-open-big');
+  if (bigMap) bigMap.onclick = () => pfOpenMap(null);
+
+  const listMap = pfEl('profile-map-open-list');
+  if (listMap) listMap.onclick = () => pfOpenMap(null);
+
+  const backBtn = pfEl('profile-map-back');
+  if (backBtn) backBtn.onclick = pfCloseMap;
+
+  // Noktalarla sayfa geçişi
+  document.querySelectorAll('.profile-dot').forEach(d => {
+    d.onclick = () => pfShowPage(parseInt(d.getAttribute('data-page'), 10) || 0);
+  });
+
+  // Kaydırınca aktif noktayı güncelle
+  const pager = pfEl('profile-pager');
+  if (pager){
+    let deb = null;
+    pager.addEventListener('scroll', () => {
+      if (deb) cancelAnimationFrame(deb);
+      deb = requestAnimationFrame(() => {
+        const slides = pager.querySelectorAll('.profile-slide');
+        let best = 0, bestDist = Infinity;
+        slides.forEach((s, i) => {
+          const dist = Math.abs(s.offsetLeft - pager.scrollLeft);
+          if (dist < bestDist){ bestDist = dist; best = i; }
+        });
+        document.querySelectorAll('.profile-dot').forEach((dt, i) => dt.classList.toggle('is-active', i === best));
+      });
+    }, { passive: true });
+  }
+
+  // ESC ile kapat
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape'){
+      const ov = pfEl('profile-overlay');
+      if (ov && !ov.classList.contains('hidden')) closeProfileOverlay();
+    }
+  });
+}
+
+// Header rol logosuna tıklayınca profil overlay'i aç
+function wireProfileBadgeClick(){
+  const badge = document.getElementById('user-mode-badge');
+  if (badge && !badge.__pfWired){
+    badge.__pfWired = true;
+    badge.style.cursor = 'pointer';
+    badge.setAttribute('role', 'button');
+    badge.setAttribute('tabindex', '0');
+    badge.addEventListener('click', () => openProfileOverlay());
+    badge.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openProfileOverlay(); } });
+  }
+}
+
+// DOM hazır olduğunda başlat
+if (document.readyState === 'loading'){
+  document.addEventListener('DOMContentLoaded', () => { try { initProfileOverlay(); } catch(e){ console.warn('initProfileOverlay', e); } });
+} else {
+  try { initProfileOverlay(); } catch(e){ console.warn('initProfileOverlay', e); }
+}

@@ -1122,6 +1122,34 @@ function cookieOptsSession(req = null) {
   return { ...baseCookieFlags(req) };
 }
 
+// Bir kullanıcının olay/beğeni istatistiklerini event tablosundan yeniden hesaplar
+// ve users tablosuna yazar. Beğeni değişince, olay eklenince/kapatılınca çağrılır.
+//   num_events  = kullanıcının eklediği toplam olay (aktif+deaktif)
+//   liked_point = gönderilerinde aldığı toplam beğeni
+//   posts_point = SUM(2*num_likes + 1) = 2*liked_point + num_events
+async function recomputeUserStats(userId) {
+  if (userId == null) return;
+  try {
+    await pool.query(
+      `UPDATE public.users u SET
+         num_events  = COALESCE(sub.cnt, 0),
+         liked_point = COALESCE(sub.likes, 0),
+         posts_point = COALESCE(2*sub.likes + sub.cnt, 0)
+       FROM (
+         SELECT COUNT(*) AS cnt,
+                COALESCE(SUM(COALESCE(num_likes,0)),0) AS likes
+         FROM public.event
+         WHERE created_by_id = $1
+       ) sub
+       WHERE u.id = $1`,
+      [userId]
+    );
+    try { _userCache.delete(userId); } catch {}
+  } catch (e) {
+    console.error('recomputeUserStats error for user', userId, e.message);
+  }
+}
+
 function _fileExists(p){ try { return fs.existsSync(p) && fs.statSync(p).isFile(); } catch { return false; } }
 
 
@@ -1816,6 +1844,39 @@ async function ensureDbSqlHelpers() {
   // true iken kullanıcı olay ekleyemez, yalnızca kullanıcıların eklediği olayları kapatabilir.
   await run('users add solver',               `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS solver boolean DEFAULT false`);
   await run('users solver default false',      `UPDATE public.users SET solver=false WHERE solver IS NULL`);
+
+  // ===== Beğeni (like) ve puanlama altyapısı =====
+  // event.num_likes  : o gönderinin (olayın) aldığı toplam beğeni sayısı (dinamik güncellenir)
+  // event.liked_ids  : gönderiyi beğenen kullanıcı ID'lerinin listesi (JSONB dizi)
+  await run('event add num_likes',            `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS num_likes integer DEFAULT 0`);
+  await run('event add liked_ids',            `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS liked_ids jsonb DEFAULT '[]'::jsonb`);
+  await run('event num_likes default 0',       `UPDATE public.event SET num_likes=0 WHERE num_likes IS NULL`);
+  await run('event liked_ids default []',      `UPDATE public.event SET liked_ids='[]'::jsonb WHERE liked_ids IS NULL`);
+
+  // users (olay ekleyen "expert" hesapları) için agregat istatistikler:
+  //   num_events  : kullanıcının eklediği toplam olay sayısı (aktif + deaktif)
+  //   liked_point : kullanıcının gönderilerinde aldığı toplam beğeni sayısı
+  //   posts_point : genel hesaplanan puan = SUM(2*num_likes + 1) = 2*liked_point + num_events
+  await run('users add num_events',           `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS num_events integer DEFAULT 0`);
+  await run('users add liked_point',          `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS liked_point integer DEFAULT 0`);
+  await run('users add posts_point',          `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS posts_point integer DEFAULT 0`);
+
+  // İlk kurulum/mevcut veriler için tek seferlik geri-doldurma (backfill)
+  await run('backfill user stats', `
+    UPDATE public.users u SET
+      num_events  = COALESCE(sub.cnt, 0),
+      liked_point = COALESCE(sub.likes, 0),
+      posts_point = COALESCE(2*sub.likes + sub.cnt, 0)
+    FROM (
+      SELECT created_by_id AS uid,
+             COUNT(*) AS cnt,
+             COALESCE(SUM(COALESCE(num_likes,0)),0) AS likes
+      FROM public.event
+      WHERE created_by_id IS NOT NULL
+      GROUP BY created_by_id
+    ) sub
+    WHERE u.id = sub.uid
+  `);
 
   await tx('event_type unique(event_type_name)', async (c) => {
     try {
@@ -2831,6 +2892,8 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
         o.updated_by_role_name,
         o.photo_urls,
         o.video_urls,
+        COALESCE(o.num_likes, 0) AS num_likes,
+        (COALESCE(o.liked_ids, '[]'::jsonb) @> to_jsonb($3::int)) AS i_liked,
         ${POLYGON_PKS.map(p => `o."${p.safeName}"`).join(',\n        ')}${POLYGON_PKS.length > 0 ? ',' : ''}
         ((o.created_by_id = $1) OR (o.created_by_name = $2)) AS is_mine
       FROM event o
@@ -2838,7 +2901,7 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
       WHERE COALESCE(o.active, true) = true
       ORDER BY o.event_id DESC
       `,
-      [myId, myUser]
+      [myId, myUser, myId]
     );
 
     let rows = r.rows.map((row) => {
@@ -2882,6 +2945,145 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
   } catch (e) {
     console.error('GET /api/events_all error:', e);
     res.status(500).json({ error: 'sunucu_hatasi', message: getErrorMessage(req, 'sunucu_hatasi') });
+  }
+});
+
+/* =============== Beğeni (Like) toggle ===============
+   Yalnızca 'user' rolündeki hesaplar (olay ekleyen + solver) beğenebilir.
+   Aynı kullanıcı tekrar isterse beğeniyi geri alır (toggle).
+   num_likes ve liked_ids dinamik güncellenir; gönderi sahibinin puanı yeniden hesaplanır. */
+app.post('/api/event/:id/like', requireAuth, async (req, res) => {
+  const id = +req.params.id;
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
+  if (req.user.role !== 'user') {
+    return res.status(403).json({ error: 'like_only_users', message: getErrorMessage(req, 'like_only_users') });
+  }
+
+  const uid = req.user.id;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const cur = await client.query(
+      `SELECT event_id, created_by_id, COALESCE(num_likes,0) AS num_likes,
+              COALESCE(liked_ids,'[]'::jsonb) AS liked_ids
+         FROM event
+        WHERE event_id=$1 AND COALESCE(active,true)=true
+        FOR UPDATE`,
+      [id]
+    );
+    if (!cur.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    }
+
+    let ids = [];
+    try { ids = Array.isArray(cur.rows[0].liked_ids) ? cur.rows[0].liked_ids.map(Number) : JSON.parse(cur.rows[0].liked_ids).map(Number); } catch { ids = []; }
+    const already = ids.includes(uid);
+    let liked;
+    if (already) {
+      ids = ids.filter(x => x !== uid);
+      liked = false;
+    } else {
+      ids.push(uid);
+      liked = true;
+    }
+    const newCount = ids.length;
+
+    await client.query(
+      `UPDATE event SET num_likes=$2, liked_ids=$3::jsonb WHERE event_id=$1`,
+      [id, newCount, JSON.stringify(ids)]
+    );
+    await client.query('COMMIT');
+
+    // Gönderi sahibinin puanını güncelle
+    try { await recomputeUserStats(cur.rows[0].created_by_id); } catch {}
+
+    res.json({ ok: true, event_id: id, num_likes: newCount, liked });
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch {}
+    console.error('POST /api/event/:id/like error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  } finally {
+    client.release();
+  }
+});
+
+/* =============== Profil: istatistikler =============== */
+app.get('/api/me/stats', requireAuth, async (req, res) => {
+  try {
+    // En güncel değerler için önce yeniden hesapla (olay ekleyen kullanıcılar için)
+    if (req.user.role === 'user' && req.user.solver !== true) {
+      try { await recomputeUserStats(req.user.id); } catch {}
+    }
+    const { rows } = await pool.query(
+      `SELECT username, role, COALESCE(solver,false) AS solver,
+              COALESCE(num_events,0) AS num_events,
+              COALESCE(liked_point,0) AS liked_point,
+              COALESCE(posts_point,0) AS posts_point
+         FROM users WHERE id=$1`,
+      [req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+
+    const u = rows[0];
+    // Solver için "silinen olay" sayısını da hesapla (kendi kapattıkları)
+    let closed_count = 0;
+    if (u.solver === true) {
+      const c = await pool.query(`SELECT COUNT(*)::int AS c FROM event WHERE deactivated_by_id=$1`, [req.user.id]);
+      closed_count = c.rows[0].c;
+    }
+    res.json({
+      username: u.username,
+      role: u.role,
+      solver: u.solver === true,
+      num_events: u.num_events,
+      liked_point: u.liked_point,
+      posts_point: u.posts_point,
+      closed_count
+    });
+  } catch (e) {
+    console.error('GET /api/me/stats error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+/* =============== Profil: gönderilerim / sildiklerim ===============
+   Olay ekleyen kullanıcı  -> kendi eklediği olaylar (aktif + deaktif)
+   Solver (olay kapatan)    -> kendi kapattığı (deactivated_by_id) olaylar */
+app.get('/api/me/posts', requireAuth, async (req, res) => {
+  try {
+    const isSolver = (req.user.role === 'user' && req.user.solver === true);
+    const whereClause = isSolver ? `o.deactivated_by_id = $1` : `o.created_by_id = $1`;
+    const r = await pool.query(
+      `SELECT
+         o.event_id, o.latitude, o.longitude,
+         o.event_type AS event_type_id,
+         l.event_type_name AS event_type_name,
+         COALESCE(l.time_dependent,false) AS event_type_time_dependent,
+         o.description,
+         o.created_at,
+         o.deactivated_at,
+         COALESCE(o.active,true) AS active,
+         COALESCE(o.num_likes,0) AS num_likes,
+         o.created_by_name AS created_by_username,
+         o.created_by_role_name AS created_by_role_name,
+         o.photo_urls, o.video_urls,
+         ((o.created_by_id = $1)) AS is_mine
+       FROM event o
+       LEFT JOIN event_type l ON l.event_type_id = o.event_type
+       WHERE ${whereClause}
+       ORDER BY COALESCE(o.deactivated_at, o.created_at) DESC NULLS LAST, o.event_id DESC`,
+      [req.user.id]
+    );
+    const rows = r.rows.map(row => ({
+      ...row,
+      photo_urls: parseJsonText(row.photo_urls),
+      video_urls: parseJsonText(row.video_urls),
+    }));
+    res.json({ solver: isSolver, posts: rows });
+  } catch (e) {
+    console.error('GET /api/me/posts error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 });
 
@@ -3025,6 +3227,8 @@ app.post('/api/submit_olay', requireAuth, async (req, res) => {
     const pId = p_id === '' || p_id == null ? null : parseInt(p_id, 10);
     if (Number.isInteger(pId)) await pool.query('INSERT INTO kayit (p_id, event_id) VALUES ($1,$2)', [pId, event_id]);
 
+    // Yeni olay eklendi → ekleyen kullanıcının istatistiklerini güncelle
+    try { await recomputeUserStats(req.user.id); } catch {}
 
     res.json({ success: true, event_id, photo_urls: photoUrls, video_urls: videoUrls });
   } catch (e) {
@@ -3491,7 +3695,10 @@ app.get('/api/admin/users', adminOnly, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, username, name, surname, email, role, email_verified, is_verified,
               COALESCE(is_active, true) AS is_active, deleted_by, deleted_by_role, deleted_by_id, deleted_at,
-              registration_date, COALESCE(solver, false) AS solver
+              registration_date, COALESCE(solver, false) AS solver,
+              COALESCE(num_events, 0)  AS num_events,
+              COALESCE(liked_point, 0) AS liked_point,
+              COALESCE(posts_point, 0) AS posts_point
        FROM users
        WHERE ${where}
        ORDER BY id`

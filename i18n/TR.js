@@ -130,6 +130,19 @@ window.i18nLangs.tr = {
     solver_cannot_add: 'Solver (olay kapatan) kullanıcılar olay ekleyemez.',
     solver_only_for_users: 'Solver yetkisi yalnızca normal kullanıcılara verilebilir.',
     solver_only_time_dependent: 'Solver yalnızca zamana bağlı olay türlerinden eklenen olayları kapatabilir.',
+
+    // Beğeni / puan / profil overlay
+    numLikes: 'Beğeniler',
+    like: 'Beğen',
+    points: 'Puan',
+    posts: 'Gönderiler',
+    likes: 'Beğeniler',
+    postsPoint: 'Puan',
+    deactivatedAt: 'Kapatılma Tarihi',
+    deletedPosts: 'Silinenler',
+    openMap: 'Haritayı aç',
+    goToTable: 'Tabloya git',
+    like_only_users: 'Yalnızca kullanıcılar gönderileri beğenebilir.',
     
     events: 'Olaylar',
     addEvent: 'Olay Ekle',

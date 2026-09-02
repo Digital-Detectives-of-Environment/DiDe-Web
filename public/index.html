@@ -619,6 +619,9 @@
                       <div class="filter-dropdown" data-column="verified"></div>
                     </th>
                     <th data-i18n="solver">Solver</th>
+                    <th data-i18n="posts">Posts</th>
+                    <th data-i18n="likes">Likes</th>
+                    <th data-i18n="postsPoint">Points</th>
                     <th data-i18n="actions">Actions</th>
                   </tr>
                 </thead>
@@ -675,6 +678,7 @@
                       <span class="filter-icon" data-column="timedependent" data-i18n-title="search">▼</span>
                       <div class="filter-dropdown" data-column="timedependent"></div>
                     </th>
+                    <th data-i18n="numLikes">Likes</th>
                     <th data-i18n="actions">Actions</th>
                   </tr>
                 </thead>
@@ -888,6 +892,73 @@
       <div class="row gap6" style="justify-content:flex-end;">
         <button id="td-cancel-no" class="btn ghost" type="button" data-i18n="no">No</button>
         <button id="td-cancel-yes" class="btn danger" type="button" data-i18n="yes">Yes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PROFİL OVERLAY (tam ekran, mobil uyumlu) ============ -->
+  <div id="profile-overlay" class="profile-overlay hidden" aria-hidden="true">
+    <div class="profile-overlay-inner">
+      <button id="profile-close" class="profile-close" type="button" aria-label="Close" data-i18n-title="close" title="Close">&#10005;</button>
+
+      <!-- Kaydırmalı sayfalar (profil + gönderiler/silinenler) -->
+      <div id="profile-pager" class="profile-pager">
+        <!-- Sayfa 1: Profil -->
+        <section class="profile-slide" id="profile-slide-profile">
+          <div class="profile-card">
+            <div class="profile-head">
+              <img id="profile-avatar" class="profile-avatar" src="/user_adding_role.jpeg" alt="profile" />
+              <div class="profile-head-info">
+                <div id="profile-username" class="profile-username">—</div>
+                <div id="profile-role" class="profile-role">—</div>
+              </div>
+            </div>
+            <div class="profile-score">
+              <span class="profile-score-label" data-i18n="points">Points</span>
+              <span id="profile-score-value" class="profile-score-value">0</span>
+            </div>
+            <button id="profile-map-open-big" class="profile-map-open-big" type="button" data-i18n-title="openMap" title="Open map">
+              <img src="/map-view.svg" alt="map" class="profile-map-open-big-img" onerror="this.onerror=null;this.src='/useposition.svg';" />
+            </button>
+          </div>
+        </section>
+
+        <!-- Sayfa 2: Gönderiler / Silinenler tablosu -->
+        <section class="profile-slide" id="profile-slide-posts">
+          <div class="profile-posts-head">
+            <h3 id="profile-posts-title" class="profile-posts-title" data-i18n="posts">Posts</h3>
+            <button id="profile-map-open-list" class="profile-map-open-list icon-btn" type="button" data-i18n-title="openMap" title="Open map">
+              <img src="/map-view.svg" alt="map" class="profile-map-open-list-img" onerror="this.onerror=null;this.src='/useposition.svg';" />
+            </button>
+          </div>
+          <div class="profile-table-wrap">
+            <table id="profile-posts-table" class="profile-posts-table">
+              <thead>
+                <tr>
+                  <th data-i18n="type">Type</th>
+                  <th data-i18n="addedDate">Created</th>
+                  <th data-i18n="deactivatedAt">Deactivated</th>
+                  <th data-i18n="numLikes">Likes</th>
+                  <th class="profile-map-col"></th>
+                </tr>
+              </thead>
+              <tbody id="profile-posts-tbody"></tbody>
+            </table>
+          </div>
+          <div id="profile-pagination" class="profile-pagination"></div>
+        </section>
+      </div>
+
+      <!-- Sayfa göstergeleri -->
+      <div class="profile-dots">
+        <button class="profile-dot is-active" data-page="0" type="button" aria-label="1"></button>
+        <button class="profile-dot" data-page="1" type="button" aria-label="2"></button>
+      </div>
+
+      <!-- Harita görünümü (tablo/harita geçişli) -->
+      <div id="profile-map-view" class="profile-map-view hidden">
+        <button id="profile-map-back" class="profile-map-back" type="button" data-i18n="back">&#8592; Back</button>
+        <div id="profile-map" class="profile-map"></div>
       </div>
     </div>
   </div>
