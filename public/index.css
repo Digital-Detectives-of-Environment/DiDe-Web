@@ -3246,7 +3246,7 @@ th:has(#btn-add-type){
 
 /* Sayfa 2: Gönderiler / Silinenler */
 .profile-posts-head{
-  max-width:820px;
+  max-width:1100px;
   margin:0 auto 14px;
   display:flex;
   align-items:center;
@@ -3275,7 +3275,8 @@ th:has(#btn-add-type){
 .profile-map-open-list-img{ width:24px; height:24px; }
 
 .profile-table-wrap{
-  max-width:820px;
+  max-width:min(1100px, 100%);
+  width:100%;
   margin:0 auto;
   overflow-x:auto;
   border:1px solid var(--border, #e5e7eb);
@@ -3286,6 +3287,7 @@ th:has(#btn-add-type){
   width:100%;
   border-collapse:collapse;
   font-size:14px;
+  table-layout:auto; /* sütun genişlikleri içeriğe göre dinamik */
 }
 .profile-posts-table thead th{
   text-align:left;
@@ -3299,7 +3301,10 @@ th:has(#btn-add-type){
 .profile-posts-table tbody td{
   padding:11px 10px;
   border-bottom:1px solid var(--border, #eef2f7);
-  white-space:nowrap;
+  white-space:normal;      /* uzun metin alt satıra sarar → yatay kaydırma gerekmez */
+  word-break:break-word;
+  overflow-wrap:anywhere;
+  vertical-align:top;
 }
 .profile-post-row{ cursor:pointer; transition:background .12s ease; }
 .profile-post-row:hover{ background:#f8fafc; }
@@ -3323,7 +3328,7 @@ th:has(#btn-add-type){
 
 /* Sayfalama */
 .profile-pagination{
-  max-width:820px;
+  max-width:1100px;
   margin:16px auto 0;
   display:flex;
   gap:6px;
@@ -3380,15 +3385,21 @@ th:has(#btn-add-type){
   top:12px;
   left:12px;
   z-index:1000;
-  padding:9px 16px;
-  border-radius:999px;
+  width:44px;
+  height:44px;
+  padding:0;
+  border-radius:50%;
   border:1.5px solid var(--border, #e5e7eb);
   background:#fff;
   color:var(--text, #111);
-  font-weight:700;
   cursor:pointer;
-  box-shadow:0 2px 8px rgba(0,0,0,.12);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  box-shadow:0 2px 8px rgba(0,0,0,.15);
 }
+.profile-map-back:hover{ background:#f1f5f9; }
+.profile-map-back img{ width:22px; height:22px; display:block; }
 .profile-map{ flex:1 1 auto; width:100%; height:100%; }
 
 /* Profil harita pop-up içeriği */
@@ -3396,20 +3407,22 @@ th:has(#btn-add-type){
 .pf-pop-type{ font-weight:800; font-size:15px; margin-bottom:4px; }
 .pf-pop-desc{ color:var(--muted, #6b7280); font-size:13px; margin-bottom:6px; word-break:break-word; }
 .pf-pop-likes{ font-size:14px; margin-bottom:8px; }
+.pf-pop-actions{ display:flex; justify-content:flex-start; }
 .pf-pop-table{
   display:inline-flex;
   align-items:center;
-  gap:6px;
-  padding:7px 12px;
+  justify-content:center;
+  width:40px;
+  height:40px;
+  padding:0;
   border:1.5px solid var(--primary, #2563eb);
-  border-radius:9px;
+  border-radius:10px;
   background:#fff;
   color:var(--primary, #2563eb);
   cursor:pointer;
-  font-weight:600;
-  font-size:13px;
 }
 .pf-pop-table:hover{ background:#eff6ff; }
+.pf-pop-table img{ width:22px; height:22px; display:block; }
 
 /* Mobil ince ayarlar */
 @media (max-width: 576px){

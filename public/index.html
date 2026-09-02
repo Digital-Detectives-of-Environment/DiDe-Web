@@ -957,7 +957,9 @@
 
       <!-- Harita görünümü (tablo/harita geçişli) -->
       <div id="profile-map-view" class="profile-map-view hidden">
-        <button id="profile-map-back" class="profile-map-back" type="button" data-i18n="back">&#8592; Back</button>
+        <button id="profile-map-back" class="profile-map-back" type="button" data-i18n-title="back" title="Back" aria-label="Back">
+          <img src="/back.svg" alt="" width="22" height="22" onerror="this.onerror=null;this.src='/dontuseposition.svg';" />
+        </button>
         <div id="profile-map" class="profile-map"></div>
       </div>
     </div>

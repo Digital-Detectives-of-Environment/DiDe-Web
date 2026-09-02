@@ -118,7 +118,7 @@ window.i18nLangs.en = {
 
     // Solver (event closer) feature
     solver: 'Solver',
-    openEvent: 'Open Event',
+    openEvent: 'Opener',
     solverToggleHint: 'When checked, the user cannot add events and can only close events.',
     solverOnlyForUsers: 'Solver applies to regular users only.',
     solverEnabled: 'User is now set as an event closer (Solver).',
@@ -143,6 +143,7 @@ window.i18nLangs.en = {
     openMap: 'Open map',
     goToTable: 'Go to table',
     like_only_users: 'Only users can like posts.',
+    cannot_like_own: 'You cannot like your own post.',
     
     events: 'Events',
     addEvent: 'Add Event',

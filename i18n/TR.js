@@ -118,7 +118,7 @@ window.i18nLangs.tr = {
 
     // Solver (olay kapatan) özelliği
     solver: 'Solver',
-    openEvent: 'Olay Açan',
+    openEvent: 'Opener',
     solverToggleHint: 'İşaretlendiğinde kullanıcı olay ekleyemez, yalnızca olay kapatabilir.',
     solverOnlyForUsers: 'Solver yalnızca normal kullanıcılar için geçerlidir.',
     solverEnabled: 'Kullanıcı artık olay kapatan (Solver) olarak ayarlandı.',
@@ -143,6 +143,7 @@ window.i18nLangs.tr = {
     openMap: 'Haritayı aç',
     goToTable: 'Tabloya git',
     like_only_users: 'Yalnızca kullanıcılar gönderileri beğenebilir.',
+    cannot_like_own: 'Kendi gönderinizi beğenemezsiniz.',
     
     events: 'Olaylar',
     addEvent: 'Olay Ekle',

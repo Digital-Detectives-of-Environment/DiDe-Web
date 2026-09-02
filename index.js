@@ -2976,6 +2976,12 @@ app.post('/api/event/:id/like', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
     }
 
+    // Kullanıcı kendi eklediği gönderiyi beğenemez.
+    if (cur.rows[0].created_by_id != null && Number(cur.rows[0].created_by_id) === Number(uid)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'cannot_like_own', message: getErrorMessage(req, 'cannot_like_own') });
+    }
+
     let ids = [];
     try { ids = Array.isArray(cur.rows[0].liked_ids) ? cur.rows[0].liked_ids.map(Number) : JSON.parse(cur.rows[0].liked_ids).map(Number); } catch { ids = []; }
     const already = ids.includes(uid);

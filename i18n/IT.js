@@ -113,7 +113,7 @@ window.i18nLangs.it = {
 
     // Funzione Solver (chi chiude gli eventi)
     solver: 'Solver',
-    openEvent: 'Apri Evento',
+    openEvent: 'Opener',
     solverToggleHint: 'Se selezionato, l\'utente non può aggiungere eventi e può solo chiuderli.',
     solverOnlyForUsers: 'Solver è valido solo per gli utenti normali.',
     solverEnabled: 'L\'utente è ora impostato come chiusore di eventi (Solver).',
@@ -138,6 +138,7 @@ window.i18nLangs.it = {
     openMap: 'Apri mappa',
     goToTable: 'Vai alla tabella',
     like_only_users: 'Solo gli utenti possono mettere mi piace ai post.',
+    cannot_like_own: 'Non puoi mettere mi piace al tuo post.',
     
     events: 'Eventi',
     addEvent: 'Aggiungi evento',

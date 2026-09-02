@@ -6611,6 +6611,7 @@ function addSolverCloseButton(btnRow, evt, opts = {}) {
 function addLikeControl(container, evt, opts = {}) {
   if (!container || !evt) return;
   if (!currentUser || currentUser.role !== 'user') return; // yalnızca kullanıcılar beğenebilir
+  if (evt.is_mine) return; // kullanıcı kendi gönderisini beğenemez
 
   const wrap = document.createElement('div');
   wrap.className = 'like-control';
@@ -10045,12 +10046,13 @@ document.addEventListener('DOMContentLoaded', () => {
 const __pf = {
   posts: [],
   page: 1,
-  perPage: 5,
+  perPage: 8,
   solver: false,
   map: null,
   markers: {},
   focusId: null,
-  highlightId: null
+  highlightId: null,
+  statsTimer: null
 };
 
 function pfEl(id){ return document.getElementById(id); }
@@ -10094,6 +10096,39 @@ async function openProfileOverlay(){
   } catch (e) {
     console.error('profile load error:', e);
   }
+
+  // Puanı ve gönderileri canlı tut (yenileme gerekmeden) — overlay açıkken periyodik güncelle
+  pfStartLivePolling();
+}
+
+// Overlay açıkken puan/gönderi verilerini periyodik olarak tazeler (başkası beğeni yapınca
+// site yenilemeden puanın güncellenmesi için).
+function pfStartLivePolling(){
+  pfStopLivePolling();
+  __pf.statsTimer = setInterval(async () => {
+    const ov = pfEl('profile-overlay');
+    if (!ov || ov.classList.contains('hidden')) { pfStopLivePolling(); return; }
+    try {
+      const [statsR, postsR] = await Promise.all([
+        fetch('/api/me/stats').then(r => r.json()).catch(() => null),
+        fetch('/api/me/posts').then(r => r.json()).catch(() => null)
+      ]);
+      if (statsR) pfRenderProfile(statsR);
+      if (postsR && Array.isArray(postsR.posts)) {
+        // Beğeni sayıları değişmiş olabilir → tabloyu tazele (sayfa/scroll konumunu koru)
+        const sameLen = postsR.posts.length === __pf.posts.length;
+        __pf.posts = postsR.posts;
+        const maxPage = pfTotalPages();
+        if (__pf.page > maxPage) __pf.page = maxPage;
+        // Harita görünümü kapalıysa tabloyu yenile
+        const mapView = pfEl('profile-map-view');
+        if (!mapView || mapView.classList.contains('hidden')) pfRenderPostsTable();
+      }
+    } catch {}
+  }, 5000);
+}
+function pfStopLivePolling(){
+  if (__pf.statsTimer){ clearInterval(__pf.statsTimer); __pf.statsTimer = null; }
 }
 
 function pfRenderProfile(stats){
@@ -10197,7 +10232,8 @@ function pfEnsureMap(){
   if (__pf.map) return __pf.map;
   const el = pfEl('profile-map');
   if (!el || typeof L === 'undefined') return null;
-  __pf.map = L.map(el, { zoomControl: true, worldCopyJump: false });
+  // Harita üzerinde kendi +/- zoom kontrolü OLMAYACAK (zoomControl: false)
+  __pf.map = L.map(el, { zoomControl: false, worldCopyJump: false });
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors', noWrap: true
   }).addTo(__pf.map);
@@ -10205,20 +10241,29 @@ function pfEnsureMap(){
   return __pf.map;
 }
 
-function pfPopupHtml(p){
+// Profil haritası pop-up içeriği — normal giriş haritasındaki bilgilerle (tip, açıklama,
+// foto/video medya) + beğeni sayısı + yalnızca harita logosu (tabloya geçiş) düğmesi.
+function pfBuildPopupNode(p){
   const typeName = p.event_type_name ? escapeHtml(p.event_type_name) : '-';
-  const desc = p.description ? `<div class="pf-pop-desc">${escapeHtml(p.description)}</div>` : '';
   const likes = (p.num_likes != null ? p.num_likes : 0);
-  return `
-    <div class="pf-popup">
-      <div class="pf-pop-type">${typeName}</div>
-      ${desc}
-      <div class="pf-pop-likes"><span class="pf-pop-likes-label">${t('numLikes')}:</span> <b>${likes}</b></div>
-      <button class="pf-pop-table icon-btn" type="button" data-event-id="${p.event_id}" title="${t('goToTable')}">
-        <img src="/map-view.svg" alt="table" width="18" height="18" onerror="this.onerror=null;this.src='/useposition.svg';" />
-        <span class="pf-pop-table-txt">${t('goToTable')}</span>
+  const node = document.createElement('div');
+  node.className = 'pf-popup';
+  node.innerHTML = `
+    <div style="margin-bottom:6px;"><b>${t('eventID')}:</b> ${p.event_id}</div>
+    ${p.event_type_name ? `<div class="pf-pop-type"><b>${t('type')}:</b> ${typeName}</div>` : ''}
+    <div class="popup-body"><b>${t('description')}:</b> ${p.description ? escapeHtml(p.description) : ''}</div>
+    <div><b>${t('photo')}:</b></div>
+    <div class="popup-photos"><div data-ph="${p.event_id}"></div></div>
+    <div style="height:6px"></div>
+    <div><b>${t('video')}:</b></div>
+    <div class="popup-videos"><div data-vd="${p.event_id}"></div></div>
+    <div class="pf-pop-likes"><span class="pf-pop-likes-label">${t('numLikes')}:</span> <b>${likes}</b></div>
+    <div class="pf-pop-actions">
+      <button class="pf-pop-table" type="button" data-event-id="${p.event_id}" data-i18n-title="goToTable" title="${t('goToTable')}" aria-label="${t('goToTable')}">
+        <img src="/map-view.svg" alt="" width="20" height="20" onerror="this.onerror=null;this.src='/useposition.svg';" />
       </button>
     </div>`;
+  return node;
 }
 
 function pfOpenMap(focusEventId){
@@ -10236,13 +10281,16 @@ function pfOpenMap(focusEventId){
   __pf.posts.forEach(p => {
     const lat = parseFloat(p.latitude), lng = parseFloat(p.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    // Tüm markerlar YEŞİL renkte
     const mk = L.circleMarker([lat, lng], {
-      radius: 9, color: '#b91c1c', weight: 2, fillColor: '#ef4444', fillOpacity: 0.85
+      radius: 9, color: '#15803d', weight: 2, fillColor: '#22c55e', fillOpacity: 0.9
     }).addTo(m);
-    mk.bindPopup(pfPopupHtml(p), { maxWidth: 260 });
+    mk.bindPopup(pfBuildPopupNode(p), { maxWidth: 280, minWidth: 200 });
     mk.on('popupopen', (ev) => {
       const node = ev.popup.getElement();
       if (!node) return;
+      // Normal giriş haritasındaki gibi medya (foto/video) doldur
+      try { populateEventMedia(node, p); } catch {}
       const btn = node.querySelector('.pf-pop-table');
       if (btn) btn.onclick = () => pfGotoTableForEvent(p.event_id);
     });
@@ -10305,6 +10353,7 @@ function closeProfileOverlay(){
   document.body.style.overflow = '';
   pfCloseMap();
   __pf.highlightId = null;
+  pfStopLivePolling();
 }
 
 // Overlay olaylarını bağla
@@ -10353,6 +10402,66 @@ function initProfileOverlay(){
   });
 }
 
+// Süpervizör tablolarını (kullanıcılar: posts/likes/points, olaylar: likes) canlı tutar.
+// Filtre/sayfalama bozulmadan yalnızca sayısal alanları yerinde günceller.
+async function pollSupervisorTables(){
+  if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'supervisor')) return;
+  try {
+    const usersTab = qs('#users-tab');
+    const eventsTab = qs('#events-tab');
+
+    if (usersTab && usersTab.classList.contains('active') && tableStates.users){
+      const list = await fetch('/api/admin/users').then(r => r.ok ? r.json() : null).catch(() => null);
+      if (Array.isArray(list)){
+        const byId = {};
+        list.forEach(u => { byId[String(u.id)] = u; });
+        let changed = false;
+        [tableStates.users.data, tableStates.users.filtered].forEach(arr => {
+          if (!Array.isArray(arr)) return;
+          arr.forEach(rec => {
+            const src = byId[String(rec.id)];
+            if (src){
+              if (rec.num_events !== src.num_events || rec.liked_point !== src.liked_point ||
+                  rec.posts_point !== src.posts_point || rec.solver !== src.solver) changed = true;
+              rec.num_events = src.num_events;
+              rec.liked_point = src.liked_point;
+              rec.posts_point = src.posts_point;
+              rec.solver = src.solver;
+            }
+          });
+        });
+        if (changed) renderTable('users');
+      }
+    }
+
+    if (eventsTab && eventsTab.classList.contains('active') && tableStates.events){
+      const list = await fetch('/api/events_all').then(r => r.ok ? r.json() : null).catch(() => null);
+      if (Array.isArray(list)){
+        const byId = {};
+        list.forEach(o => { byId[String(o.event_id)] = o; });
+        let changed = false;
+        [tableStates.events.data, tableStates.events.filtered].forEach(arr => {
+          if (!Array.isArray(arr)) return;
+          arr.forEach(rec => {
+            const src = byId[String(rec.event_id)];
+            if (src){
+              if (rec.num_likes !== src.num_likes) changed = true;
+              rec.num_likes = src.num_likes;
+            }
+          });
+        });
+        if (changed) renderTable('events');
+      }
+    }
+  } catch {}
+}
+
+let __supervisorPollTimer = null;
+function startSupervisorPolling(){
+  if (__supervisorPollTimer) return;
+  __supervisorPollTimer = setInterval(() => { try { pollSupervisorTables(); } catch {} }, 5000);
+}
+
 // Header rol logosuna tıklayınca profil overlay'i aç
 function wireProfileBadgeClick(){
   const badge = document.getElementById('user-mode-badge');
@@ -10368,7 +10477,7 @@ function wireProfileBadgeClick(){
 
 // DOM hazır olduğunda başlat
 if (document.readyState === 'loading'){
-  document.addEventListener('DOMContentLoaded', () => { try { initProfileOverlay(); } catch(e){ console.warn('initProfileOverlay', e); } });
+  document.addEventListener('DOMContentLoaded', () => { try { initProfileOverlay(); startSupervisorPolling(); } catch(e){ console.warn('initProfileOverlay', e); } });
 } else {
-  try { initProfileOverlay(); } catch(e){ console.warn('initProfileOverlay', e); }
+  try { initProfileOverlay(); startSupervisorPolling(); } catch(e){ console.warn('initProfileOverlay', e); }
 }
