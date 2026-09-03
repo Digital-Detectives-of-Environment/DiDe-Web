@@ -3308,7 +3308,7 @@ th:has(#btn-add-type){
   max-width:100%;
   width:100%;
   margin:0;
-  overflow-x:auto;
+  overflow-x:auto;   /* güvenlik amaçlı; fixed layout ile normalde tetiklenmez */
   border:1px solid var(--border, #e5e7eb);
   border-radius:12px;
   background:#fff;
@@ -3317,8 +3317,14 @@ th:has(#btn-add-type){
   width:100%;
   border-collapse:collapse;
   font-size:14px;
-  table-layout:auto; /* sütun genişlikleri içeriğe göre dinamik */
+  table-layout:fixed;  /* sütunlar sabit yüzdelere göre → tablo her zaman ekrana sığar */
 }
+/* Responsive sütun genişlikleri (toplam %100): Tip / Oluşturma / Kapatma / Beğeni / Harita */
+.profile-posts-table th:nth-child(1), .profile-posts-table td:nth-child(1){ width:26%; }
+.profile-posts-table th:nth-child(2), .profile-posts-table td:nth-child(2){ width:26%; }
+.profile-posts-table th:nth-child(3), .profile-posts-table td:nth-child(3){ width:24%; }
+.profile-posts-table th:nth-child(4), .profile-posts-table td:nth-child(4){ width:12%; }
+.profile-posts-table th:nth-child(5), .profile-posts-table td:nth-child(5){ width:12%; }
 .profile-posts-table thead th{
   text-align:left;
   padding:12px 10px;
@@ -3327,6 +3333,7 @@ th:has(#btn-add-type){
   font-weight:700;
   white-space:normal;      /* başlıklar da sarabilir → dar ekranda taşma olmaz */
   word-break:break-word;
+  overflow-wrap:anywhere;
   border-bottom:1px solid var(--border, #e5e7eb);
 }
 .profile-posts-table tbody td{
@@ -3341,13 +3348,13 @@ th:has(#btn-add-type){
 .profile-post-row:hover{ background:#f8fafc; }
 .profile-post-row.pf-row-highlight{
   background:rgba(239,68,68,.18) !important;
-  animation:pfHighlightPulse 1.4s ease;
+  animation:pfHighlightPulse 0.5s ease;
 }
 @keyframes pfHighlightPulse{
   0%{ background:rgba(239,68,68,.42); }
   100%{ background:rgba(239,68,68,.18); }
 }
-.profile-map-col{ width:52px; text-align:center; }
+.profile-map-col{ text-align:center; }
 .pf-row-map{
   width:36px; height:36px;
   border:1.5px solid var(--primary, #2563eb);
@@ -3461,10 +3468,22 @@ th:has(#btn-add-type){
   .profile-head{ flex-direction:column; text-align:center; gap:12px; }
   .profile-head-info{ align-items:center; }
   .profile-role{ align-self:center; }
-  .profile-posts-table{ font-size:12.5px; }
+  .profile-posts-table{ font-size:11.5px; }
   .profile-posts-table thead th,
-  .profile-posts-table tbody td{ padding:8px 6px; }
+  .profile-posts-table tbody td{ padding:7px 4px; }
+  /* Dar ekranda harita butonu hücreye sığsın */
+  .pf-row-map{ width:30px; height:30px; border-radius:8px; }
+  .pf-row-map img{ width:16px; height:16px; }
   .profile-close{ width:38px; height:38px; top:8px; right:8px; }
   .profile-lang{ top:10px; left:10px; right:auto; gap:4px; }
   .profile-lang button{ min-width:34px; height:32px; padding:0 7px; font-size:12px; }
+}
+
+/* Çok dar ekranlar (küçük telefonlar) için ek sıkıştırma */
+@media (max-width: 380px){
+  .profile-posts-table{ font-size:10.5px; }
+  .profile-posts-table thead th,
+  .profile-posts-table tbody td{ padding:6px 3px; }
+  .pf-row-map{ width:26px; height:26px; }
+  .pf-row-map img{ width:14px; height:14px; }
 }
