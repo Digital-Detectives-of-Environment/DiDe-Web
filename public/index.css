@@ -3110,7 +3110,7 @@ th:has(#btn-add-type){
 .like-control.readonly .like-count{ color:var(--danger, #b91c1c); font-size:16px; }
 
 /* =====================================================================
-   PROFİL OVERLAY 
+   PROFİL OVERLAY (tam ekran, mobil uyumlu)
    ===================================================================== */
 .profile-overlay{
   position:fixed;
@@ -3194,7 +3194,7 @@ th:has(#btn-add-type){
   height:100%;
   scroll-snap-align:start;
   overflow-y:auto;
-  padding:24px 16px 72px;
+  padding:20px 16px 44px;
   box-sizing:border-box;
 }
 
@@ -3315,15 +3315,19 @@ th:has(#btn-add-type){
 }
 .profile-posts-table{
   width:100%;
-  min-width:0 !important; 
+  min-width:0 !important;   /* global table{min-width:980px} kuralını profil tablosu için ez */
   border-collapse:collapse;
-  table-layout:fixed;      
+  table-layout:fixed;       /* sütunlar sabit yüzdelere göre → tablo her zaman ekrana sığar */
 }
-
-.profile-posts-table th:nth-child(1), .profile-posts-table td:nth-child(1){ width:24%; }
-.profile-posts-table th:nth-child(2), .profile-posts-table td:nth-child(2){ width:32%; }
-.profile-posts-table th:nth-child(3), .profile-posts-table td:nth-child(3){ width:32%; }
-.profile-posts-table th:nth-child(4), .profile-posts-table td:nth-child(4){ width:12%; }
+/* Responsive sütun genişlikleri (toplam %100): Tip / Oluşturma / Kapatma / Beğeni.
+   İki tarih sütununa, "03.09.2026 15:13" TEK SATIRA sığsın diye daha çok pay verildi. */
+.profile-posts-table th:nth-child(1), .profile-posts-table td:nth-child(1){ width:16%; }
+.profile-posts-table th:nth-child(2), .profile-posts-table td:nth-child(2){ width:34%; }
+.profile-posts-table th:nth-child(3), .profile-posts-table td:nth-child(3){ width:34%; }
+.profile-posts-table th:nth-child(4), .profile-posts-table td:nth-child(4){ width:16%; }
+/* Likes sütunu (4.) — sağa hizalı; genişlik artırıldığı için tipik değerler tek satıra sığar */
+.profile-posts-table th:nth-child(4){ text-align:right; }
+.profile-posts-table td:nth-child(4){ text-align:right; }
 .profile-posts-table thead th{
   text-align:left;
   padding:12px 10px;
@@ -3345,13 +3349,24 @@ th:has(#btn-add-type){
   overflow-wrap:anywhere;
   vertical-align:top;
 }
-
+/* Genel/mobil "table{display:block;overflow-x:auto}" hilesinden profil tablosunu MUAF tut:
+   normal tablo modelini zorla → tablo tam ekrana sığar, yatay kaydırma olmaz. */
 .profile-posts-table{ display:table !important; overflow:visible !important; }
 .profile-posts-table thead{ display:table-header-group !important; }
 .profile-posts-table tbody{ display:table-row-group !important; }
 .profile-posts-table tr{ display:table-row !important; }
 .profile-posts-table th,
 .profile-posts-table td{ display:table-cell !important; }
+/* İki tarih sütunu (2. ve 3.) tek satırda tam görünsün: alt satıra inmesin.
+   Genişlikleri artırıldığı için taşma olmadan tek satıra sığar. */
+.profile-posts-table td:nth-child(2),
+.profile-posts-table td:nth-child(3){
+  white-space:nowrap;
+  word-break:normal;
+  overflow-wrap:normal;
+  padding-left:4px;
+  padding-right:4px;
+}
 .profile-post-row{ cursor:pointer; transition:background .12s ease; }
 .profile-post-row:hover{ background:#f8fafc; }
 .profile-post-row.pf-row-highlight{
@@ -3463,7 +3478,7 @@ th:has(#btn-add-type){
 
 /* Mobil ince ayarlar */
 @media (max-width: 576px){
-  .profile-slide{ padding:16px 6px 76px; }
+  .profile-slide{ padding:16px 6px 44px; }
   .profile-head{ flex-direction:column; text-align:center; gap:12px; }
   .profile-head-info{ align-items:center; }
   .profile-role{ align-self:center; }

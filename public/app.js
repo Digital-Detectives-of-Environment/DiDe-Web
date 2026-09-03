@@ -10108,6 +10108,9 @@ async function openProfileOverlay(){
     __pf.posts = Array.isArray(postsR.posts) ? postsR.posts : [];
     __pf.page = 1;
     pfRenderPostsTable();
+    // Layout oturduktan sonra ekrana sığacak satır sayısını hesapla
+    setTimeout(() => { try { pfAutoFit(); } catch {} }, 60);
+    setTimeout(() => { try { pfAutoFit(); } catch {} }, 260);
   } catch (e) {
     console.error('profile load error:', e);
   }
@@ -10168,6 +10171,56 @@ function pfRenderProfile(stats){
 
 function pfTotalPages(){
   return Math.max(1, Math.ceil(__pf.posts.length / __pf.perPage));
+}
+
+// Ekranı düşey olarak dolduracak satır sayısını GERÇEK ölçümle belirler:
+//   1) Geçici olarak bol (probe) satır render eder,
+//   2) Slaytın kullanılabilir alt sınırını (sayfalama + alt boşluk hariç) bulur,
+//   3) Bu sınıra sığan satır sayısını satırların gerçek konumundan sayar,
+//   4) perPage'i o sayıya ayarlayıp yeniden çizer.
+// Böylece perPage, açılan ekranın boyutuna göre dinamik olur ve boş alan kalmaz.
+function pfAutoFit(){
+  const ov = pfEl('profile-overlay');
+  if (!ov || ov.classList.contains('hidden')) return;
+  const slide = document.getElementById('profile-slide-posts');
+  const tb = pfEl('profile-posts-tbody');
+  const wrap = slide && slide.querySelector('.profile-table-wrap');
+  if (!slide || !tb || !wrap || !__pf.posts.length) return;
+
+  // Ölçüm sırasında kayma olmasın
+  try { slide.scrollTop = 0; } catch {}
+
+  // 1) Probe: bol satır render et
+  const probe = Math.min(__pf.posts.length, 60);
+  const savedPage = __pf.page || 1;
+  __pf.page = 1;
+  __pf.perPage = probe;
+  pfRenderPostsTable();
+
+  // 2) Kullanılabilir alt sınır (viewport koordinatı)
+  const cs = getComputedStyle(slide);
+  const padBottom = parseFloat(cs.paddingBottom) || 0;
+  const slideBottom = slide.getBoundingClientRect().bottom - padBottom;
+  const pag = document.getElementById('profile-pagination');
+  const pagH = (pag && pag.getBoundingClientRect().height) ? pag.getBoundingClientRect().height : 48;
+  const pagGap = 14; // sayfalama üst boşluğu + güvenlik
+  const limit = slideBottom - pagH - pagGap;
+
+  // 3) Sınıra sığan satır sayısını say
+  const rows = tb.querySelectorAll('tr.profile-post-row');
+  let fit = 0;
+  for (let i = 0; i < rows.length; i++){
+    const rb = rows[i].getBoundingClientRect().bottom;
+    if (rb <= limit) fit++;
+    else break;
+  }
+  if (fit < 1) fit = 1;
+
+  // 4) Uygula
+  __pf.perPage = fit;
+  const maxPage = pfTotalPages();
+  __pf.page = Math.min(savedPage, maxPage);
+  pfRenderPostsTable();
 }
 
 function pfRenderPostsTable(){
@@ -10358,6 +10411,8 @@ function pfShowPage(index){
   pager.scrollTo({ left: target.offsetLeft, behavior: 'smooth' });
   // Noktaları güncelle
   document.querySelectorAll('.profile-dot').forEach((d, i) => d.classList.toggle('is-active', i === index));
+  // Gönderiler sayfasına gelindiğinde satır sayısını ekrana göre hesapla
+  if (index === 1) setTimeout(() => { try { pfAutoFit(); } catch {} }, 80);
 }
 
 function closeProfileOverlay(){
@@ -10446,6 +10501,17 @@ function initProfileOverlay(){
     const ov = pfEl('profile-overlay');
     if (ov && !ov.classList.contains('hidden')) pfApplyLanguage();
   });
+
+  // Ekran boyutu / yönü değişince gösterilecek satır sayısını yeniden hesapla (debounce'lu)
+  let __pfResizeT = null;
+  const onPfResize = () => {
+    const ov = pfEl('profile-overlay');
+    if (!ov || ov.classList.contains('hidden')) return;
+    if (__pfResizeT) clearTimeout(__pfResizeT);
+    __pfResizeT = setTimeout(() => { try { pfAutoFit(); } catch {} }, 150);
+  };
+  window.addEventListener('resize', onPfResize);
+  window.addEventListener('orientationchange', onPfResize);
 
   const bigMap = pfEl('profile-map-open-big');
   if (bigMap) bigMap.onclick = () => pfOpenMap(null);
