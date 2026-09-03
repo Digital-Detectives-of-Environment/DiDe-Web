@@ -10233,7 +10233,7 @@ function pfRenderPagination(){
     b.className = 'pf-page-btn' + (active ? ' active' : '');
     b.textContent = label;
     b.disabled = !!disabled;
-    if (!disabled && !active) b.onclick = () => { __pf.page = page; pfRenderPostsTable(); };
+    if (!disabled && !active) b.onclick = () => { __pf.page = page; __pf.highlightId = null; pfRenderPostsTable(); };
     return b;
   };
 
@@ -10291,6 +10291,10 @@ function pfOpenMap(focusEventId){
   view.classList.remove('hidden');
   const m = pfEnsureMap();
   if (!m) return;
+
+  // Haritaya geçildiğinde tablodaki kırmızı vurgu temizlenir; vurgu YALNIZCA marker
+  // pop-up'ındaki harita logosundan tabloya geçişte (pfGotoTableForEvent) yeniden kurulur.
+  __pf.highlightId = null;
 
   // Markerları (yeniden) çiz — kullanıcı girişindeki cluster katmanına ekle
   try { if (__pf.markersLayer) __pf.markersLayer.clearLayers(); } catch {}

@@ -3148,11 +3148,12 @@ th:has(#btn-add-type){
   justify-content:center;
   box-shadow:0 2px 8px rgba(0,0,0,.12);
 }
-/* Profil overlay dil butonları — çarpının hemen solunda */
+/* Profil overlay dil butonları — açılan ekranın SOL ÜST köşesinde */
 .profile-lang{
   position:absolute;
-  top:16px;
-  right:66px;
+  top:12px;
+  left:12px;
+  right:auto;
   z-index:12;
   display:flex;
   gap:6px;
@@ -3464,6 +3465,6 @@ th:has(#btn-add-type){
   .profile-posts-table thead th,
   .profile-posts-table tbody td{ padding:8px 6px; }
   .profile-close{ width:38px; height:38px; top:8px; right:8px; }
-  .profile-lang{ top:11px; right:54px; gap:4px; }
+  .profile-lang{ top:10px; left:10px; right:auto; gap:4px; }
   .profile-lang button{ min-width:34px; height:32px; padding:0 7px; font-size:12px; }
 }
