@@ -3110,7 +3110,7 @@ th:has(#btn-add-type){
 .like-control.readonly .like-count{ color:var(--danger, #b91c1c); font-size:16px; }
 
 /* =====================================================================
-   PROFİL OVERLAY (tam ekran, mobil uyumlu)
+   PROFİL OVERLAY 
    ===================================================================== */
 .profile-overlay{
   position:fixed;
@@ -3308,30 +3308,30 @@ th:has(#btn-add-type){
   max-width:100%;
   width:100%;
   margin:0;
-  overflow-x:auto;   /* güvenlik amaçlı; fixed layout ile normalde tetiklenmez */
+  overflow:hidden;   /* fixed-layout tablo tam sığar → yatay kaydırma yok */
   border:1px solid var(--border, #e5e7eb);
   border-radius:12px;
   background:#fff;
 }
 .profile-posts-table{
   width:100%;
+  min-width:0 !important; 
   border-collapse:collapse;
-  font-size:14px;
-  table-layout:fixed;  /* sütunlar sabit yüzdelere göre → tablo her zaman ekrana sığar */
+  table-layout:fixed;      
 }
-/* Responsive sütun genişlikleri (toplam %100): Tip / Oluşturma / Kapatma / Beğeni / Harita */
-.profile-posts-table th:nth-child(1), .profile-posts-table td:nth-child(1){ width:26%; }
-.profile-posts-table th:nth-child(2), .profile-posts-table td:nth-child(2){ width:26%; }
-.profile-posts-table th:nth-child(3), .profile-posts-table td:nth-child(3){ width:24%; }
+
+.profile-posts-table th:nth-child(1), .profile-posts-table td:nth-child(1){ width:24%; }
+.profile-posts-table th:nth-child(2), .profile-posts-table td:nth-child(2){ width:32%; }
+.profile-posts-table th:nth-child(3), .profile-posts-table td:nth-child(3){ width:32%; }
 .profile-posts-table th:nth-child(4), .profile-posts-table td:nth-child(4){ width:12%; }
-.profile-posts-table th:nth-child(5), .profile-posts-table td:nth-child(5){ width:12%; }
 .profile-posts-table thead th{
   text-align:left;
   padding:12px 10px;
   background:var(--bg-soft, #f1f5f9);
   color:var(--muted, #475569);
   font-weight:700;
-  white-space:normal;      /* başlıklar da sarabilir → dar ekranda taşma olmaz */
+  font-size:14px;          /* okunabilir; küçültülmez */
+  white-space:normal;      /* global th{nowrap} ez → başlıklar sarabilir */
   word-break:break-word;
   overflow-wrap:anywhere;
   border-bottom:1px solid var(--border, #e5e7eb);
@@ -3339,11 +3339,19 @@ th:has(#btn-add-type){
 .profile-posts-table tbody td{
   padding:11px 10px;
   border-bottom:1px solid var(--border, #eef2f7);
+  font-size:14px;          /* okunabilir; küçültülmez */
   white-space:normal;      /* uzun metin alt satıra sarar → yatay kaydırma gerekmez */
   word-break:break-word;
   overflow-wrap:anywhere;
   vertical-align:top;
 }
+
+.profile-posts-table{ display:table !important; overflow:visible !important; }
+.profile-posts-table thead{ display:table-header-group !important; }
+.profile-posts-table tbody{ display:table-row-group !important; }
+.profile-posts-table tr{ display:table-row !important; }
+.profile-posts-table th,
+.profile-posts-table td{ display:table-cell !important; }
 .profile-post-row{ cursor:pointer; transition:background .12s ease; }
 .profile-post-row:hover{ background:#f8fafc; }
 .profile-post-row.pf-row-highlight{
@@ -3354,15 +3362,6 @@ th:has(#btn-add-type){
   0%{ background:rgba(239,68,68,.42); }
   100%{ background:rgba(239,68,68,.18); }
 }
-.profile-map-col{ text-align:center; }
-.pf-row-map{
-  width:36px; height:36px;
-  border:1.5px solid var(--primary, #2563eb);
-  border-radius:9px;
-  background:#fff; color:var(--primary, #2563eb);
-  cursor:pointer; display:inline-flex; align-items:center; justify-content:center;
-}
-.pf-row-map:hover{ background:#eff6ff; }
 
 /* Sayfalama */
 .profile-pagination{
@@ -3464,26 +3463,15 @@ th:has(#btn-add-type){
 
 /* Mobil ince ayarlar */
 @media (max-width: 576px){
-  .profile-slide{ padding:20px 8px 76px; }
+  .profile-slide{ padding:16px 6px 76px; }
   .profile-head{ flex-direction:column; text-align:center; gap:12px; }
   .profile-head-info{ align-items:center; }
   .profile-role{ align-self:center; }
-  .profile-posts-table{ font-size:11.5px; }
-  .profile-posts-table thead th,
-  .profile-posts-table tbody td{ padding:7px 4px; }
-  /* Dar ekranda harita butonu hücreye sığsın */
-  .pf-row-map{ width:30px; height:30px; border-radius:8px; }
-  .pf-row-map img{ width:16px; height:16px; }
   .profile-close{ width:38px; height:38px; top:8px; right:8px; }
   .profile-lang{ top:10px; left:10px; right:auto; gap:4px; }
   .profile-lang button{ min-width:34px; height:32px; padding:0 7px; font-size:12px; }
-}
 
-/* Çok dar ekranlar (küçük telefonlar) için ek sıkıştırma */
-@media (max-width: 380px){
-  .profile-posts-table{ font-size:10.5px; }
-  .profile-posts-table thead th,
-  .profile-posts-table tbody td{ padding:6px 3px; }
-  .pf-row-map{ width:26px; height:26px; }
-  .pf-row-map img{ width:14px; height:14px; }
+
+  .profile-posts-table thead th{ padding:10px 6px; }
+  .profile-posts-table tbody td{ padding:10px 6px; }
 }

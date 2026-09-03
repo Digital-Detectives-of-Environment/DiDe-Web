@@ -10176,7 +10176,7 @@ function pfRenderPostsTable(){
   tb.innerHTML = '';
 
   if (__pf.posts.length === 0){
-    tb.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted,#888);padding:16px;">${t('noRecordsFound')}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted,#888);padding:16px;">${t('noRecordsFound')}</td></tr>`;
     pfRenderPagination();
     return;
   }
@@ -10196,23 +10196,13 @@ function pfRenderPostsTable(){
     const likes = (p.num_likes != null ? p.num_likes : 0);
 
     tr.innerHTML = `
-      <td>${typeName}</td>
-      <td>${createdStr}</td>
-      <td>${deacStr}</td>
-      <td>${likes}</td>
-      <td class="profile-map-col">
-        <button class="pf-row-map icon-btn" type="button" data-i18n-title="openMap" title="${t('openMap')}">
-          <img src="/map-view.svg" alt="map" width="18" height="18" onerror="this.onerror=null;this.src='/useposition.svg';" />
-        </button>
-      </td>`;
+      <td data-label="${escapeHtml(t('type'))}">${typeName}</td>
+      <td data-label="${escapeHtml(t('addedDate'))}">${createdStr}</td>
+      <td data-label="${escapeHtml(t('deactivatedAt'))}">${deacStr}</td>
+      <td data-label="${escapeHtml(t('numLikes'))}">${likes}</td>`;
 
     // Satıra tıkla → haritada göster
-    tr.addEventListener('click', (e) => {
-      if (e.target.closest('.pf-row-map')) return; // buton kendi handler'ında
-      pfOpenMap(p.event_id);
-    });
-    const mapBtn = tr.querySelector('.pf-row-map');
-    if (mapBtn) mapBtn.addEventListener('click', (e) => { e.stopPropagation(); pfOpenMap(p.event_id); });
+    tr.addEventListener('click', () => { pfOpenMap(p.event_id); });
 
     tb.appendChild(tr);
   });
