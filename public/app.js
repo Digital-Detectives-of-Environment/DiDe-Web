@@ -6624,8 +6624,8 @@ function addLikeControl(container, evt, opts = {}) {
   label.className = 'like-label';
   label.textContent = t('numLikes');
 
-  // Kendi gönderisi: yalnızca sayı (kalp/beğen butonu yok)
-  if (evt.is_mine) {
+  // Kendi gönderisi VEYA countOnly modu (profil haritası): yalnızca sayı (kalp/beğen butonu yok)
+  if (evt.is_mine || opts.countOnly) {
     wrap.classList.add('readonly');
     wrap.appendChild(count);
     wrap.appendChild(label);
@@ -6800,7 +6800,8 @@ async function populateEventMedia(container, evt){
     console.error('populateEventMedia error:', err);
   }
 }
-function recreatePopupContent(evt, marker) {
+function recreatePopupContent(evt, marker, opts = {}) {
+  const readOnly = !!opts.readOnly; // profil haritası: yalnızca görüntüleme (buton yok)
   const turHtml = evt.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(evt.event_type_name)}<br>` : '';
   const creatorName = evt.created_by_username ?? '';
   const creatorId = (evt.created_by_id != null) ? String(evt.created_by_id) : '-';
@@ -6830,42 +6831,46 @@ function recreatePopupContent(evt, marker) {
 
   const btnRow = content.querySelector('.inline');
 
-  const canEdit = (currentUser && (currentUser.role === 'admin' || (currentUser.role === 'user' && (evt.is_mine || evt.created_by_role_name === 'supervisor')) || (currentUser.role === 'supervisor' && (evt.is_mine || evt.created_by_role_name === 'supervisor'))));
-  if (canEdit) {
-    const eb = document.createElement('button');
-    eb.className = 'btn ghost'; 
-    eb.textContent = t('update');
-    eb.onclick = () => beginEdit(evt);
-    btnRow.appendChild(eb);
+  // Salt-okunur modda (profil haritası) update/delete/close butonları GÖSTERİLMEZ.
+  if (!readOnly) {
+    const canEdit = (currentUser && (currentUser.role === 'admin' || (currentUser.role === 'user' && (evt.is_mine || evt.created_by_role_name === 'supervisor')) || (currentUser.role === 'supervisor' && (evt.is_mine || evt.created_by_role_name === 'supervisor'))));
+    if (canEdit) {
+      const eb = document.createElement('button');
+      eb.className = 'btn ghost'; 
+      eb.textContent = t('update');
+      eb.onclick = () => beginEdit(evt);
+      btnRow.appendChild(eb);
+    }
+
+    const canDelete = currentUser && (
+      (currentUser.role === 'user' && evt.is_mine) ||
+      (currentUser.role === 'supervisor') ||
+      (currentUser.role === 'admin')
+    );
+    if (canDelete) {
+      const db = document.createElement('button');
+      db.className = 'btn danger'; 
+      db.textContent = t('delete');
+      db.onclick = async () => {
+        if (!confirm(t('confirmDeleteEvent'))) return;
+        db.disabled = true;
+        try {
+          const url = (currentUser.role === 'user') ? `/api/event/${evt.event_id}` : `/api/admin/event/${evt.event_id}`;
+          await fetch(url, {method:'DELETE'});
+          await Promise.all([loadExistingEvents({ publicMode:false }), refreshAdminEvents()]);
+        } catch(err) {
+          console.error('delete event error:', err);
+        } finally { db.disabled = false; }
+      };
+      btnRow.appendChild(db);
+    }
+
+    addSolverCloseButton(btnRow, evt, { publicMode: false });
   }
 
-  const canDelete = currentUser && (
-    (currentUser.role === 'user' && evt.is_mine) ||
-    (currentUser.role === 'supervisor') ||
-    (currentUser.role === 'admin')
-  );
-  if (canDelete) {
-    const db = document.createElement('button');
-    db.className = 'btn danger'; 
-    db.textContent = t('delete');
-    db.onclick = async () => {
-      if (!confirm(t('confirmDeleteEvent'))) return;
-      db.disabled = true;
-      try {
-        const url = (currentUser.role === 'user') ? `/api/event/${evt.event_id}` : `/api/admin/event/${evt.event_id}`;
-        await fetch(url, {method:'DELETE'});
-        await Promise.all([loadExistingEvents({ publicMode:false }), refreshAdminEvents()]);
-      } catch(err) {
-        console.error('delete event error:', err);
-      } finally { db.disabled = false; }
-    };
-    btnRow.appendChild(db);
-  }
-
-  addSolverCloseButton(btnRow, evt, { publicMode: false });
-
-  // Beğeni (like) kontrolü — pop-up'ın altında görünür
-  addLikeControl(content, evt, { publicMode: false });
+  // Beğeni (like) kontrolü — pop-up'ın altında görünür.
+  // Salt-okunur modda (profil haritası) yalnızca like SAYISI gösterilir, kalp butonu yok.
+  addLikeControl(content, evt, { publicMode: false, countOnly: readOnly });
 
   marker.setPopupContent(content);
   populateEventMedia(content, evt);
@@ -10258,7 +10263,7 @@ function pfEnsureMap(){
 // Profil haritası pop-up'ı açılınca: normal giriş haritasındaki içeriğin AYNISINI kur
 // (recreatePopupContent) + yalnızca harita logosu olan "tabloya geç" düğmesini ekle.
 function pfPopupOnOpen(p, mk){
-  try { recreatePopupContent(p, mk); } catch(e){ console.warn('pf popup', e); }
+  try { recreatePopupContent(p, mk, { readOnly: true }); } catch(e){ console.warn('pf popup', e); }
   try {
     const pop = mk.getPopup && mk.getPopup();
     // setPopupContent'e verilen DOM elemanını doğrudan al (en güvenilir yol)
@@ -10292,18 +10297,22 @@ function pfOpenMap(focusEventId){
   __pf.markers = {};
 
   const pts = [];
+  // Renk gerçek is_mine'a göre olsun (kendi olayı YEŞİL, other/silinen olay MAVİ).
+  // Global FORCE_BLUE_MARKERS bu sırada devre dışı bırakılır.
+  const _savedForceBlue = window.FORCE_BLUE_MARKERS;
+  window.FORCE_BLUE_MARKERS = false;
   __pf.posts.forEach(p => {
     const lat = parseFloat(p.latitude), lng = parseFloat(p.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-    // Kullanıcı girişindeki ile AYNI marker; hepsi YEŞİL olsun diye is_mine=true zorlanır
-    const evtForMarker = Object.assign({}, p, { is_mine: true });
-    const mk = markerFor(evtForMarker);
+    // Kullanıcı girişindeki ile AYNI marker; renk gerçek is_mine değerine göre
+    const mk = markerFor(p);
     mk.bindPopup('<div></div>');
     mk.on('popupopen', () => pfPopupOnOpen(p, mk));
     if (__pf.markersLayer) __pf.markersLayer.addLayer(mk); else mk.addTo(m);
     __pf.markers[p.event_id] = mk;
     pts.push([lat, lng]);
   });
+  window.FORCE_BLUE_MARKERS = _savedForceBlue;
 
   // Boyutu düzelt ve odakla
   setTimeout(() => {
