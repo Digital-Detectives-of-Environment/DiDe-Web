@@ -6607,14 +6607,31 @@ function addSolverCloseButton(btnRow, evt, opts = {}) {
 }
 
 // Beğeni (like) kontrolü — giriş yapmış 'user' rolündeki kullanıcılar (olay ekleyen + solver)
-// gönderileri beğenebilir. Beğeni sayısı dinamik güncellenir, tekrar tıklayınca geri alınır.
+// başkalarının gönderilerini beğenebilir. KENDİ gönderisinde ise yalnızca beğeni SAYISI
+// gösterilir (kalp yok, çünkü kendi gönderisini beğenemez).
 function addLikeControl(container, evt, opts = {}) {
   if (!container || !evt) return;
-  if (!currentUser || currentUser.role !== 'user') return; // yalnızca kullanıcılar beğenebilir
-  if (evt.is_mine) return; // kullanıcı kendi gönderisini beğenemez
+  if (!currentUser || currentUser.role !== 'user') return; // yalnızca kullanıcılar için
 
   const wrap = document.createElement('div');
   wrap.className = 'like-control';
+
+  const count = document.createElement('span');
+  count.className = 'like-count';
+  count.textContent = String(evt.num_likes != null ? evt.num_likes : 0);
+
+  const label = document.createElement('span');
+  label.className = 'like-label';
+  label.textContent = t('numLikes');
+
+  // Kendi gönderisi: yalnızca sayı (kalp/beğen butonu yok)
+  if (evt.is_mine) {
+    wrap.classList.add('readonly');
+    wrap.appendChild(count);
+    wrap.appendChild(label);
+    container.appendChild(wrap);
+    return;
+  }
 
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -6625,14 +6642,6 @@ function addLikeControl(container, evt, opts = {}) {
   const heart = document.createElement('span');
   heart.className = 'like-heart';
   heart.textContent = evt.i_liked ? '♥' : '♡';
-
-  const count = document.createElement('span');
-  count.className = 'like-count';
-  count.textContent = String(evt.num_likes != null ? evt.num_likes : 0);
-
-  const label = document.createElement('span');
-  label.className = 'like-label';
-  label.textContent = t('numLikes');
 
   btn.appendChild(heart);
   wrap.appendChild(btn);
@@ -10049,6 +10058,7 @@ const __pf = {
   perPage: 8,
   solver: false,
   map: null,
+  markersLayer: null,
   markers: {},
   focusId: null,
   highlightId: null,
@@ -10099,6 +10109,8 @@ async function openProfileOverlay(){
 
   // Puanı ve gönderileri canlı tut (yenileme gerekmeden) — overlay açıkken periyodik güncelle
   pfStartLivePolling();
+  // Başlık/rol/dil butonlarını mevcut dile göre ayarla
+  pfApplyLanguage();
 }
 
 // Overlay açıkken puan/gönderi verilerini periyodik olarak tazeler (başkası beğeni yapınca
@@ -10237,33 +10249,35 @@ function pfEnsureMap(){
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors', noWrap: true
   }).addTo(__pf.map);
+  // Kullanıcı girişindeki gibi clustering katmanı
+  __pf.markersLayer = makeMarkersLayer().addTo(__pf.map);
   __pf.map.setView([39.0, 35.0], 5);
   return __pf.map;
 }
 
-// Profil haritası pop-up içeriği — normal giriş haritasındaki bilgilerle (tip, açıklama,
-// foto/video medya) + beğeni sayısı + yalnızca harita logosu (tabloya geçiş) düğmesi.
-function pfBuildPopupNode(p){
-  const typeName = p.event_type_name ? escapeHtml(p.event_type_name) : '-';
-  const likes = (p.num_likes != null ? p.num_likes : 0);
-  const node = document.createElement('div');
-  node.className = 'pf-popup';
-  node.innerHTML = `
-    <div style="margin-bottom:6px;"><b>${t('eventID')}:</b> ${p.event_id}</div>
-    ${p.event_type_name ? `<div class="pf-pop-type"><b>${t('type')}:</b> ${typeName}</div>` : ''}
-    <div class="popup-body"><b>${t('description')}:</b> ${p.description ? escapeHtml(p.description) : ''}</div>
-    <div><b>${t('photo')}:</b></div>
-    <div class="popup-photos"><div data-ph="${p.event_id}"></div></div>
-    <div style="height:6px"></div>
-    <div><b>${t('video')}:</b></div>
-    <div class="popup-videos"><div data-vd="${p.event_id}"></div></div>
-    <div class="pf-pop-likes"><span class="pf-pop-likes-label">${t('numLikes')}:</span> <b>${likes}</b></div>
-    <div class="pf-pop-actions">
-      <button class="pf-pop-table" type="button" data-event-id="${p.event_id}" data-i18n-title="goToTable" title="${t('goToTable')}" aria-label="${t('goToTable')}">
-        <img src="/map-view.svg" alt="" width="20" height="20" onerror="this.onerror=null;this.src='/useposition.svg';" />
-      </button>
-    </div>`;
-  return node;
+// Profil haritası pop-up'ı açılınca: normal giriş haritasındaki içeriğin AYNISINI kur
+// (recreatePopupContent) + yalnızca harita logosu olan "tabloya geç" düğmesini ekle.
+function pfPopupOnOpen(p, mk){
+  try { recreatePopupContent(p, mk); } catch(e){ console.warn('pf popup', e); }
+  try {
+    const pop = mk.getPopup && mk.getPopup();
+    // setPopupContent'e verilen DOM elemanını doğrudan al (en güvenilir yol)
+    let contentEl = pop && pop.getContent && pop.getContent();
+    if (contentEl && typeof contentEl !== 'string' && !contentEl.querySelector('.pf-pop-table')){
+      const actions = document.createElement('div');
+      actions.className = 'pf-pop-actions';
+      const btn = document.createElement('button');
+      btn.className = 'pf-pop-table';
+      btn.type = 'button';
+      btn.title = t('goToTable');
+      btn.setAttribute('aria-label', t('goToTable'));
+      btn.innerHTML = '<img src="/map-view.svg" alt="" width="22" height="22" onerror="this.onerror=null;this.src=\'/useposition.svg\';" />';
+      btn.onclick = () => pfGotoTableForEvent(p.event_id);
+      actions.appendChild(btn);
+      contentEl.appendChild(actions);
+      try { pop.update(); } catch {}
+    }
+  } catch(e){ console.warn('pf popup btn', e); }
 }
 
 function pfOpenMap(focusEventId){
@@ -10273,27 +10287,20 @@ function pfOpenMap(focusEventId){
   const m = pfEnsureMap();
   if (!m) return;
 
-  // Markerları (yeniden) çiz
-  Object.values(__pf.markers).forEach(mk => { try { m.removeLayer(mk); } catch {} });
+  // Markerları (yeniden) çiz — kullanıcı girişindeki cluster katmanına ekle
+  try { if (__pf.markersLayer) __pf.markersLayer.clearLayers(); } catch {}
   __pf.markers = {};
 
   const pts = [];
   __pf.posts.forEach(p => {
     const lat = parseFloat(p.latitude), lng = parseFloat(p.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-    // Tüm markerlar YEŞİL renkte
-    const mk = L.circleMarker([lat, lng], {
-      radius: 9, color: '#15803d', weight: 2, fillColor: '#22c55e', fillOpacity: 0.9
-    }).addTo(m);
-    mk.bindPopup(pfBuildPopupNode(p), { maxWidth: 280, minWidth: 200 });
-    mk.on('popupopen', (ev) => {
-      const node = ev.popup.getElement();
-      if (!node) return;
-      // Normal giriş haritasındaki gibi medya (foto/video) doldur
-      try { populateEventMedia(node, p); } catch {}
-      const btn = node.querySelector('.pf-pop-table');
-      if (btn) btn.onclick = () => pfGotoTableForEvent(p.event_id);
-    });
+    // Kullanıcı girişindeki ile AYNI marker; hepsi YEŞİL olsun diye is_mine=true zorlanır
+    const evtForMarker = Object.assign({}, p, { is_mine: true });
+    const mk = markerFor(evtForMarker);
+    mk.bindPopup('<div></div>');
+    mk.on('popupopen', () => pfPopupOnOpen(p, mk));
+    if (__pf.markersLayer) __pf.markersLayer.addLayer(mk); else mk.addTo(m);
     __pf.markers[p.event_id] = mk;
     pts.push([lat, lng]);
   });
@@ -10303,8 +10310,13 @@ function pfOpenMap(focusEventId){
     try { m.invalidateSize(); } catch {}
     if (focusEventId != null && __pf.markers[focusEventId]){
       const mk = __pf.markers[focusEventId];
-      m.setView(mk.getLatLng(), 15, { animate: false });
-      mk.openPopup();
+      const openIt = () => { try { mk.openPopup(); } catch {} };
+      if (__pf.markersLayer && typeof __pf.markersLayer.zoomToShowLayer === 'function'){
+        __pf.markersLayer.zoomToShowLayer(mk, openIt);
+      } else {
+        m.setView(mk.getLatLng(), 15, { animate: false });
+        openIt();
+      }
     } else if (pts.length){
       try { m.fitBounds(L.latLngBounds(pts).pad(0.2)); } catch { m.setView(pts[0], 12); }
     }
@@ -10356,10 +10368,81 @@ function closeProfileOverlay(){
   pfStopLivePolling();
 }
 
+// Overlay açıkken dil değişimini uygula: solver'a göre başlık, rol etiketi, tablo başlıkları
+// ve aktif dil butonu vurgusu güncellenir. (Tablo sütun başlıkları data-i18n ile çevrilir.)
+function pfApplyLanguage(){
+  // Gönderiler / Silinenler başlığı (solver'a göre)
+  const postsTitle = pfEl('profile-posts-title');
+  if (postsTitle) postsTitle.textContent = __pf.solver ? t('deletedPosts') : t('posts');
+
+  // Profil rol etiketi
+  const role = pfEl('profile-role');
+  if (role) role.textContent = __pf.solver ? t('solver') : t('openEvent');
+
+  // Aktif dil butonu vurgusu + varsayılan dil butonunun etiketi (DEFAULT_LANG)
+  const pfLangDefault = pfEl('pf-lang-default');
+  const pfLangEn = pfEl('pf-lang-en');
+  const headerDefault = document.getElementById('lang-default');
+  if (pfLangDefault && headerDefault){
+    // Etiket ve data-lang'ı header'daki varsayılan dil butonundan al (TR/IT vb.)
+    pfLangDefault.textContent = headerDefault.textContent || 'TR';
+    pfLangDefault.setAttribute('data-lang', headerDefault.getAttribute('data-lang') || 'tr');
+  }
+  const cur = (typeof window.getLanguage === 'function') ? window.getLanguage() : 'en';
+  if (pfLangDefault) pfLangDefault.classList.toggle('active', cur !== 'en');
+  if (pfLangEn) pfLangEn.classList.toggle('active', cur === 'en');
+
+  // Tablo sütun başlıklarını tazele (data-i18n dışı güvence)
+  try {
+    const thead = document.querySelector('#profile-posts-table thead tr');
+    if (thead){
+      const ths = thead.querySelectorAll('th');
+      if (ths[0]) ths[0].textContent = t('type');
+      if (ths[1]) ths[1].textContent = t('addedDate');
+      if (ths[2]) ths[2].textContent = t('deactivatedAt');
+      if (ths[3]) ths[3].textContent = t('numLikes');
+    }
+  } catch {}
+
+  // Satırların içeriğini (boş kayıt metni vb.) tazele
+  pfRenderPostsTable();
+}
+
 // Overlay olaylarını bağla
 function initProfileOverlay(){
   const closeBtn = pfEl('profile-close');
   if (closeBtn) closeBtn.onclick = closeProfileOverlay;
+
+  // Profil overlay dil butonları (çarpının solunda) — header dil butonlarıyla aynı davranış
+  const pfLangDefault = pfEl('pf-lang-default');
+  const pfLangEn = pfEl('pf-lang-en');
+  const headerDefault = document.getElementById('lang-default');
+  const resolveDefaultLang = () => {
+    const hd = document.getElementById('lang-default');
+    return (hd && hd.getAttribute('data-lang'))
+      || (typeof window.getDefaultLang === 'function' ? window.getDefaultLang() : 'tr');
+  };
+  if (pfLangDefault){
+    pfLangDefault.onclick = async (e) => {
+      e.preventDefault();
+      const dl = resolveDefaultLang();
+      if (typeof changeLanguage === 'function') await changeLanguage(dl);
+      pfApplyLanguage();
+    };
+  }
+  if (pfLangEn){
+    pfLangEn.onclick = async (e) => {
+      e.preventDefault();
+      if (typeof changeLanguage === 'function') await changeLanguage('en');
+      pfApplyLanguage();
+    };
+  }
+
+  // Dil değişince (herhangi bir kaynaktan) overlay içeriğini de tazele
+  window.addEventListener('languagechange', () => {
+    const ov = pfEl('profile-overlay');
+    if (ov && !ov.classList.contains('hidden')) pfApplyLanguage();
+  });
 
   const bigMap = pfEl('profile-map-open-big');
   if (bigMap) bigMap.onclick = () => pfOpenMap(null);

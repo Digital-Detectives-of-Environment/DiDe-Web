@@ -3106,6 +3106,8 @@ th:has(#btn-add-type){
 .like-heart{ pointer-events:none; }
 .like-count{ font-weight:700; font-size:15px; min-width:16px; text-align:center; }
 .like-label{ color:var(--muted, #6b7280); font-size:13px; }
+/* Kendi gönderisi: yalnızca beğeni sayısı (kalp yok) */
+.like-control.readonly .like-count{ color:var(--danger, #b91c1c); font-size:16px; }
 
 /* =====================================================================
    PROFİL OVERLAY (tam ekran, mobil uyumlu)
@@ -3145,6 +3147,33 @@ th:has(#btn-add-type){
   align-items:center;
   justify-content:center;
   box-shadow:0 2px 8px rgba(0,0,0,.12);
+}
+/* Profil overlay dil butonları — çarpının hemen solunda */
+.profile-lang{
+  position:absolute;
+  top:16px;
+  right:66px;
+  z-index:12;
+  display:flex;
+  gap:6px;
+}
+.profile-lang button{
+  min-width:38px;
+  height:34px;
+  padding:0 10px;
+  border:1.5px solid var(--border, #e5e7eb);
+  border-radius:9px;
+  background:#fff;
+  color:var(--text, #111);
+  font-weight:700;
+  font-size:13px;
+  cursor:pointer;
+}
+.profile-lang button:hover{ background:#f1f5f9; }
+.profile-lang button.active{
+  background:var(--primary, #2563eb);
+  color:#fff;
+  border-color:var(--primary, #2563eb);
 }
 
 /* Kaydırmalı sayfa alanı */
@@ -3246,7 +3275,7 @@ th:has(#btn-add-type){
 
 /* Sayfa 2: Gönderiler / Silinenler */
 .profile-posts-head{
-  max-width:1100px;
+  max-width:100%;
   margin:0 auto 14px;
   display:flex;
   align-items:center;
@@ -3275,9 +3304,9 @@ th:has(#btn-add-type){
 .profile-map-open-list-img{ width:24px; height:24px; }
 
 .profile-table-wrap{
-  max-width:min(1100px, 100%);
+  max-width:100%;
   width:100%;
-  margin:0 auto;
+  margin:0;
   overflow-x:auto;
   border:1px solid var(--border, #e5e7eb);
   border-radius:12px;
@@ -3295,7 +3324,8 @@ th:has(#btn-add-type){
   background:var(--bg-soft, #f1f5f9);
   color:var(--muted, #475569);
   font-weight:700;
-  white-space:nowrap;
+  white-space:normal;      /* başlıklar da sarabilir → dar ekranda taşma olmaz */
+  word-break:break-word;
   border-bottom:1px solid var(--border, #e5e7eb);
 }
 .profile-posts-table tbody td{
@@ -3328,7 +3358,7 @@ th:has(#btn-add-type){
 
 /* Sayfalama */
 .profile-pagination{
-  max-width:1100px;
+  max-width:100%;
   margin:16px auto 0;
   display:flex;
   gap:6px;
@@ -3426,12 +3456,14 @@ th:has(#btn-add-type){
 
 /* Mobil ince ayarlar */
 @media (max-width: 576px){
-  .profile-slide{ padding:20px 10px 76px; }
+  .profile-slide{ padding:20px 8px 76px; }
   .profile-head{ flex-direction:column; text-align:center; gap:12px; }
   .profile-head-info{ align-items:center; }
   .profile-role{ align-self:center; }
-  .profile-posts-table{ font-size:13px; }
+  .profile-posts-table{ font-size:12.5px; }
   .profile-posts-table thead th,
-  .profile-posts-table tbody td{ padding:9px 7px; }
+  .profile-posts-table tbody td{ padding:8px 6px; }
   .profile-close{ width:38px; height:38px; top:8px; right:8px; }
+  .profile-lang{ top:11px; right:54px; gap:4px; }
+  .profile-lang button{ min-width:34px; height:32px; padding:0 7px; font-size:12px; }
 }

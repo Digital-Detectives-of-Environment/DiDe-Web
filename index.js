@@ -3071,6 +3071,8 @@ app.get('/api/me/posts', requireAuth, async (req, res) => {
          o.deactivated_at,
          COALESCE(o.active,true) AS active,
          COALESCE(o.num_likes,0) AS num_likes,
+         (COALESCE(o.liked_ids,'[]'::jsonb) @> to_jsonb($1::int)) AS i_liked,
+         o.created_by_id,
          o.created_by_name AS created_by_username,
          o.created_by_role_name AS created_by_role_name,
          o.photo_urls, o.video_urls,
