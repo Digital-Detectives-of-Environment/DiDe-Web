@@ -293,6 +293,30 @@ header{
     min-height: 36px !important;
     padding: 0 !important;
   }
+
+  /* DiDe başlığı her zaman görünsün */
+  .brand h1{ min-width: 42px; }
+
+  /* Login/Logout butonu YATAY olarak dar ve responsive; içindeki yazı gerekirse
+     DİKEY olarak alt satıra sarar (buton yatayda büyümez). Böylece DiDe/logo kapanmaz. */
+  #btn-logout, #btn-open-login{
+    width: clamp(38px, 11vw, 52px);
+    min-width: clamp(38px, 11vw, 52px);
+    max-width: clamp(38px, 11vw, 52px);
+    min-height: 30px;
+    padding: 3px 2px;
+    font-size: clamp(9px, 2.3vw, 11px);
+    line-height: 1.08;
+    font-weight: 700;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+  }
 }
 
 @media (max-width: 576px){

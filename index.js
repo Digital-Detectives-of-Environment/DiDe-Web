@@ -235,6 +235,7 @@ ensureDbConnectionWithRetry()
     } catch (e) {
       // ignore
     }
+    try { await initBoundary(); } catch (e) { console.warn('[BOUNDARY] init error:', e.message); }
   })
   .catch((e) => {
     console.error('[FATAL] Database startup error:', e && e.message ? e.message : e);
@@ -289,6 +290,17 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 // Tam path: <proje_kökü>/case_study/<CASE_STUDY>/raw_data/Raster
 const CASE_STUDY_NAME = process.env.CASE_STUDY || 'Milano';
 const RASTER_DIR = path.join(__dirname, 'case_study', CASE_STUDY_NAME, 'raw_data', 'Raster');
+
+// ==================== BOUNDARY (sınır) ====================
+// existing_data/boundary.geojson veya boundary.geopackage dosyasından sınır verisi.
+// Öncelik: Aggregation layer (POLYGON_TABLE) tanımlıysa sınır ondan belirlenir.
+// Aksi halde existing_data'daki boundary dosyası kullanılır. İkisi de yoksa sınır yok (serbest).
+const EXISTING_DATA_DIR = path.join(__dirname, 'case_study', CASE_STUDY_NAME, 'existing_data');
+const BOUNDARY_DB_TABLE = 'dide_boundary';
+let BOUNDARY_MODE = null;        // 'aggregation' | 'file' | null
+let BOUNDARY_GEOJSON = null;     // file modunda ön yüze gönderilecek GeoJSON (FeatureCollection/Feature)
+const { execFile } = require('child_process');
+
 
 const VIDEO_EXT_WHITELIST = ['.mp4', '.m4v', '.mov', '.mkv', '.avi', '.wmv', '.3gp', '.3gpp', '.webm', '.ogg', '.ogv', '.mpeg', '.mpg'];
 function hasVideoExtension(filename) {
@@ -1572,6 +1584,145 @@ async function migratePlainTotpOnBoot() {
   }
 }
 migratePlainTotpOnBoot();
+
+/* ===================== BOUNDARY (sınır) yükleme ===================== */
+function _findBoundaryFile() {
+  try {
+    if (!fs.existsSync(EXISTING_DATA_DIR)) return null;
+    const candidates = ['boundary.geojson', 'boundary.geopackage', 'boundary.gpkg', 'boundary.json'];
+    for (const name of candidates) {
+      const p = path.join(EXISTING_DATA_DIR, name);
+      if (fs.existsSync(p) && fs.statSync(p).isFile()) return p;
+    }
+  } catch {}
+  return null;
+}
+
+function _readGeoJsonFile(p) {
+  const raw = fs.readFileSync(p, 'utf8');
+  return JSON.parse(raw);
+}
+
+// GeoPackage → GeoJSON dönüşümü (ogr2ogr gerektirir; GIS sunucularında genelde mevcuttur)
+function _gpkgToGeoJson(gpkgPath) {
+  return new Promise((resolve) => {
+    const outPath = path.join(require('os').tmpdir(), `dide_boundary_${Date.now()}.geojson`);
+    execFile('ogr2ogr', ['-f', 'GeoJSON', '-t_srs', 'EPSG:4326', outPath, gpkgPath], (err) => {
+      if (err) {
+        console.warn('[BOUNDARY] GeoPackage read failed (is GDAL/ogr2ogr installed?). You can use existing_data/boundary.geojson instead. Detail:', err.message);
+        return resolve(null);
+      }
+      try {
+        const gj = _readGeoJsonFile(outPath);
+        try { fs.unlinkSync(outPath); } catch {}
+        resolve(gj);
+      } catch (e) {
+        console.warn('[BOUNDARY] Converted GeoJSON unreadable:', e.message);
+        resolve(null);
+      }
+    });
+  });
+}
+
+// file modunda GeoJSON geometrilerini dide_boundary tablosuna yazar (sunucu tarafı ST_Contains için)
+async function _loadBoundaryIntoDb(geojson) {
+  await pool.query(`CREATE TABLE IF NOT EXISTS public.${BOUNDARY_DB_TABLE} (id serial PRIMARY KEY, geom geometry(Geometry,4326))`);
+  await pool.query(`DELETE FROM public.${BOUNDARY_DB_TABLE}`);
+
+  let geoms = [];
+  if (geojson && geojson.type === 'FeatureCollection' && Array.isArray(geojson.features)) {
+    geoms = geojson.features.map(f => f && f.geometry).filter(Boolean);
+  } else if (geojson && geojson.type === 'Feature' && geojson.geometry) {
+    geoms = [geojson.geometry];
+  } else if (geojson && geojson.type && geojson.coordinates) {
+    geoms = [geojson];
+  }
+  let ok = 0;
+  for (const g of geoms) {
+    try {
+      // ST_Force2D: GeoJSON'da Z (3B) koordinat varsa Z'yi kaldırır (sütun 2B).
+      // ST_MakeValid: geçersiz geometrileri onarır.
+      await pool.query(
+        `INSERT INTO public.${BOUNDARY_DB_TABLE} (geom)
+         VALUES (ST_MakeValid(ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))))`,
+        [JSON.stringify(g)]
+      );
+      ok++;
+    } catch (e) {
+      console.warn('[BOUNDARY] Geometry insert failed:', e.message);
+    }
+  }
+  try { await pool.query(`CREATE INDEX IF NOT EXISTS dide_boundary_gix ON public.${BOUNDARY_DB_TABLE} USING GIST (geom)`); } catch {}
+  return ok;
+}
+
+async function initBoundary() {
+  try {
+    // 1) Aggregation layer öncelikli
+    if (POLYGON_TABLE && POLYGON_PKS.length > 0) {
+      BOUNDARY_MODE = 'aggregation';
+      console.log(`[BOUNDARY] Source: aggregation layer ("${POLYGON_TABLE}").`);
+      return;
+    }
+
+    // 2) existing_data/boundary dosyası
+    const file = _findBoundaryFile();
+    if (!file) {
+      BOUNDARY_MODE = null;
+      console.log('[BOUNDARY] No aggregation layer and no boundary file → no boundary (free data entry).');
+      return;
+    }
+
+    let geojson = null;
+    const ext = path.extname(file).toLowerCase();
+    if (ext === '.geojson' || ext === '.json') {
+      geojson = _readGeoJsonFile(file);
+    } else if (ext === '.geopackage' || ext === '.gpkg') {
+      geojson = await _gpkgToGeoJson(file);
+    }
+
+    if (!geojson) {
+      BOUNDARY_MODE = null;
+      console.warn(`[BOUNDARY] "${path.basename(file)}" unreadable → no boundary (free).`);
+      return;
+    }
+
+    const n = await _loadBoundaryIntoDb(geojson);
+    if (n > 0) {
+      BOUNDARY_MODE = 'file';
+      BOUNDARY_GEOJSON = geojson;
+      console.log(`[BOUNDARY] Source: file ("${path.basename(file)}", ${n} geometries). Data outside is blocked.`);
+    } else {
+      BOUNDARY_MODE = null;
+      console.warn('[BOUNDARY] No valid geometry loaded from file → no boundary (free).');
+    }
+  } catch (e) {
+    BOUNDARY_MODE = null;
+    console.warn('[BOUNDARY] init error → no boundary (free):', e.message);
+  }
+}
+
+// Bir noktanın sınır içinde olup olmadığını sunucu tarafında kontrol eder.
+// Sınır yoksa (mode null) her zaman true döner (serbest).
+async function isInsideBoundary(lng, lat) {
+  if (!BOUNDARY_MODE) return true;
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return false;
+  try {
+    if (BOUNDARY_MODE === 'aggregation') {
+      const polyTable = assertSafeIdent(POLYGON_TABLE, 'table');
+      const q = `SELECT 1 FROM public.${polyTable} WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint($1,$2),4326)) LIMIT 1`;
+      const r = await pool.query(q, [lng, lat]);
+      return r.rowCount > 0;
+    } else {
+      const q = `SELECT 1 FROM public.${BOUNDARY_DB_TABLE} WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint($1,$2),4326)) LIMIT 1`;
+      const r = await pool.query(q, [lng, lat]);
+      return r.rowCount > 0;
+    }
+  } catch (e) {
+    console.warn('[BOUNDARY] isInsideBoundary error:', e.message);
+    return true; // hata halinde engelleme (mevcut mantığı bozma)
+  }
+}
 
 /* ===================== DB Şema + Triggerlar (TEXT JSON) ===================== */
 async function ensureDbSqlHelpers() {
@@ -3095,6 +3246,31 @@ app.get('/api/me/posts', requireAuth, async (req, res) => {
   }
 });
 
+/* =============== Sınır (boundary) — yalnızca giriş yapınca =============== */
+app.get('/api/boundary', requireAuth, async (req, res) => {
+  try {
+    if (!BOUNDARY_MODE) return res.json({ enabled: false });
+
+    if (BOUNDARY_MODE === 'file') {
+      return res.json({ enabled: true, source: 'file', geojson: BOUNDARY_GEOJSON });
+    }
+
+    // aggregation: birleşik (dissolve) sınırı GeoJSON olarak döndür
+    const polyTable = assertSafeIdent(POLYGON_TABLE, 'table');
+    const r = await pool.query(`SELECT ST_AsGeoJSON(ST_Union(geom)) AS gj FROM public.${polyTable}`);
+    const gjStr = r.rows[0] && r.rows[0].gj;
+    if (!gjStr) return res.json({ enabled: false });
+    return res.json({
+      enabled: true,
+      source: 'aggregation',
+      geojson: { type: 'Feature', properties: {}, geometry: JSON.parse(gjStr) }
+    });
+  } catch (e) {
+    console.error('GET /api/boundary error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
 
 /* =============== QField: GeoJSON =============== */
 app.get('/api/qfield/events', tryAuth, async (req, res) => {
@@ -3164,6 +3340,15 @@ app.post('/api/submit_olay', requireAuth, async (req, res) => {
     const lat = parseFloat(latitude), lng = parseFloat(longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng))
       return res.status(400).json({ error: 'gecersiz_koordinat', message: getErrorMessage(req, 'gecersiz_koordinat') });
+
+    // Sınır (file modu) kontrolü: sınır dışına veri eklenemez.
+    // Aggregation modu zaten aşağıdaki polygon-PK mantığıyla kısıtlanır (mevcut davranış korunur).
+    if (BOUNDARY_MODE === 'file') {
+      const inside = await isInsideBoundary(lng, lat);
+      if (!inside) {
+        return res.status(403).json({ error: 'outside_boundary', message: getErrorMessage(req, 'outside_boundary') });
+      }
+    }
 
     let olayTuruId = null;
     if (event_type !== '' && event_type != null) {

@@ -312,6 +312,8 @@ function setTheme(mode){
   
   // Re-style grid layers for theme color
   try { _restyleGridLayers(); } catch {}
+  // Sınır katmanını da temaya göre yeniden renklendir
+  try { _restyleBoundaryLayer(); } catch {}
 
   try{ 
     localStorage.setItem(THEME_KEY, mode); 
@@ -6318,6 +6320,31 @@ function openTdChoiceModal() {
 }
 
 /* -------- STEP 2: validity period -------- */
+function buildValidityQuestion(units){
+  const w = { days: t('qUnitDays'), months: t('qUnitMonths'), seconds: t('qUnitSeconds') };
+  const words = (units || []).map(u => w[u] || u);
+  let joined;
+  if (words.length <= 1) joined = words[0] || w.days;
+  else joined = words.slice(0, -1).join(', ') + ' ' + t('listAnd') + ' ' + words[words.length - 1];
+  return t('howManyPrefix') + ' ' + joined + '?';
+}
+
+// Süre modalındaki soru ve birim etiketlerini mevcut dile göre tazeler (dil değişiminde de).
+function refreshTdDurationTexts(){
+  const units = Array.isArray(APP_CONFIG.eventTypeValidityUnits) && APP_CONFIG.eventTypeValidityUnits.length
+    ? APP_CONFIG.eventTypeValidityUnits
+    : ['days'];
+  const qEl = qs('#td-duration-question');
+  if (qEl) qEl.textContent = buildValidityQuestion(units);
+
+  const unitLabel = { days: t('unitDays'), months: t('unitMonths'), seconds: t('unitSeconds') };
+  qsa('#td-duration-inputs .td-duration-field label').forEach(lab => {
+    const inp = lab.parentElement && lab.parentElement.querySelector('input[data-unit]');
+    const u = inp && inp.getAttribute('data-unit');
+    if (u) lab.textContent = unitLabel[u] || u;
+  });
+}
+
 function openTdDurationModal() {
   const modal = qs('#td-duration-modal');
   const wrap  = qs('#td-duration-inputs');
@@ -6328,6 +6355,10 @@ function openTdDurationModal() {
     : ['days'];
 
   const unitLabel = { days: t('unitDays'), months: t('unitMonths'), seconds: t('unitSeconds') };
+
+  // Soruyu birimlere göre dinamik kur (ör. "Kaç saniye?", "Kaç gün ve ay?")
+  const qEl = qs('#td-duration-question');
+  if (qEl) qEl.textContent = buildValidityQuestion(units);
 
   wrap.innerHTML = '';
   units.forEach(u => {
@@ -6559,12 +6590,116 @@ function applyUserModeBadge() {
   }
 }
 
+// ==================== SINIR (BOUNDARY) ====================
+// Giriş yaptıktan sonra /api/boundary'den sınır verisi çekilir, haritada gösterilir ve
+// sınır dışına veri eklenmesi engellenir. Sınır yoksa (enabled:false) hiçbir kısıt yoktur.
+let __boundary = { enabled: false, source: null, geojson: null };
+let __boundaryLayer = null;
+
+function _boundaryStyle(){
+  const isDark = document.documentElement.classList.contains('theme-dark');
+  // Açık tema: kapalı mavi, biraz kalın. Karanlık tema: fosfor kırmızı (koyu temada en çarpıcı ton).
+  return isDark
+    ? { color: '#ff073a', weight: 4, opacity: 1, fill: false, dashArray: null }
+    : { color: '#1d4ed8', weight: 4, opacity: 1, fill: false, dashArray: null };
+}
+
+function removeBoundaryLayer(){
+  if (__boundaryLayer && map){ try { map.removeLayer(__boundaryLayer); } catch {} }
+  __boundaryLayer = null;
+  __boundary = { enabled: false, source: null, geojson: null };
+}
+
+function drawBoundaryLayer(){
+  if (!map || !__boundary.enabled || !__boundary.geojson) return;
+  if (__boundaryLayer){ try { map.removeLayer(__boundaryLayer); } catch {} __boundaryLayer = null; }
+  try {
+    __boundaryLayer = L.geoJSON(__boundary.geojson, {
+      style: () => _boundaryStyle(),
+      interactive: false
+    }).addTo(map);
+    try { __boundaryLayer.bringToFront(); } catch {}
+  } catch (e) { console.warn('drawBoundaryLayer error:', e); }
+}
+
+function _restyleBoundaryLayer(){
+  if (__boundaryLayer){ try { __boundaryLayer.setStyle(_boundaryStyle()); } catch {} }
+}
+
+async function loadBoundary(){
+  // Yalnızca giriş yapılmışsa (endpoint requireAuth) çağrılır
+  removeBoundaryLayer();
+  try {
+    const r = await fetch('/api/boundary');
+    if (!r.ok) return;
+    const data = await r.json().catch(() => ({}));
+    if (data && data.enabled && data.geojson){
+      __boundary = { enabled: true, source: data.source || 'file', geojson: data.geojson };
+      drawBoundaryLayer();
+    }
+  } catch (e) { console.warn('loadBoundary error:', e); }
+}
+
+// Nokta sınır içinde mi? (ray-casting; Polygon ve MultiPolygon + delik desteği)
+function _ringContains(ring, lng, lat){
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++){
+    const xi = ring[i][0], yi = ring[i][1];
+    const xj = ring[j][0], yj = ring[j][1];
+    const intersect = ((yi > lat) !== (yj > lat)) &&
+      (lng < (xj - xi) * (lat - yi) / ((yj - yi) || 1e-15) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+function _polygonContains(polygon, lng, lat){
+  if (!polygon || !polygon.length) return false;
+  if (!_ringContains(polygon[0], lng, lat)) return false; // dış halka
+  for (let k = 1; k < polygon.length; k++){ // delikler
+    if (_ringContains(polygon[k], lng, lat)) return false;
+  }
+  return true;
+}
+function _geomContains(geom, lng, lat){
+  if (!geom) return false;
+  if (geom.type === 'Polygon') return _polygonContains(geom.coordinates, lng, lat);
+  if (geom.type === 'MultiPolygon'){
+    for (const poly of geom.coordinates){ if (_polygonContains(poly, lng, lat)) return true; }
+    return false;
+  }
+  if (geom.type === 'GeometryCollection'){
+    for (const g of (geom.geometries || [])){ if (_geomContains(g, lng, lat)) return true; }
+    return false;
+  }
+  return false;
+}
+function pointInBoundary(lng, lat){
+  if (!__boundary.enabled || !__boundary.geojson) return true; // sınır yoksa serbest
+  const gj = __boundary.geojson;
+  if (gj.type === 'FeatureCollection'){
+    for (const f of (gj.features || [])){ if (f && f.geometry && _geomContains(f.geometry, lng, lat)) return true; }
+    return false;
+  }
+  if (gj.type === 'Feature') return _geomContains(gj.geometry, lng, lat);
+  return _geomContains(gj, lng, lat);
+}
+
+// Sınır dışı ise uyarı gösterip true döner (çağıran işlemi durdurur).
+function boundaryBlocks(lng, lat, kind){
+  if (!__boundary.enabled || __boundary.source !== 'file') return false;
+  if (pointInBoundary(lng, lat)) return false;
+  showGridWarning(kind === 'location' ? t('outsideBoundaryLocation') : t('outsideBoundaryMap'));
+  return true;
+}
+
 function allowBlackMarker() {
   if (window.SUPERVISOR_NO_ADD) return false;
   // Solver kullanıcılar olay ekleyemez (siyah pin bırakamaz).
   if (isSolverUser()) return false;
   return !!(currentUser && currentUser.role === 'user');
 }
+
+
 
 // Solver için popup'a "Kapat" (Close) butonu ekler. Kullanıcıların eklediği aktif
 // olayları kapatır (soft-delete: active=false). Kendi olayları için ayrı Sil butonu vardır.
@@ -7357,17 +7492,21 @@ function geoFindMeWithPolygonFlow() {
 
       map.setView(ll, Math.max(map.getZoom(), 17), { animate:true });
 
-      // Kullanıcı konumunu haritada görsün, 500ms sonra akışa başla
       setTimeout(() => {
+        if (boundaryBlocks(longitude, latitude, 'location')) {
+          setTimeout(() => {
+            if (liveMarker) { try { map.removeLayer(liveMarker); } catch {} liveMarker = null; }
+            if (liveAccuracyCircle) { try { map.removeLayer(liveAccuracyCircle); } catch {} liveAccuracyCircle = null; }
+          }, 700);
+          setLocateUI(false);
+          return;
+        }
         if (currentUser && currentUser.role === 'user' && APP_CONFIG.polygonTable) {
-          console.log('[GPS] Starting polygon flow — polygonTable =', APP_CONFIG.polygonTable);
           startPolygonFlow(latitude, longitude);
         } else if (currentUser && currentUser.role === 'user') {
-          console.log('[GPS] No polygon — opening form. polygonTable =', APP_CONFIG.polygonTable);
           openEventFormDirectly(latitude, longitude);
           startLiveLocation();
         } else {
-          console.log('[GPS] Non-user role — opening form directly. polygonTable =', APP_CONFIG.polygonTable);
           openEventFormDirectly(latitude, longitude);
           startLiveLocation();
         }
@@ -8304,10 +8443,12 @@ async function checkMe(){
     ]); 
     
     try { ensureMapLegend(map); } catch {}
+    try { await loadBoundary(); } catch (e) { console.warn('boundary load', e); }
   } else { 
     markersLayer.clearLayers(); 
     
     try { ensureMapLegend(map); } catch {}
+    try { removeBoundaryLayer(); } catch {}
   }
 }
 
@@ -8456,6 +8597,7 @@ async function logout(){
   
   reflectAuth();
   try { markersLayer.clearLayers(); } catch {}
+  try { removeBoundaryLayer(); } catch {}
   resetEdit();
   detachMapClickForLoggedOut();
   
@@ -8894,7 +9036,8 @@ function attachMapClickForLoggedIn(){
     if (liveAccuracyCircle) { try { map.removeLayer(liveAccuracyCircle); } catch {} ; liveAccuracyCircle = null; }
     
     const { lat, lng } = e.latlng;
-    
+
+    // Nereye tıklandığı görünsün diye siyah markerı önce koy (sınır içi/dışı fark etmez)
     if (clickMarker) {
       clickMarker.setLatLng(e.latlng);
     } else {
@@ -8902,16 +9045,22 @@ function attachMapClickForLoggedIn(){
         .addTo(map)
         .bindPopup(t('selectedLocation'));
     }
-    
-    if (currentUser && currentUser.role === 'user') {
-      // VG1: Route through polygon flow
-      console.log('[MAP CLICK] polygonTable =', APP_CONFIG.polygonTable);
-      if (APP_CONFIG.polygonTable) {
-        startPolygonFlow(lat, lng);
-      } else {
-        openEventFormDirectly(lat, lng);
+
+    setTimeout(() => {
+      if (boundaryBlocks(lng, lat, 'map')) {
+        setTimeout(() => {
+          if (clickMarker) { try { map.removeLayer(clickMarker); } catch {} clickMarker = null; }
+        }, 700);
+        return;
       }
-    }
+      if (currentUser && currentUser.role === 'user') {
+        if (APP_CONFIG.polygonTable) {
+          startPolygonFlow(lat, lng);
+        } else {
+          openEventFormDirectly(lat, lng);
+        }
+      }
+    }, 500);
   });
 }
 
@@ -10500,6 +10649,7 @@ function initProfileOverlay(){
   window.addEventListener('languagechange', () => {
     const ov = pfEl('profile-overlay');
     if (ov && !ov.classList.contains('hidden')) pfApplyLanguage();
+    try { refreshTdDurationTexts(); } catch {}
   });
 
   // Ekran boyutu / yönü değişince gösterilecek satır sayısını yeniden hesapla (debounce'lu)
