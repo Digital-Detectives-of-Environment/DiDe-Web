@@ -3256,13 +3256,7 @@ th:has(#btn-add-type){
   word-break:break-word;
 }
 .profile-role{
-  display:inline-block;
-  align-self:flex-start;
-  font-size:clamp(12px, 3vw, 14px);
-  font-weight:700;
-  padding:4px 12px;
-  border-radius:999px;
-  color:#fff;
+  display:none;
 }
 .profile-role.is-opener{ background:var(--primary, #2563eb); }
 .profile-role.is-solver{ background:var(--danger, #b91c1c); }
@@ -3510,7 +3504,7 @@ th:has(#btn-add-type){
   .profile-lang{ top:10px; left:10px; right:auto; gap:4px; }
   .profile-lang button{ min-width:34px; height:32px; padding:0 7px; font-size:12px; }
 
-
+  
   .profile-posts-table thead th{ padding:10px 6px; }
   .profile-posts-table tbody td{ padding:10px 6px; }
 }

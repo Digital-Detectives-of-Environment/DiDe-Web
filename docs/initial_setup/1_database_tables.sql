@@ -29,7 +29,12 @@ CREATE TABLE IF NOT EXISTS public.users (
   reset_expires        timestamptz,
   two_factor_enabled   boolean DEFAULT false,
   two_factor_secret    text,
-  two_factor_norm_hash text
+  two_factor_norm_hash text,
+  registration_date    timestamptz,
+  solver               boolean DEFAULT false,
+  num_events           integer DEFAULT 0,
+  liked_point          integer DEFAULT 0,
+  posts_point          integer DEFAULT 0
 );
 
 -- 1.2) event types
@@ -48,7 +53,11 @@ CREATE TABLE IF NOT EXISTS public.event_type (
   deactivated_at           timestamptz,
   layer_table              text,
   attribute_column         text,
-  is_point                 boolean DEFAULT true
+  is_point                 boolean DEFAULT true,
+  is_line                  boolean DEFAULT false,
+  is_polygon               boolean DEFAULT false,
+  time_dependent           boolean DEFAULT false,
+  valid_time               double precision
 );
 
 -- 1.3) events (field records)
@@ -74,7 +83,9 @@ CREATE TABLE IF NOT EXISTS public.event (
   updated_by_id            integer,
   updated_at               timestamptz,
   photo_urls               text NOT NULL DEFAULT '[]',
-  video_urls               text NOT NULL DEFAULT '[]'
+  video_urls               text NOT NULL DEFAULT '[]',
+  num_likes                integer DEFAULT 0,
+  liked_ids                jsonb DEFAULT '[]'::jsonb
 );
 
 -- 2) Indexes
@@ -89,3 +100,22 @@ ALTER TABLE public.event  ALTER COLUMN photo_urls SET DEFAULT '[]';
 ALTER TABLE public.event  ALTER COLUMN photo_urls SET NOT NULL;
 ALTER TABLE public.event  ALTER COLUMN video_urls SET DEFAULT '[]';
 ALTER TABLE public.event  ALTER COLUMN video_urls SET NOT NULL;
+
+-- 4) Newer columns (idempotent) — also auto-added by the app at runtime.
+--    Listed here so a fresh/manual install and existing databases stay in sync.
+-- 4.1) users
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS registration_date timestamptz;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS solver            boolean DEFAULT false;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS num_events        integer DEFAULT 0;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS liked_point       integer DEFAULT 0;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS posts_point       integer DEFAULT 0;
+
+-- 4.2) event_type
+ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS is_line        boolean DEFAULT false;
+ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS is_polygon     boolean DEFAULT false;
+ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS time_dependent boolean DEFAULT false;
+ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS valid_time     double precision;
+
+-- 4.3) event
+ALTER TABLE public.event ADD COLUMN IF NOT EXISTS num_likes integer DEFAULT 0;
+ALTER TABLE public.event ADD COLUMN IF NOT EXISTS liked_ids jsonb DEFAULT '[]'::jsonb;

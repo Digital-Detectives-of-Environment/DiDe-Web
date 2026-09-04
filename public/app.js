@@ -5657,7 +5657,13 @@ function renderTypeTableRows(data) {
       : `<button class="btn danger" disabled title="${window.t('noPermission')}">${window.t('delete')}</button>`;
     
     const isTd = (t.time_dependent === true || t.time_dependent === 'true' || t.time_dependent === 1);
-    const tdText = isTd ? window.t('timeDependent') : window.t('notTimeDependent');
+    let tdText = isTd ? window.t('timeDependent') : window.t('notTimeDependent');
+    if (isTd) {
+      const units = (Array.isArray(APP_CONFIG.eventTypeValidityUnits) && APP_CONFIG.eventTypeValidityUnits.length)
+        ? APP_CONFIG.eventTypeValidityUnits : ['days'];
+      const dur = formatValidTime(t.valid_time, units);
+      if (dur) tdText += ' — ' + dur;
+    }
 
     tr.innerHTML = `
       <td>${escapeHtml(t.event_type_name)}</td>
@@ -6320,6 +6326,30 @@ function openTdChoiceModal() {
 }
 
 /* -------- STEP 2: validity period -------- */
+// valid_time gün cinsinden saklanır; yapılandırılmış birime (ve seçili dile) göre metne çevirir.
+function formatValidTime(validTimeDays, units){
+  const vt = Number(validTimeDays);
+  if (!Number.isFinite(vt) || vt <= 0) return '';
+  const u = (Array.isArray(units) && units.length) ? units : ['days'];
+  const unitSec = { months: 2592000, days: 86400, seconds: 1 };
+  const label = { months: t('qUnitMonths'), days: t('qUnitDays'), seconds: t('qUnitSeconds') };
+  const order = ['months', 'days', 'seconds'].filter(x => u.includes(x));
+  if (!order.length) return '';
+  let rem = Math.round(vt * 86400);
+  const parts = [];
+  order.forEach((unit, i) => {
+    if (i === order.length - 1) {
+      const val = Math.round(rem / unitSec[unit]);
+      if (val > 0 || parts.length === 0) parts.push(val + ' ' + label[unit]);
+    } else {
+      const val = Math.floor(rem / unitSec[unit]);
+      rem -= val * unitSec[unit];
+      if (val > 0) parts.push(val + ' ' + label[unit]);
+    }
+  });
+  return parts.join(' ');
+}
+
 function buildValidityQuestion(units){
   const w = { days: t('qUnitDays'), months: t('qUnitMonths'), seconds: t('qUnitSeconds') };
   const words = (units || []).map(u => w[u] || u);
