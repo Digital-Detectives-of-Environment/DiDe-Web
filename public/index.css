@@ -3504,7 +3504,104 @@ th:has(#btn-add-type){
   .profile-lang{ top:10px; left:10px; right:auto; gap:4px; }
   .profile-lang button{ min-width:34px; height:32px; padding:0 7px; font-size:12px; }
 
-  
+  /* Tablo GERÇEK tablo olarak kalır ve tam ekrana sığar (fixed layout + min-width:0).
+     Yazı boyutu ve satır yüksekliği KÜÇÜLTÜLMEZ — okunabilirlik korunur.
+     Yalnızca hücre yatay dolgusu hafif azaltılır ki dar sütunlarda daha çok yazı sığsın. */
   .profile-posts-table thead th{ padding:10px 6px; }
   .profile-posts-table tbody td{ padding:10px 6px; }
+}
+
+/* Google Maps benzeri canlı konum: mavi nokta + yönelim oku */
+.gps-live-icon{ background:none !important; border:none !important; }
+.gps-live{ position:relative; width:26px; height:26px; }
+.gps-dot{
+  position:absolute; left:50%; top:50%;
+  width:16px; height:16px; margin:-8px 0 0 -8px;
+  background:#1a73e8; border:2.5px solid #fff; border-radius:50%;
+  box-shadow:0 0 4px rgba(0,0,0,.35);
+}
+.gps-heading{
+  display:none;
+  position:absolute; left:50%; bottom:50%;
+  width:0; height:0;
+  margin-bottom:6px;
+  border-left:7px solid transparent;
+  border-right:7px solid transparent;
+  border-bottom:12px solid #1a73e8;
+  transform:translateX(-50%);
+  transform-origin:50% 100%;
+  opacity:.9;
+}
+
+/* ==================== Canlı konum butonu ==================== */
+#btn-live-location{ color: var(--text, #111); }
+#btn-live-location img{ display:block; }
+#btn-live-location.hidden{ display:none; }
+/* Aktifken: yeşil + hafif soluk yanıp sönme */
+#btn-live-location.active{
+  color:#16a34a;
+  border-color:#22c55e;
+  background: color-mix(in srgb, #22c55e 12%, var(--surface));
+  animation: liveLocBlink 1.15s ease-in-out infinite;
+}
+@keyframes liveLocBlink{
+  0%,100%{ opacity:1; }
+  50%{ opacity:0.5; }
+}
+
+/* ===== Header: tek hizada, eşit aralıklı, responsive; DiDe kapanmaz ===== */
+.wrap{ gap: clamp(6px, 1.5vw, 12px); }
+.brand{ flex: 1 1 auto; min-width: 0; }
+.brand h1{ min-width: 2.9em; }             /* "DiDe" her zaman görünür */
+.auth{ gap: clamp(5px, 1.4vw, 10px); flex: 0 0 auto; align-items: center; }
+.auth > *{ margin: 0 !important; }         /* eşit aralık: ekstra margin yok */
+
+/* Tüm header ikon butonları aynı boyut */
+#btn-live-location,
+#btn-use-location-header,
+#btn-theme-toggle{
+  width: clamp(32px, 8.5vw, 42px);
+  height: clamp(32px, 8.5vw, 42px);
+  min-width: clamp(32px, 8.5vw, 42px);
+  min-height: clamp(32px, 8.5vw, 42px);
+  padding: 0;
+  flex: 0 0 auto;
+}
+#btn-live-location img,
+#btn-use-location-header img,
+#btn-use-location img{
+  width: clamp(16px, 4.5vw, 22px);
+  height: clamp(16px, 4.5vw, 22px);
+}
+
+/* Dil butonları */
+.auth .language-selector{ gap: 4px; }
+.auth .language-selector button{
+  min-width: clamp(26px, 7vw, 40px);
+  height: clamp(32px, 8.5vw, 42px);
+  padding: 0 clamp(4px, 1.5vw, 10px);
+  font-size: clamp(10px, 2.4vw, 13px);
+}
+
+/* Login / Logout: sabit dar genişlik, dikeyde sarabilir */
+#btn-open-login, #btn-logout{
+  width: clamp(46px, 12vw, 74px);
+  min-width: clamp(46px, 12vw, 74px);
+  max-width: clamp(46px, 12vw, 74px);
+  min-height: clamp(32px, 8.5vw, 42px);
+  padding: clamp(3px,1vw,8px) clamp(3px,1.5vw,10px);
+  font-size: clamp(10px, 2.4vw, 14px);
+  line-height: 1.12;
+  white-space: normal;
+  word-break: break-word;
+  display: inline-flex; align-items: center; justify-content: center;
+  box-sizing: border-box;
+}
+
+/* Rol logosu (badge) header'da orantılı ve diğer butonlarla hizalı */
+.user-mode-logo{ height: clamp(30px, 8vw, 42px); max-width: 120px; }
+
+/* Mobilde selamlama gizli → yer açılır, DiDe kapanmaz */
+@media (max-width: 768px){
+  #whoami{ display: none !important; }
 }

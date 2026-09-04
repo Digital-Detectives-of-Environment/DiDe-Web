@@ -147,6 +147,8 @@ window.i18nLangs.tr = {
     outsideBoundaryLocation: 'Konumunuz sınırların dışında. Lütfen sınırlar içinde veri girişi yapınız.',
     outsideBoundaryMap: 'Sınırların dışına veri ekleyemezsiniz. Lütfen sınırlar içinde bir nokta seçiniz.',
     outside_boundary: 'Sınırların dışına veri ekleyemezsiniz. Lütfen sınırlar içinde bir nokta seçiniz.',
+    locationUnavailable: 'Konuma ulaşılamadığı için olay bildirim formu açılamadı; nokta ekleyemezsiniz. Lütfen konum iznini verin.',
+    liveLocation: 'Canlı konum',
     
     events: 'Olaylar',
     addEvent: 'Olay Ekle',

@@ -142,6 +142,8 @@ window.i18nLangs.it = {
     outsideBoundaryLocation: 'La tua posizione è fuori dai confini. Inserisci i dati entro i confini.',
     outsideBoundaryMap: 'Non puoi aggiungere dati fuori dai confini. Seleziona un punto entro i confini.',
     outside_boundary: 'Non puoi aggiungere dati fuori dai confini. Seleziona un punto entro i confini.',
+    locationUnavailable: 'Impossibile accedere alla tua posizione; il modulo non si e aperto e nessun punto e stato aggiunto. Consenti l accesso alla posizione.',
+    liveLocation: 'Posizione in tempo reale',
     
     events: 'Eventi',
     addEvent: 'Aggiungi evento',

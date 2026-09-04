@@ -7453,7 +7453,7 @@ function setLocateUI(running){
       btnUse.classList.add('danger');
       btnUse.title = t('cancelLocation');
     } else {
-      btnUse.innerHTML = `<img src="/useposition.svg" alt="${t('location')}" width="20" height="20" />`;
+      btnUse.innerHTML = `<img src="/add-position.svg" onerror="this.onerror=null;this.src='/useposition.svg';" alt="${t('location')}" width="20" height="20" />`;
       btnUse.classList.remove('danger');
       btnUse.title = t('useMyLocation');
     }
@@ -7474,22 +7474,15 @@ function geoFindMeToggle(){
 function geoFindMeStart() {
   if (!("geolocation" in navigator)) return;
   setLocateUI(true);
+  enableDeviceHeading();
   navigator.geolocation.getCurrentPosition(
     (position) => {
       const { latitude, longitude } = position.coords;
-
-      if (clickMarker) { try { map.removeLayer(clickMarker); } catch {} ; clickMarker = null; }
-
-      const latEl = qs('#lat'); 
+      const latEl = qs('#lat');
       const lngEl = qs('#lng');
       if (latEl) latEl.value = String(latitude);
       if (lngEl) lngEl.value = String(longitude);
-
-      const ll = L.latLng(latitude, longitude);
-      if (liveMarker) liveMarker.setLatLng(ll);
-      else liveMarker = L.marker(ll, { icon: BLACK_PIN() }).addTo(map).bindPopup(t('myLocation'));
-
-      map.setView(ll, Math.max(map.getZoom(), 17), { animate:true });
+      map.setView(L.latLng(latitude, longitude), Math.max(map.getZoom(), 17), { animate:true });
       startLiveLocation();
     },
     () => { setLocateUI(false); },
@@ -7497,79 +7490,115 @@ function geoFindMeStart() {
   );
 }
 
-/* GPS with polygon flow (header button) — toggles tracking on second press */
+/* Header "add position" button: puts a BLACK marker at current location and opens the
+   event form after a short delay. Live blue dot keeps tracking separately. */
 function geoFindMeWithPolygonFlow() {
-  // Block if polygon flow is active (after confirm Yes)
   if (__polygonFlowLocked) return;
+  if (!("geolocation" in navigator)) { showGridWarning(t('locationUnavailable')); return; }
 
-  // Toggle: if already tracking, stop and reset
-  if (liveWatchId !== null) {
-    stopLiveLocation();
-    return;
-  }
-
-  if (!("geolocation" in navigator)) return;
-  setLocateUI(true);
+  enableDeviceHeading();
   navigator.geolocation.getCurrentPosition(
     (position) => {
       const { latitude, longitude } = position.coords;
 
-      if (clickMarker) { try { map.removeLayer(clickMarker); } catch {} ; clickMarker = null; }
-
+      // Eklenecek noktayı SİYAH marker ile göster (canlı konumdan bağımsız; mavi noktanın üstünde).
       const ll = L.latLng(latitude, longitude);
-      if (liveMarker) liveMarker.setLatLng(ll);
-      else liveMarker = L.marker(ll, { icon: BLACK_PIN() }).addTo(map).bindPopup(t('myLocation'));
+      if (clickMarker) clickMarker.setLatLng(ll);
+      else clickMarker = L.marker(ll, { icon: BLACK_PIN(), zIndexOffset: 1000 }).addTo(map).bindPopup(t('selectedLocation'));
 
       map.setView(ll, Math.max(map.getZoom(), 17), { animate:true });
 
       setTimeout(() => {
         if (boundaryBlocks(longitude, latitude, 'location')) {
           setTimeout(() => {
-            if (liveMarker) { try { map.removeLayer(liveMarker); } catch {} liveMarker = null; }
-            if (liveAccuracyCircle) { try { map.removeLayer(liveAccuracyCircle); } catch {} liveAccuracyCircle = null; }
+            if (clickMarker) { try { map.removeLayer(clickMarker); } catch {} clickMarker = null; }
           }, 700);
-          setLocateUI(false);
           return;
         }
         if (currentUser && currentUser.role === 'user' && APP_CONFIG.polygonTable) {
           startPolygonFlow(latitude, longitude);
-        } else if (currentUser && currentUser.role === 'user') {
-          openEventFormDirectly(latitude, longitude);
-          startLiveLocation();
         } else {
           openEventFormDirectly(latitude, longitude);
-          startLiveLocation();
         }
       }, 500);
     },
-    () => { setLocateUI(false); },
+    () => {
+      // İzin reddedildi / konuma ulaşılamadı → kırmızı uyarı, form açılmaz
+      showGridWarning(t('locationUnavailable'));
+    },
     { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
   );
 }
 window.geoFindMeWithPolygonFlow = geoFindMeWithPolygonFlow;
 
+/* Google Maps benzeri canlı konum: mavi nokta + doğruluk çemberi + yönelim oku */
+function blueDotIcon(){
+  return L.divIcon({
+    className: 'gps-live-icon',
+    html: '<div class="gps-live"><div class="gps-heading"></div><div class="gps-dot"></div></div>',
+    iconSize: [26, 26],
+    iconAnchor: [13, 13]
+  });
+}
+
+function _setLiveHeading(deg){
+  const mk = (typeof __slMarker !== 'undefined' && __slMarker) ? __slMarker : liveMarker;
+  if (deg == null || !mk || !mk.getElement) return;
+  const el = mk.getElement();
+  if (!el) return;
+  const h = el.querySelector('.gps-heading');
+  if (h) {
+    h.style.display = 'block';
+    h.style.transform = 'translateX(-50%) rotate(' + deg + 'deg)';
+  }
+}
+
+let _orientHandler = null;
+function enableDeviceHeading(){
+  if (_orientHandler) return;
+  const attach = () => {
+    _orientHandler = (e) => {
+      let heading = null;
+      if (typeof e.webkitCompassHeading === 'number') heading = e.webkitCompassHeading;
+      else if (e.alpha != null) heading = 360 - e.alpha;
+      if (heading != null && Number.isFinite(heading)) _setLiveHeading(heading);
+    };
+    window.addEventListener('deviceorientation', _orientHandler, true);
+  };
+  try {
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      DeviceOrientationEvent.requestPermission().then(state => { if (state === 'granted') attach(); }).catch(() => {});
+    } else {
+      attach();
+    }
+  } catch { try { attach(); } catch {} }
+}
+function disableDeviceHeading(){
+  if (_orientHandler){ try { window.removeEventListener('deviceorientation', _orientHandler, true); } catch {} _orientHandler = null; }
+}
+
 function startLiveLocation(){
   if (!("geolocation" in navigator)) return;
   if (liveWatchId !== null) return;
+  enableDeviceHeading();
   liveWatchId = navigator.geolocation.watchPosition(
     (position) => {
       const { latitude, longitude, accuracy } = position.coords;
 
-      if (clickMarker) { try { map.removeLayer(clickMarker); } catch {} ; clickMarker = null; }
-
-      const latEl = qs('#lat'); 
+      const latEl = qs('#lat');
       const lngEl = qs('#lng');
       if (latEl) latEl.value = String(latitude);
       if (lngEl) lngEl.value = String(longitude);
 
       const ll = L.latLng(latitude, longitude);
       if (liveMarker) liveMarker.setLatLng(ll);
-      else liveMarker = L.marker(ll, {icon: BLACK_PIN()}).addTo(map).bindPopup(t('myLocation'));
+      else liveMarker = L.marker(ll, { icon: blueDotIcon(), interactive: false, zIndexOffset: 500 }).addTo(map);
 
       if (Number.isFinite(accuracy)) {
         if (liveAccuracyCircle) liveAccuracyCircle.setLatLng(ll).setRadius(accuracy);
         else liveAccuracyCircle = L.circle(ll, {
-          radius: accuracy, color:'#3b82f6', weight:1, opacity:.6, fillColor:'#3b82f6', fillOpacity:.18
+          radius: accuracy, color:'#3b82f6', weight:1, opacity:.5, fillColor:'#3b82f6', fillOpacity:.15, interactive:false
         }).addTo(map);
       }
     },
@@ -7592,11 +7621,62 @@ function stopLiveLocation(){
     try { map.removeLayer(liveAccuracyCircle); } catch {} 
     liveAccuracyCircle = null; 
   }
+  disableDeviceHeading();
   setLocateUI(false);
+}
+
+/* ===== Standalone canlı konum (header live butonu + girişte otomatik) =====
+   Form akışından TAMAMEN bağımsız: kendi watch/marker/circle durumunu tutar,
+   yalnızca #btn-live-location butonunu etkiler. */
+let __slWatch = null, __slMarker = null, __slCircle = null, __slCenterPending = false;
+
+function startStandaloneLive(){
+  if (!("geolocation" in navigator)) return;
+  if (__slWatch !== null) return;
+  enableDeviceHeading();
+  __slCenterPending = true;
+  __slWatch = navigator.geolocation.watchPosition(
+    (position) => {
+      const { latitude, longitude, accuracy } = position.coords;
+      const ll = L.latLng(latitude, longitude);
+      if (__slMarker) __slMarker.setLatLng(ll);
+      else __slMarker = L.marker(ll, { icon: blueDotIcon(), interactive:false, zIndexOffset: 500 }).addTo(map);
+      if (Number.isFinite(accuracy)) {
+        if (__slCircle) __slCircle.setLatLng(ll).setRadius(accuracy);
+        else __slCircle = L.circle(ll, { radius: accuracy, color:'#3b82f6', weight:1, opacity:.5, fillColor:'#3b82f6', fillOpacity:.15, interactive:false }).addTo(map);
+      }
+      if (__slCenterPending){ __slCenterPending = false; try { map.setView(ll, Math.max(map.getZoom(), 17), { animate:true }); } catch {} }
+    },
+    () => { stopStandaloneLive(); },
+    { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+  );
+  updateLiveLocBtn();
+}
+
+function stopStandaloneLive(){
+  if (__slWatch !== null){ try { navigator.geolocation.clearWatch(__slWatch); } catch {} __slWatch = null; }
+  if (__slMarker){ try { map.removeLayer(__slMarker); } catch {} __slMarker = null; }
+  if (__slCircle){ try { map.removeLayer(__slCircle); } catch {} __slCircle = null; }
+  __slCenterPending = false;
+  disableDeviceHeading();
+  updateLiveLocBtn();
+}
+
+// Header canlı konum butonu: yalnızca standalone durumuna göre yeşil yanıp söner
+function updateLiveLocBtn(){
+  const b = qs('#btn-live-location');
+  if (b) b.classList.toggle('active', __slWatch !== null);
+}
+
+// Standalone canlı konum toggle (formdan bağımsız)
+function toggleStandaloneLive(){
+  if (__slWatch !== null) stopStandaloneLive();
+  else startStandaloneLive();
 }
 
 qs('#btn-use-location')?.addEventListener('click', geoFindMeToggle);
 qs('#btn-stop-live')?.addEventListener('click', stopLiveLocation);
+qs('#btn-live-location')?.addEventListener('click', toggleStandaloneLive);
 
 /* ==================== MEDIA UPLOAD ==================== */
 
@@ -8219,6 +8299,15 @@ function reflectAuth(){
     if (!shouldShow2) headerLocBtn2.classList.add('hidden');
   }
 
+  // Canlı konum butonu: opener + solver (role 'user') için görünür.
+  const liveBtn = qs('#btn-live-location');
+  if (liveBtn) {
+    const showLive = !!(currentUser && currentUser.role === 'user');
+    liveBtn.classList.toggle('hidden', !showLive);
+    if (!showLive) { try { stopStandaloneLive(); } catch {} }
+    try { updateLiveLocBtn(); } catch {}
+  }
+
   // Header rozeti: rol yazısı yerine role-bazlı logo gösterilir.
   // Olay ekleyen -> /user_adding_role.jpeg, Solver (olay kapatan) -> /user_solver_role.jpeg
   // Logo yüklenemezse metin yedeğine (Open Event / Solver) düşer.
@@ -8474,6 +8563,12 @@ async function checkMe(){
     
     try { ensureMapLegend(map); } catch {}
     try { await loadBoundary(); } catch (e) { console.warn('boundary load', e); }
+    // Girişte konum izni iste; verilirse canlı mavi nokta takibini başlat (opener + solver).
+    try {
+      if (currentUser && currentUser.role === 'user') {
+        startStandaloneLive();
+      }
+    } catch {}
   } else { 
     markersLayer.clearLayers(); 
     
@@ -9071,7 +9166,7 @@ function attachMapClickForLoggedIn(){
     if (clickMarker) {
       clickMarker.setLatLng(e.latlng);
     } else {
-      clickMarker = L.marker([lat, lng], { icon: BLACK_PIN() })
+      clickMarker = L.marker([lat, lng], { icon: BLACK_PIN(), zIndexOffset: 1000 })
         .addTo(map)
         .bindPopup(t('selectedLocation'));
     }
@@ -9465,7 +9560,7 @@ function importWizardBack() {
     const btn = document.createElement('button');
     btn.id = 'btn-use-location';
     btn.className = 'btn ghost icon-btn';
-    btn.innerHTML = `<img src="/useposition.svg" alt="${t('location')}" width="20" height="20" />`;
+    btn.innerHTML = `<img src="/add-position.svg" onerror="this.onerror=null;this.src='/useposition.svg';" alt="${t('location')}" width="20" height="20" />`;
     btn.title = t('useMyLocation');
     btn.style.display = 'none';
     btn.onclick = () => {

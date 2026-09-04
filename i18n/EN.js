@@ -147,6 +147,8 @@ window.i18nLangs.en = {
     outsideBoundaryLocation: 'Your location is outside the boundary. Please add data within the boundary.',
     outsideBoundaryMap: 'You cannot add data outside the boundary. Please pick a point within the boundary.',
     outside_boundary: 'You cannot add data outside the boundary. Please pick a point within the boundary.',
+    locationUnavailable: 'Could not access your location, so the event form could not open and no point was added. Please allow location access.',
+    liveLocation: 'Live location',
     
     events: 'Events',
     addEvent: 'Add Event',

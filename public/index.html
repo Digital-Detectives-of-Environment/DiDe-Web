@@ -317,9 +317,12 @@
           <button id="lang-default">--</button>
           <button id="lang-en" class="active">EN</button>
         </div>
+        <button id="btn-live-location" class="icon-btn hidden" type="button" data-i18n-title="liveLocation" title="Live location">
+          <img src="/live-location.svg" alt="" onerror="this.onerror=null;this.src='/useposition.svg';" />
+        </button>
         <button id="btn-use-location-header" class="icon-btn hidden" type="button" data-i18n-title="useMyLocation"
           onclick="if(window.geoFindMeWithPolygonFlow){geoFindMeWithPolygonFlow();}">
-          <img src="/useposition.svg" alt="" onerror="this.style.display='none';" />
+          <img src="/add-position.svg" alt="" onerror="this.onerror=null;this.src='/useposition.svg';" />
         </button>
         <button id="btn-theme-toggle" class="icon-btn" type="button" aria-label="Theme"></button>
         <span id="whoami" class="hidden"></span>
