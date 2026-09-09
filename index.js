@@ -2528,6 +2528,7 @@ app.get('/api/config', (_req, res) => {
     defaultLang: DEFAULT_LANG.toLowerCase(),
     restrictGnss: RESTRICT_GNSS,
     eventTypeValidityUnits: EVENT_TYPE_VALIDITY_UNITS,
+    zoomLevelBoundary: String(process.env.ZOOM_LEVEL_BOUNDARY || '').trim().toLowerCase(),
   });
 });
 /* ===================== AUTH ===================== */
@@ -3247,7 +3248,7 @@ app.get('/api/me/posts', requireAuth, async (req, res) => {
 });
 
 /* =============== Sınır (boundary) — yalnızca giriş yapınca =============== */
-app.get('/api/boundary', requireAuth, async (req, res) => {
+app.get('/api/boundary', async (req, res) => {
   try {
     if (!BOUNDARY_MODE) return res.json({ enabled: false });
 
@@ -3267,7 +3268,7 @@ app.get('/api/boundary', requireAuth, async (req, res) => {
     });
   } catch (e) {
     console.error('GET /api/boundary error:', e);
-    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+    res.status(500).json({ error: 'sunucu_hatasi', message: getErrorMessage(req, 'sunucu_hatasi') });
   }
 });
 

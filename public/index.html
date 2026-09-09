@@ -1033,20 +1033,66 @@
     (function(){
       if (!window.L) return;
       const WORLD_BOUNDS = L.latLngBounds(L.latLng(-85, -180), L.latLng(85, 180));
+
+      // Sınır çözülene kadar TÜM tile'lar bloklanır (ilk açılışta tüm dünya yüklenmesin).
+      // app.js sınırı çözünce __boundaryClipPending=false yapar. Güvenlik: 12sn sonra aç.
+      if (typeof window.__boundaryClipPending === 'undefined') window.__boundaryClipPending = true;
+      setTimeout(function(){ window.__boundaryClipPending = false;
+        try { if (window.__redrawMainTiles) window.__redrawMainTiles(); } catch(e){} }, 12000);
+
+      // Sınır kilidi (ZOOM_LEVEL_BOUNDARY=yes) aktifse dünya sınırlarını DAYATMA;
+      // app.js'in boundary bbox'ını kullanmasına izin ver.
+      const bLockBounds = () => {
+        const b = window.__bLock;
+        return (b && b.active && b.bounds) ? b.bounds : null;
+      };
       const _map = L.map;
       L.map = function(id, options){
+        const lock = bLockBounds();
+        // KATI kilit: sınır bbox'ı (buffer yok). maxBounds viewport'u sınırla sınırlar;
+        // yakınlaştırınca köşelere kadar gidilir ama dışarı çıkılamaz.
+        const mb = lock || WORLD_BOUNDS;
         const o = Object.assign({},
-          { maxZoom: 18, minZoom: 2, worldCopyJump: false, maxBounds: WORLD_BOUNDS, maxBoundsViscosity: 1.0 },
+          { maxZoom: 18, minZoom: 2, worldCopyJump: false, maxBounds: mb, maxBoundsViscosity: 1.0 },
           (options||{})
         );
         const m = _map.call(this, id, o);
-        try { m.setMaxBounds(WORLD_BOUNDS); } catch {}
+        try { m.setMaxBounds(mb); } catch {}
         return m;
       };
       const _tile = L.tileLayer;
       L.tileLayer = function(url, options){
-        const o = Object.assign({}, { noWrap: true, bounds: WORLD_BOUNDS }, (options||{}));
+        const lock = bLockBounds();
+        const o = Object.assign({}, { noWrap: true }, (options||{}));
+        if (!o.bounds) o.bounds = (lock || WORLD_BOUNDS);
         return _tile.call(this, url, o);
+      };
+
+      // ===== KESİN GARANTİ: sınır dışı tile için OSM'e istek GİTMEZ =====
+      // Leaflet'in tile isteğini fiilen başlatan yer createTile'dır (img.src atanır).
+      // (1) Sınır henüz çözülmediyse (__boundaryClipPending) HİÇBİR tile istenmez.
+      // (2) Sınır çözüldüyse ve tile sınır poligonu DIŞINDA ise istenmez.
+      // Bu tüm haritalarda ve her zamanlamada geçerli; hiçbir kod yolu atlayamaz.
+      const _origCreateTile = L.TileLayer.prototype.createTile;
+      L.TileLayer.prototype.createTile = function(coords, done){
+        try {
+          const bc = window.__boundaryClip;
+          const pending = window.__boundaryClipPending === true;
+          let block = false;
+          if (bc && bc.active && typeof bc.tileAllowed === 'function' && this._tileCoordsToBounds){
+            const tb = this._tileCoordsToBounds(coords);
+            if (!bc.tileAllowed(tb)) block = true;
+          } else if (pending){
+            block = true; // sınır çözülene kadar tümünü blokla
+          }
+          if (block){
+            const img = document.createElement('img'); // src YOK → istek yok
+            img.setAttribute('role','presentation'); img.alt = '';
+            if (done) setTimeout(function(){ done(null, img); }, 0);
+            return img;
+          }
+        } catch (e) {}
+        return _origCreateTile.call(this, coords, done);
       };
     })();
   </script>

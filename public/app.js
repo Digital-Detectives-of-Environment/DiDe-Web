@@ -85,7 +85,10 @@ let APP_CONFIG = {
 
   // Which time units the supervisor may enter for a time-dependent event type.
   // Populated from /api/config (EVENT_TYPE_VALIDITY_UNITS). Falls back to days.
-  eventTypeValidityUnits: ['days']
+  eventTypeValidityUnits: ['days'],
+
+  // ZOOM_LEVEL_BOUNDARY=yes ise sınır dışı maskelenir ve harita sınıra kilitlenir.
+  zoomLevelBoundary: false
 };
 
 /* ---------------------------------------------------------------------------
@@ -102,17 +105,31 @@ function fetchConfigFresh() {
  * kullanır; böylece hepsi her zaman .env'deki güncel MAP_INITIAL_* değerlerine
  * bağlı kalır ve farklı yerlerde farklı sabit (hardcoded) koordinatlar oluşmaz.
  * ------------------------------------------------------------------------- */
+// Sınır kilidi durumu: aktifse harita başlangıç görünümü/minZoom sınıra göre belirlenir.
+window.__bLock = { active: false, center: null, minZoom: null, bounds: null };
+
 function getInitialMapView() {
   const lat = Number(APP_CONFIG.mapInitialLat);
   const lng = Number(APP_CONFIG.mapInitialLng);
   const zoom = Number(APP_CONFIG.mapInitialZoom);
   const minZoom = Number(APP_CONFIG.mapMinZoom);
-  return {
+  const base = {
     lat: Number.isFinite(lat) ? lat : 39.9334,
     lng: Number.isFinite(lng) ? lng : 32.8597,
     zoom: Number.isFinite(zoom) ? zoom : 6,
     minZoom: Number.isFinite(minZoom) ? minZoom : 2
   };
+  // Sınır kilidi aktifse: merkez sınır merkezi, zoom/minZoom sınıra göre.
+  const L2 = window.__bLock;
+  if (L2 && L2.active && L2.center){
+    return {
+      lat: L2.center.lat,
+      lng: L2.center.lng,
+      zoom: (L2.minZoom != null ? L2.minZoom : base.zoom),
+      minZoom: (L2.minZoom != null ? L2.minZoom : base.minZoom)
+    };
+  }
+  return base;
 }
 
 async function loadAppConfig() {
@@ -171,11 +188,36 @@ function createOrUpdateMapFromConfig() {
       worldCopyJump: false
     }).setView([lat, lng], zoom);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    // Sınır maskesi için ÖZEL bir pane: z-index tile (200) ile overlay/çizgi (400) arasında (350).
+    // Böylece maske DAİMA tile'ların ÜSTÜNDE kalır (sınır dışı asla görünmez), fakat sınır
+    // çizgisi (overlayPane, 400) ve işaretçiler (600) maskenin üstünde kalır.
+    try {
+      if (!map.getPane('boundaryMaskPane')){
+        map.createPane('boundaryMaskPane');
+        const mp = map.getPane('boundaryMaskPane');
+        if (mp){ mp.style.zIndex = 350; mp.style.pointerEvents = 'none'; }
+      }
+    } catch (e) { console.warn('boundaryMaskPane create', e); }
+
+    osmTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution:'© OpenStreetMap contributors',
       noWrap: true,
       bounds: WORLD_BOUNDS
-    }).addTo(map);
+    });
+
+    // ZOOM_LEVEL_BOUNDARY=yes ise: sınır çözülene kadar HİÇBİR tile isteme
+    // (config geniş görünümü / sınır dışı için tek istek bile gitmesin). Sınır hazır
+    // olduğunda haritayı sınıra fit edip gerçek clip'i uygularız.
+    const __wantB = _wantBoundaryClip();
+    if (__wantB) {
+      osmTileLayer._isValidTile = function(){ return false; };
+    }
+    // KRİTİK: Maskeyi tile katmanı EKLENMEDEN ÖNCE çiz. Böylece hiçbir tile, üstünde
+    // beyaz maske OLMADAN bir kare bile boyanamaz → "önce sınır dışı görünür, sonra
+    // maske biner" ara aşaması tamamen ortadan kalkar (prefetch geometriyi yüklemişse).
+    if (__wantB) { try { _ensureEarlyBoundaryMask(); } catch(e){ console.warn('_ensureEarlyBoundaryMask', e); } }
+    osmTileLayer.addTo(map);
+    if (__wantB) { try { ensureBoundaryThenClip(); } catch(e){ console.warn('ensureBoundaryThenClip', e); } }
 
     if (!markersLayer) {
       markersLayer = makeMarkersLayer().addTo(map);
@@ -2255,6 +2297,7 @@ function makeMarkersLayer() {
 let map = null;
 let markersLayer = null;
 let clickMarker = null;
+let osmTileLayer = null;
 
 let eventsMap = null;
 let eventsMarkersLayer = null;
@@ -6635,9 +6678,10 @@ function _boundaryStyle(){
 }
 
 function removeBoundaryLayer(){
+  // Yalnızca sınır ÇİZGİSİNİ (outline) kaldırır; clip/mask/zoom kısıtları (giriş öncesi de
+  // geçerli olduğundan) korunur.
   if (__boundaryLayer && map){ try { map.removeLayer(__boundaryLayer); } catch {} }
   __boundaryLayer = null;
-  __boundary = { enabled: false, source: null, geojson: null };
 }
 
 function drawBoundaryLayer(){
@@ -6654,18 +6698,611 @@ function drawBoundaryLayer(){
 
 function _restyleBoundaryLayer(){
   if (__boundaryLayer){ try { __boundaryLayer.setStyle(_boundaryStyle()); } catch {} }
+  _restyleBoundaryMask();
 }
 
-async function loadBoundary(){
-  // Yalnızca giriş yapılmışsa (endpoint requireAuth) çağrılır
-  removeBoundaryLayer();
+/* ---- Sınır dışını maskeleme (açık: beyaz, koyu: siyah) + tile clipping + zoom/pan kilidi ---- */
+let __boundaryMask = null;
+let __savedMinZoom = null;
+let __boundaryConstraintsApplied = false;
+let __clipRings = null, __clipBounds = null;
+
+function _boundaryZoomLockOn(){
+  const v = String(APP_CONFIG.zoomLevelBoundary ?? '').toLowerCase();
+  const on = (v === 'yes' || v === 'true' || v === '1' || APP_CONFIG.zoomLevelBoundary === true);
+  return on && __boundary.enabled && !!__boundary.geojson;
+}
+function _maskFill(){
+  return document.documentElement.classList.contains('theme-dark') ? '#0a0a0a' : '#ffffff';
+}
+function _collectBoundaryRings(){
+  const rings = [];
+  const pushPoly = (coords) => { if (coords && coords[0]) rings.push(coords[0].map(c => [c[1], c[0]])); };
+  const handle = (g) => {
+    if (!g) return;
+    if (g.type === 'Polygon') pushPoly(g.coordinates);
+    else if (g.type === 'MultiPolygon') g.coordinates.forEach(pushPoly);
+    else if (g.type === 'GeometryCollection') (g.geometries||[]).forEach(handle);
+  };
+  const gj = __boundary.geojson;
+  if (!gj) return rings;
+  if (gj.type === 'FeatureCollection') (gj.features||[]).forEach(f => handle(f && f.geometry));
+  else if (gj.type === 'Feature') handle(gj.geometry);
+  else handle(gj);
+  return rings;
+}
+function _boundaryBounds(){
+  if (!__boundary.geojson) return null;
+  return _geojsonBBox(__boundary.geojson);
+}
+
+// GeoJSON'daki TÜM koordinatları (Polygon/MultiPolygon/Z/iç içe fark etmeksizin) tarayarak
+// kapsayıcı kutuyu (bounding box) sağlam biçimde hesaplar.
+function _geojsonBBox(gj){
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  const scan = (a) => {
+    if (!Array.isArray(a)) return;
+    if (typeof a[0] === 'number' && typeof a[1] === 'number'){
+      const lng = a[0], lat = a[1];
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+      return;
+    }
+    for (const el of a) scan(el);
+  };
+  const walk = (o) => {
+    if (!o) return;
+    if (o.type === 'FeatureCollection') (o.features || []).forEach(f => walk(f && f.geometry));
+    else if (o.type === 'Feature') walk(o.geometry);
+    else if (o.type === 'GeometryCollection') (o.geometries || []).forEach(walk);
+    else if (o.coordinates) scan(o.coordinates);
+  };
+  walk(gj);
+  if (!Number.isFinite(minLat) || !Number.isFinite(maxLat)) return null;
+  return L.latLngBounds([minLat, minLng], [maxLat, maxLng]);
+}
+
+/* -- Tile clipping: sınır dışındaki tile'lar HİÇ indirilmez (_isValidTile) -- */
+function _ringContainsLL(ring, lat, lng){
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++){
+    const yi = ring[i][0], xi = ring[i][1], yj = ring[j][0], xj = ring[j][1];
+    const intersect = ((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / ((yj - yi) || 1e-15) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+function _pointInRingsLL(rings, lat, lng){ for (const r of rings){ if (_ringContainsLL(r, lat, lng)) return true; } return false; }
+function _segCross(a, b, c, d){ // noktalar [lng,lat]
+  const ccw = (p, q, r) => (r[1]-p[1])*(q[0]-p[0]) > (q[1]-p[1])*(r[0]-p[0]);
+  return (ccw(a,c,d) !== ccw(b,c,d)) && (ccw(a,b,c) !== ccw(a,b,d));
+}
+function _tileIntersectsRings(tb, rings){
+  const sw = tb.getSouthWest(), ne = tb.getNorthEast();
+  const corners = [sw, ne, L.latLng(ne.lat, sw.lng), L.latLng(sw.lat, ne.lng), tb.getCenter()];
+  for (const c of corners){ if (_pointInRingsLL(rings, c.lat, c.lng)) return true; }
+  for (const r of rings){ for (const v of r){ if (tb.contains(L.latLng(v[0], v[1]))) return true; } }
+  const te = [
+    [[sw.lng,sw.lat],[ne.lng,sw.lat]],
+    [[ne.lng,sw.lat],[ne.lng,ne.lat]],
+    [[ne.lng,ne.lat],[sw.lng,ne.lat]],
+    [[sw.lng,ne.lat],[sw.lng,sw.lat]]
+  ];
+  for (const r of rings){
+    for (let i = 0; i < r.length - 1; i++){
+      const a = [r[i][1], r[i][0]], b = [r[i+1][1], r[i+1][0]];
+      for (const [p, q] of te){ if (_segCross(a, b, p, q)) return true; }
+    }
+  }
+  return false;
+}
+/* -- Bir tile sınıra göre "çok kaba" mı? (dünya/çok uzak zoom) --
+ * Sınır dışı olmayan ama tek başına TÜM sınır kutusundan (bbox) çok daha geniş
+ * bir alanı kapsayan tile'lar, sınırla kesişse bile aslında "tüm dünyayı" gösterir.
+ * Bu tür tile'lar İSTENMEZ: aksi halde açılış/geniş zoom anında önce tüm dünya yüklenir,
+ * sonra üstüne beyaz maske biner.
+ *
+ * Kesin ölçüt: sınırın "fit" (min) zoom'u biliniyorsa (window.__bLock.minZoom),
+ * bu zoom'un ALTINDAKİ hiçbir tile istenmez → yalnızca dünya seviyeleri elenir,
+ * sınırın kendi fit zoom'undaki meşru tile'lar ASLA bloklanmaz.
+ * Yedek (fit zoom henüz hesaplanmadıysa): tek bir tile sınırın uzun kenarı kadar
+ * (veya daha büyük) alanı kapsıyorsa "çok uzak" sayılır ve istenmez.
+ * Çok küçük sınırlarda (birkaç km) yedek test uygulanmaz.
+ */
+function _boundaryBBoxTooCoarse(tb, boundsRef){
+  try {
+    if (!tb) return false;
+    const tW = tb.getEast() - tb.getWest();
+    const tH = tb.getNorth() - tb.getSouth();
+    // Tile genişliğinden tile zoom seviyesini türet (Web Mercator: tileW = 360 / 2^z).
+    const tz = Math.round(Math.log2(360 / Math.max(tW, 1e-9)));
+    const L2 = window.__bLock;
+    const mz = (L2 && Number.isFinite(L2.minZoom)) ? Math.floor(L2.minZoom) : null;
+    if (mz != null) {
+      // Sınırın fit zoom'unun altındaki her tile "çok uzak" → istenmez (dünya elenir).
+      return tz < mz;
+    }
+    // Fit zoom henüz bilinmiyor: güvenli yedek. Tek tile sınırın uzun kenarı kadar
+    // veya daha büyükse (yani sınırı tek karede gösterecek kadar uzaksak) engelle.
+    if (!boundsRef) return false;
+    const bW = boundsRef.getEast() - boundsRef.getWest();
+    const bH = boundsRef.getNorth() - boundsRef.getSouth();
+    const bigEnough = (bW > 0.02 || bH > 0.02); // ~2 km altı sınırlarda yedek testi atla
+    if (!bigEnough) return false;
+    const tMax = Math.max(tW, tH), bMax = Math.max(bW, bH);
+    return tMax >= bMax;
+  } catch { return false; }
+}
+
+/* -- TEK KAYNAK tile izin testi (hem _isValidTile hem createTile guard aynısını kullanır) --
+ *  1) bbox dışı  → istenmez
+ *  2) çok kaba (dünya/uzak zoom) → istenmez  (asıl "önce tüm dünya yükleniyor" düzeltmesi)
+ *  3) sınır poligonu (halkalar) dışı → istenmez
+ * Yalnız bu üç koşulu geçen (yani sınır verisiyle kesişen, uygun zoom'daki) tile istenir.
+ */
+function _tileAllowedByBoundary(tb, boundsRef, ringsRef){
+  try {
+    if (boundsRef && !boundsRef.overlaps(tb)) return false;
+    if (_boundaryBBoxTooCoarse(tb, boundsRef)) return false;
+    if (!ringsRef || !ringsRef.length) return true;
+    return _tileIntersectsRings(tb, ringsRef);
+  } catch { return true; }
+}
+
+function _tileClipValidTile(coords){
+  const tb = this._tileCoordsToBounds(coords);
+  return _tileAllowedByBoundary(tb, __clipBounds, __clipRings);
+}
+
+/* ===================== TILE'I POLİGONA GÖRE PİKSEL DÜZEYİNDE KIRP =====================
+ * Maske (ayrı katman) her zaman tile'ların üstünde olsa bile, sınıra DEĞEN (straddle)
+ * tile'lar yüklenirken bir kare boyunca sınır dışı pikselleri görünebiliyordu.
+ * Kesin çözüm: her tile'ı bir <canvas>'a, SINIR POLİGONUNA KIRPARAK çizmek. Tarayıcı
+ * sınır dışı pikselleri hiç boyamaz → hiçbir karede (zoom animasyonunda dahi) sınır
+ * dışı veri görünmez. Sınır dışı tile'lar zaten _isValidTile ile hiç istenmez; bu
+ * mekanizma yalnızca kenar tile'larının dış kısmını gizler.
+ * Not: canvas yalnızca EKRANA çizim için kullanılır (getImageData/toDataURL YOK),
+ * bu yüzden crossOrigin gerekmez; "tainted" canvas ekranda sorunsuz gösterilir.
+ * ------------------------------------------------------------------------------------ */
+let __clipProjCache = { z: null, rings: null };
+function _invalidateClipProjCache(){ __clipProjCache = { z: null, rings: null }; }
+// Sınır halkalarını verilen zoom için DÜNYA-piksel koordinatlarına (bir kez) yansıtır.
+function _projectedRingsForZoom(z){
+  try {
+    if (__clipProjCache.z === z && __clipProjCache.rings) return __clipProjCache.rings;
+    const rings = __clipRings || [];
+    if (!map || !rings.length){ __clipProjCache = { z, rings: [] }; return []; }
+    const out = rings.map(r => r.map(pt => {
+      const p = map.project(L.latLng(pt[0], pt[1]), z);
+      return [p.x, p.y];
+    }));
+    __clipProjCache = { z, rings: out };
+    return out;
+  } catch { return []; }
+}
+
+// osmTileLayer'ın createTile'ını, sınır poligonuna kırpan canvas sürümüyle değiştirir.
+function _installBoundaryCanvasTiles(){
+  if (!osmTileLayer || osmTileLayer.__boundaryCanvasInstalled) return;
+  osmTileLayer.__boundaryCanvasInstalled = true;
+
+  osmTileLayer.createTile = function(coords, done){
+    // 1) İSTEK ENGELLEME (index.html createTile guard'ıyla aynı mantık): sınır dışı /
+    //    çok kaba / sınır çözülmeden → src atanmaz, OSM'e istek GİTMEZ.
+    try {
+      const bc = window.__boundaryClip;
+      const pending = window.__boundaryClipPending === true;
+      let block = false;
+      if (bc && bc.active && typeof bc.tileAllowed === 'function' && this._tileCoordsToBounds){
+        const tb = this._tileCoordsToBounds(coords);
+        if (!bc.tileAllowed(tb)) block = true;
+      } else if (pending){
+        block = true;
+      }
+      if (block){
+        const empty = document.createElement('img'); // src YOK → istek yok
+        empty.alt = ''; empty.setAttribute('role','presentation');
+        if (done) setTimeout(function(){ done(null, empty); }, 0);
+        return empty;
+      }
+    } catch (e) {}
+
+    // 2) İZİN VERİLEN (kenar) tile: canvas'a poligona kırparak çiz.
+    const size = this.getTileSize();
+    const canvas = document.createElement('canvas');
+    canvas.width = size.x; canvas.height = size.y;
+    const ctx = canvas.getContext('2d');
+    const z = coords.z;
+    const originX = coords.x * size.x, originY = coords.y * size.y;
+    const img = new Image();
+    // crossOrigin AYARLAMIYORUZ (SW/proxy CORS sorunlarından kaçınmak için) — yalnız çizim.
+    img.onload = function(){
+      try {
+        const pr = _projectedRingsForZoom(z);
+        if (pr && pr.length){
+          ctx.save();
+          ctx.beginPath();
+          for (const ring of pr){
+            for (let i = 0; i < ring.length; i++){
+              const x = ring[i][0] - originX, y = ring[i][1] - originY;
+              if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+          }
+          ctx.clip();
+          ctx.drawImage(img, 0, 0, size.x, size.y);
+          ctx.restore();
+        } else {
+          ctx.drawImage(img, 0, 0, size.x, size.y);
+        }
+      } catch (e) {
+        try { ctx.clearRect(0,0,size.x,size.y); ctx.drawImage(img, 0, 0, size.x, size.y); } catch {}
+      }
+      if (done) done(null, canvas);
+    };
+    img.onerror = function(e){ if (done) done(e, canvas); };
+    img.src = this.getTileUrl(coords);
+    return canvas;
+  };
+  try { osmTileLayer.redraw(); } catch {}
+}
+function _setTileClipOnLayer(){
+  if (!osmTileLayer) return false;
+  const bb = _boundaryBounds();
+  if (!bb) return false;
+  __clipBounds = bb;
+  __clipRings = _collectBoundaryRings(); // sınır poligonunun halkaları [lat,lng]
+  _invalidateClipProjCache();            // yeni halkalar → yansıtma önbelleğini sıfırla
+  // index.html'deki L.tileLayer override'ının da doğru bbox'ı görmesi için kilidi güncelle
+  window.__bLock = Object.assign({}, window.__bLock || {}, { active: true, bounds: bb, center: bb.getCenter() });
+
+  // GLOBAL GARANTİ: index.html'deki createTile override'ının kullandığı sınır testi.
+  // Bu sayede HANGİ katman/zamanlama olursa olsun sınır dışı tile'ın src'si atanmaz → istek gitmez.
+  const ringsRef = __clipRings, boundsRef = __clipBounds;
+  window.__boundaryClip = {
+    active: true,
+    tileAllowed: function(tb){
+      return _tileAllowedByBoundary(tb, boundsRef, ringsRef);
+    }
+  };
+
+  // options.bounds: bbox dışı tile'lar Leaflet native mekanizmasıyla hızlıca elenir.
+  osmTileLayer.options.bounds = bb;
+  // POLİGON seviyesi: bbox İÇİNDE ama sınır poligonu DIŞINDA kalan (köşe) tile'lar da
+  // istenmez. Halka çıkarılamazsa güvenli biçimde native bbox testine düşer.
+  osmTileLayer._isValidTile = (__clipRings && __clipRings.length)
+    ? _tileClipValidTile
+    : L.TileLayer.prototype._isValidTile;
+  // Kenar tile'larının sınır dışı kısmı hiçbir karede görünmesin diye canvas kırpmayı kur.
+  if (__clipRings && __clipRings.length) { try { _installBoundaryCanvasTiles(); } catch(e){ console.warn('_installBoundaryCanvasTiles', e); } }
+  window.__boundaryClipPending = false; // sınır çözüldü → blokaj kalksın
+  window.__redrawMainTiles = function(){ try { osmTileLayer.redraw(); } catch {} };
+  return true;
+}
+function applyTileClip(){
+  if (_setTileClipOnLayer()) { try { osmTileLayer.redraw(); } catch {} }
+}
+
+// Config bayrağı: ZOOM_LEVEL_BOUNDARY yes/true/1 mı? (harita oluşturulurken güvenilir bilinir)
+function _wantBoundaryClip(){
+  const v = String(APP_CONFIG.zoomLevelBoundary ?? '').toLowerCase();
+  return v === 'yes' || v === 'true' || v === '1';
+}
+
+// Tile katmanı "block-all" durumdayken çağrılır: sınır geometrisini garanti eder,
+// haritayı sınıra fit eder, gerçek clip'i uygular. Sınır çözülemezse block'u kaldırır.
+async function ensureBoundaryThenClip(attempt){
+  attempt = attempt || 0;
+  try {
+    if (!__boundary.enabled || !__boundary.geojson){
+      const r = await fetch('/api/boundary');
+      if (r.ok){
+        const d = await r.json().catch(() => ({}));
+        if (d && d.enabled && d.geojson){
+          __boundary = { enabled: true, source: d.source || 'file', geojson: d.geojson };
+        }
+      }
+    }
+    const bb = _boundaryBounds();
+    if (bb && osmTileLayer && map){
+      // fitBounds YALNIZCA ilk kez (kullanıcı zoom yaptıktan sonra geri sıçratmasın).
+      // Header'ın örttüğü üst şeridi düşerek fit zoom'u hesapla → tüm sınır header altında görünür.
+      const fz = _headerAwareFitZoom(bb);
+      if (Number.isFinite(fz)){
+        // __bLock.bounds HER ZAMAN ham kutu tutar; header padding çalışma zamanında eklenir.
+        window.__bLock = { active: true, center: bb.getCenter(), minZoom: fz, bounds: bb };
+        map.setMinZoom(fz);
+      } else {
+        window.__bLock = { active: true, center: bb.getCenter(), minZoom: null, bounds: bb };
+      }
+      _wireHeaderBoundsRefresh();
+      _refreshBoundaryMaxBounds();         // KATI kilit + header toleransı (yalnız kuzey)
+      map.options.maxBoundsViscosity = 1.0;
+      if (!window.__boundaryFitted){
+        const px = _mapTopObstructionPx();
+        map.fitBounds(bb, { paddingTopLeft: L.point(0, px), paddingBottomRight: L.point(0, 0), animate: false });
+        window.__boundaryFitted = true;
+        _refreshBoundaryMaxBounds();
+      }
+      if (!_setTileClipOnLayer()){
+        osmTileLayer._isValidTile = L.TileLayer.prototype._isValidTile;
+      }
+      window.__boundaryClipPending = false;
+      try { osmTileLayer.redraw(); } catch {}
+      try { drawBoundaryMask(); } catch {}
+      __boundaryConstraintsApplied = true;
+      return;
+    }
+    // Sınır beklendiği halde çözülemedi → blokta kal, tekrar dene.
+    if (_wantBoundaryClip() && attempt < 6){
+      setTimeout(() => { ensureBoundaryThenClip(attempt + 1); }, 700);
+    } else if (osmTileLayer){
+      // Denemeler bitti / sınır yok → blokajı kaldır ki harita boş kalmasın.
+      window.__boundaryClipPending = false;
+      osmTileLayer._isValidTile = L.TileLayer.prototype._isValidTile;
+      try { osmTileLayer.redraw(); } catch {}
+    }
+  } catch (e) {
+    console.warn('ensureBoundaryThenClip error:', e);
+    if (_wantBoundaryClip() && attempt < 6){
+      setTimeout(() => { ensureBoundaryThenClip(attempt + 1); }, 700);
+    } else if (osmTileLayer){
+      window.__boundaryClipPending = false;
+      try { osmTileLayer._isValidTile = L.TileLayer.prototype._isValidTile; osmTileLayer.redraw(); } catch {}
+    }
+  }
+}
+function removeTileClip(){
+  if (!osmTileLayer) return;
+  __clipRings = null; __clipBounds = null;
+  osmTileLayer.options.bounds = WORLD_BOUNDS;
+  try { osmTileLayer._isValidTile = L.TileLayer.prototype._isValidTile; } catch {}
+  try { osmTileLayer.redraw(); } catch {}
+}
+
+function removeBoundaryMask(){
+  if (__boundaryMask && map){ try { map.removeLayer(__boundaryMask); } catch {} }
+  __boundaryMask = null;
+}
+// Maskeyi ÇİZ: önce YENİ maskeyi ekle, SONRA eskisini kaldır (arada boşluk kalmasın →
+// hiçbir karede tile'lar maskesiz görünmez). Maske özel "boundaryMaskPane"e çizilir;
+// bu pane tile'ların üstünde (z=350) olduğundan sınır dışı asla görünmez.
+function drawBoundaryMask(){
+  if (!map) return;
+  const rings = _collectBoundaryRings();
+  if (!rings.length){ removeBoundaryMask(); return; }
+  const world = [[85,-180],[85,180],[-85,180],[-85,-180]];
+  try {
+    const prev = __boundaryMask;
+    const opts = {
+      stroke:false, fill:true, fillColor:_maskFill(), fillOpacity:1, interactive:false
+    };
+    if (map.getPane && map.getPane('boundaryMaskPane')) opts.pane = 'boundaryMaskPane';
+    const fresh = L.polygon([world, ...rings], opts).addTo(map);
+    __boundaryMask = fresh;
+    // Eski maskeyi ancak yenisi eklendikten SONRA kaldır (flash olmaz).
+    if (prev && prev !== fresh){ try { map.removeLayer(prev); } catch {} }
+    if (__boundaryLayer) try { __boundaryLayer.bringToFront(); } catch {}
+  } catch (e) { console.warn('drawBoundaryMask error:', e); }
+}
+// Tile katmanı EKLENMEDEN önce (harita oluşturulurken) maskeyi kurmak için:
+// prefetch sınır geometrisini yüklediyse maskeyi hemen çizer. Böylece ilk tile bile
+// üstünde maske OLMADAN boyanamaz → sınır dışı verinin "ara aşama"da görünmesi biter.
+function _ensureEarlyBoundaryMask(){
+  try {
+    if (!map) return;
+    if (!_wantBoundaryClip()) return;
+    if (!__boundary || !__boundary.enabled || !__boundary.geojson) return;
+    if (__boundaryMask) return; // zaten çizili
+    drawBoundaryMask();
+  } catch (e) { console.warn('_ensureEarlyBoundaryMask error:', e); }
+}
+function _restyleBoundaryMask(){
+  if (__boundaryMask) try { __boundaryMask.setStyle({ fillColor:_maskFill() }); } catch {}
+}
+/* ---------------------------------------------------------------------------
+ * HEADER-AWARE SINIR KİLİDİ
+ * Sınır kilidi KATI kalır (sınır dışına çıkılamaz), fakat sitenin üstündeki
+ * sabit "header" haritanın üst şeridini örttüğü için, sınırın kuzey (üst) kenarı
+ * header'ın ARKASINDA kalıp görünmüyordu. Aşağıdaki yardımcılar header'ın
+ * haritayı kaç piksel örttüğünü ÇALIŞMA ZAMANINDA ölçer ve:
+ *   1) maxBounds'u yalnızca kuzey yönde bu piksel kadar genişletir (mevcut zoom'a
+ *      göre lat karşılığı) → üst kenar header'ın altına kaydırılabilir,
+ *   2) "fit" (minZoom) hesabını da bu üst boşluğu düşerek yapar → en geniş
+ *      görünümde bile TÜM sınır header'ın altında tam görünür.
+ * Sınır dışına çıkma serbestisi verilmez; yalnızca header kadar tolerans eklenir.
+ * ------------------------------------------------------------------------- */
+function _mapTopObstructionPx(){
+  try {
+    if (!map) return 0;
+    const mapEl = map.getContainer();
+    if (!mapEl) return 0;
+    const mr = mapEl.getBoundingClientRect();
+    if (!mr || mr.height <= 0) return 0;
+    const hdr = document.querySelector('header');
+    if (!hdr) return 0;
+    const cs = getComputedStyle(hdr);
+    if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity || '1') === 0) return 0;
+    const hr = hdr.getBoundingClientRect();
+    if (!hr || hr.height <= 0) return 0;
+    // Header haritanın üstüyle yatayda kesişmiyorsa örtme yoktur.
+    if (hr.right <= mr.left || hr.left >= mr.right) return 0;
+    // Header haritanın üst kenarından belirgin şekilde AŞAĞIDA başlıyorsa (haritanın
+    // üstünü örtmüyorsa) tolerans ekleme.
+    if (hr.top > mr.top + 4) return 0;
+    // Haritanın üstünü örten şerit yüksekliği.
+    const covered = hr.bottom - mr.top;
+    if (!(covered > 0)) return 0;
+    return Math.min(Math.round(covered), Math.floor(mr.height * 0.6));
+  } catch { return 0; }
+}
+
+// bb'yi (ham sınır kutusu) yalnızca KUZEY yönde, header'ın örttüğü piksel kadar
+// (mevcut zoom'daki lat karşılığı) genişletir. Diğer kenarlara dokunmaz.
+function _boundsWithHeaderPad(bb, zoomOverride){
+  try {
+    if (!bb || !map) return bb;
+    const px = _mapTopObstructionPx();
+    if (px <= 0) return bb;
+    const z = (zoomOverride != null && Number.isFinite(zoomOverride)) ? zoomOverride : map.getZoom();
+    const nw = bb.getNorthWest();
+    const p = map.project(nw, z);
+    const northPadded = map.unproject(L.point(p.x, p.y - px), z); // yukarı (kuzey)
+    let newNorth = northPadded.lat;
+    if (!Number.isFinite(newNorth)) return bb;
+    if (newNorth > 85) newNorth = 85;
+    if (newNorth < bb.getNorth()) newNorth = bb.getNorth();
+    return L.latLngBounds([bb.getSouth(), bb.getWest()], [newNorth, bb.getEast()]);
+  } catch { return bb; }
+}
+
+// Sınırın tam sığdığı en büyük zoom'u header üst boşluğunu düşerek hesaplar.
+function _headerAwareFitZoom(bb){
+  try {
+    if (!bb || !map) return NaN;
+    const px = _mapTopObstructionPx();
+    const pad = (px > 0) ? L.point(0, px) : L.point(0, 0);
+    return map.getBoundsZoom(bb, false, pad);
+  } catch { return NaN; }
+}
+
+// Depolanan HAM sınır kutusundan header-farkındalı maxBounds'u yeniden uygular.
+// zoomend/resize'da çağrılır: her zoom'da üst tolerans tam header yüksekliği kadar olur.
+function _refreshBoundaryMaxBounds(){
+  try {
+    if (!map) return;
+    const L2 = window.__bLock;
+    if (!L2 || !L2.active || !L2.bounds) return;
+    const padded = _boundsWithHeaderPad(L2.bounds);
+    map.setMaxBounds(padded);
+    map.options.maxBoundsViscosity = 1.0;
+  } catch (e) { console.warn('_refreshBoundaryMaxBounds error:', e); }
+}
+
+// zoomend/resize dinleyicilerini yalnızca bir kez bağlar.
+function _wireHeaderBoundsRefresh(){
+  if (!map || map.__hdrBoundsWired) return;
+  map.__hdrBoundsWired = true;
+  map.on('zoomend', _refreshBoundaryMaxBounds);
+  window.addEventListener('resize', () => { setTimeout(_refreshBoundaryMaxBounds, 60); });
+  window.addEventListener('orientationchange', () => { setTimeout(_refreshBoundaryMaxBounds, 120); });
+}
+
+function applyBoundaryZoomLock(){
+  if (!map) return;
+  const b = _boundaryBounds();
+  if (!b) return;
+  try {
+    if (__savedMinZoom === null) __savedMinZoom = map.getMinZoom();
+    // Header'ın örttüğü üst şeridi düşerek fit zoom'u hesapla → tüm sınır header altında görünür.
+    const fitZoom = _headerAwareFitZoom(b); // sınırın (header düşülerek) tam sığdığı en büyük zoom
+    // __bLock.bounds HER ZAMAN ham kutu tutar; padding çalışma zamanında eklenir.
+    window.__bLock = { active: true, center: b.getCenter(), minZoom: (Number.isFinite(fitZoom) ? fitZoom : null), bounds: b };
+    if (Number.isFinite(fitZoom)) map.setMinZoom(fitZoom);
+    _wireHeaderBoundsRefresh();
+    _refreshBoundaryMaxBounds();          // KATI kilit + header toleransı (yalnız kuzey)
+    map.options.maxBoundsViscosity = 1.0;
+    if (!window.__boundaryFitted){
+      const px = _mapTopObstructionPx();
+      map.fitBounds(b, { paddingTopLeft: L.point(0, px), paddingBottomRight: L.point(0, 0), animate: false });
+      window.__boundaryFitted = true;
+      if (Number.isFinite(fitZoom) && map.getZoom() < fitZoom) map.setZoom(fitZoom);
+      _refreshBoundaryMaxBounds();
+    }
+  } catch (e) { console.warn('applyBoundaryZoomLock error:', e); }
+}
+function removeBoundaryZoomLock(){
+  if (!map) return;
+  try {
+    map.setMaxBounds(WORLD_BOUNDS);
+    if (__savedMinZoom !== null) { map.setMinZoom(__savedMinZoom); __savedMinZoom = null; }
+  } catch {}
+}
+
+function _applyBoundaryConstraints(){
+  if (__boundaryConstraintsApplied) return;
+  if (!_boundaryZoomLockOn()) return;
+  applyTileClip();
+  drawBoundaryMask();
+  applyBoundaryZoomLock();
+  __boundaryConstraintsApplied = true;
+}
+
+// Harita oluşturulmadan ÖNCE çağrılır: config bayrağı + sınır geometrisini çekip
+// kilit merkezini hazırlar (böylece başlangıç görünümü sınır olur, başka yer yüklenmez).
+async function _prefetchBoundaryLock(){
+  try {
+    let flag = String(APP_CONFIG.zoomLevelBoundary ?? '').toLowerCase();
+    if (!flag){
+      try {
+        const cr = await fetchConfigFresh();
+        if (cr.ok){ const c = await cr.json(); if (c && c.zoomLevelBoundary != null){ APP_CONFIG.zoomLevelBoundary = c.zoomLevelBoundary; flag = String(c.zoomLevelBoundary).toLowerCase(); } }
+      } catch {}
+    }
+    // Clipping istenmiyorsa: tile blokajını kaldır (normal harita).
+    if (!(flag === 'yes' || flag === 'true' || flag === '1')) { window.__boundaryClipPending = false; return; }
+
+    const br = await fetch('/api/boundary');
+    if (!br.ok) { window.__boundaryClipPending = false; return; }
+    const data = await br.json().catch(() => ({}));
+    if (data && data.enabled && data.geojson){
+      __boundary = { enabled: true, source: data.source || 'file', geojson: data.geojson };
+      const b = _boundaryBounds();
+      if (b){
+        window.__bLock = { active: true, center: b.getCenter(), minZoom: null, bounds: b };
+        // createTile guard'ı harita/tile oluşmadan ÖNCE aktif et → ilk flash olmaz
+        __clipBounds = b;
+        __clipRings = _collectBoundaryRings();
+        const ringsRef = __clipRings, boundsRef = __clipBounds;
+        window.__boundaryClip = {
+          active: true,
+          tileAllowed: function(tb){
+            return _tileAllowedByBoundary(tb, boundsRef, ringsRef);
+          }
+        };
+        // Sınır çözüldü → pending kalksın (artık poligon testi geçerli).
+        window.__boundaryClipPending = false;
+      } else {
+        window.__boundaryClipPending = false;
+      }
+    } else {
+      window.__boundaryClipPending = false;
+    }
+  } catch (e) { console.warn('_prefetchBoundaryLock error:', e); window.__boundaryClipPending = false; }
+}
+
+// Giriş ÖNCESİ dahil, açılışta çağrılır: sınırı çekip clip/mask/zoom kısıtlarını uygular.
+async function initBoundaryConstraints(){
+  if (__boundaryConstraintsApplied) return;
   try {
     const r = await fetch('/api/boundary');
     if (!r.ok) return;
     const data = await r.json().catch(() => ({}));
     if (data && data.enabled && data.geojson){
       __boundary = { enabled: true, source: data.source || 'file', geojson: data.geojson };
+      setTimeout(() => { try { _applyBoundaryConstraints(); } catch {} }, 60);
+    }
+  } catch (e) { console.warn('initBoundaryConstraints error:', e); }
+}
+
+async function loadBoundary(){
+  // Giriş sonrası: sınır çizgisini çiz (kısıtlar zaten açılışta uygulanmış olabilir).
+  removeBoundaryLayer();
+  try {
+    if (!__boundary.enabled || !__boundary.geojson){
+      const r = await fetch('/api/boundary');
+      if (r.ok){
+        const data = await r.json().catch(() => ({}));
+        if (data && data.enabled && data.geojson){
+          __boundary = { enabled: true, source: data.source || 'file', geojson: data.geojson };
+        }
+      }
+    }
+    if (__boundary.enabled && __boundary.geojson){
       drawBoundaryLayer();
+      _applyBoundaryConstraints();
     }
   } catch (e) { console.warn('loadBoundary error:', e); }
 }
@@ -7494,8 +8131,11 @@ function geoFindMeStart() {
    event form after a short delay. Live blue dot keeps tracking separately. */
 function geoFindMeWithPolygonFlow() {
   if (__polygonFlowLocked) return;
+  const upBtn = qs('#btn-use-location-header');
+  const setWorking = (on) => { if (upBtn) upBtn.classList.toggle('working', on); };
   if (!("geolocation" in navigator)) { showGridWarning(t('locationUnavailable')); return; }
 
+  setWorking(true);
   enableDeviceHeading();
   navigator.geolocation.getCurrentPosition(
     (position) => {
@@ -7508,22 +8148,26 @@ function geoFindMeWithPolygonFlow() {
 
       map.setView(ll, Math.max(map.getZoom(), 17), { animate:true });
 
+      // Önce siyah marker görülsün, sonra form/hata gelsin. Buton bu süre boyunca yanıp söner.
       setTimeout(() => {
         if (boundaryBlocks(longitude, latitude, 'location')) {
+          setWorking(false);
           setTimeout(() => {
             if (clickMarker) { try { map.removeLayer(clickMarker); } catch {} clickMarker = null; }
           }, 700);
           return;
         }
+        setWorking(false);
         if (currentUser && currentUser.role === 'user' && APP_CONFIG.polygonTable) {
           startPolygonFlow(latitude, longitude);
         } else {
           openEventFormDirectly(latitude, longitude);
         }
-      }, 500);
+      }, 900);
     },
     () => {
       // İzin reddedildi / konuma ulaşılamadı → kırmızı uyarı, form açılmaz
+      setWorking(false);
       showGridWarning(t('locationUnavailable'));
     },
     { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
@@ -9595,6 +10239,9 @@ function importWizardBack() {
     setTheme(isDark ? 'light' : 'dark');
   });
 
+  // Harita OLUŞTURULMADAN önce sınır kilidini hazırla → başlangıç görünümü sınır olur.
+  try { await _prefetchBoundaryLock(); } catch (e) { console.warn('_prefetchBoundaryLock', e); }
+
   await loadAppConfig(); 
   await loadPageSizeSettings();
   try {
@@ -9604,6 +10251,9 @@ function importWizardBack() {
   } catch(e){
     console.warn('[MAP INIT] .env/config values could not be applied:', e);
   }
+
+  // Sınır kısıtları (clip + maske + zoom/pan kilidi) giriş ÖNCESİ ve tüm rollerde uygulanır.
+  try { await initBoundaryConstraints(); } catch (e) { console.warn('initBoundaryConstraints', e); }
 
   if (FORCE_DEFAULT_LOGIN_ON_LOAD) {
     saveToken(null);
