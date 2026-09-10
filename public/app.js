@@ -188,9 +188,6 @@ function createOrUpdateMapFromConfig() {
       worldCopyJump: false
     }).setView([lat, lng], zoom);
 
-    // Sınır maskesi için ÖZEL bir pane: z-index tile (200) ile overlay/çizgi (400) arasında (350).
-    // Böylece maske DAİMA tile'ların ÜSTÜNDE kalır (sınır dışı asla görünmez), fakat sınır
-    // çizgisi (overlayPane, 400) ve işaretçiler (600) maskenin üstünde kalır.
     try {
       if (!map.getPane('boundaryMaskPane')){
         map.createPane('boundaryMaskPane');
@@ -212,9 +209,6 @@ function createOrUpdateMapFromConfig() {
     if (__wantB) {
       osmTileLayer._isValidTile = function(){ return false; };
     }
-    // KRİTİK: Maskeyi tile katmanı EKLENMEDEN ÖNCE çiz. Böylece hiçbir tile, üstünde
-    // beyaz maske OLMADAN bir kare bile boyanamaz → "önce sınır dışı görünür, sonra
-    // maske biner" ara aşaması tamamen ortadan kalkar (prefetch geometriyi yüklemişse).
     if (__wantB) { try { _ensureEarlyBoundaryMask(); } catch(e){ console.warn('_ensureEarlyBoundaryMask', e); } }
     osmTileLayer.addTo(map);
     if (__wantB) { try { ensureBoundaryThenClip(); } catch(e){ console.warn('ensureBoundaryThenClip', e); } }
@@ -6713,19 +6707,7 @@ function _boundaryZoomLockOn(){
   return on && __boundary.enabled && !!__boundary.geojson;
 }
 function _maskFill(){
-  const isDark = document.documentElement.classList.contains('theme-dark');
-  if (!isDark) return '#ffffff';
-  // Koyu tema: maske rengi haritanın KENDİ koyu arka planıyla AYNI olsun ki "beyaz üstüne
-  // siyah / iki katman" izlenimi olmasın. Container arka planını (CSS .theme-dark
-  // .leaflet-container) canlı okuruz; okunamazsa o CSS değeriyle aynı sabite düşeriz.
-  try {
-    const el = (map && map.getContainer) ? map.getContainer() : document.querySelector('.leaflet-container');
-    if (el){
-      const bg = getComputedStyle(el).backgroundColor;
-      if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') return bg;
-    }
-  } catch {}
-  return '#1a1a2e';
+  return document.documentElement.classList.contains('theme-dark') ? '#1a1a2e' : '#ffffff';
 }
 function _collectBoundaryRings(){
   const rings = [];
@@ -6810,50 +6792,27 @@ function _tileIntersectsRings(tb, rings){
   }
   return false;
 }
-/* -- Bir tile sınıra göre "çok kaba" mı? (dünya/çok uzak zoom) --
- * Sınır dışı olmayan ama tek başına TÜM sınır kutusundan (bbox) çok daha geniş
- * bir alanı kapsayan tile'lar, sınırla kesişse bile aslında "tüm dünyayı" gösterir.
- * Bu tür tile'lar İSTENMEZ: aksi halde açılış/geniş zoom anında önce tüm dünya yüklenir,
- * sonra üstüne beyaz maske biner.
- *
- * Kesin ölçüt: sınırın "fit" (min) zoom'u biliniyorsa (window.__bLock.minZoom),
- * bu zoom'un ALTINDAKİ hiçbir tile istenmez → yalnızca dünya seviyeleri elenir,
- * sınırın kendi fit zoom'undaki meşru tile'lar ASLA bloklanmaz.
- * Yedek (fit zoom henüz hesaplanmadıysa): tek bir tile sınırın uzun kenarı kadar
- * (veya daha büyük) alanı kapsıyorsa "çok uzak" sayılır ve istenmez.
- * Çok küçük sınırlarda (birkaç km) yedek test uygulanmaz.
- */
 function _boundaryBBoxTooCoarse(tb, boundsRef){
   try {
     if (!tb) return false;
     const tW = tb.getEast() - tb.getWest();
     const tH = tb.getNorth() - tb.getSouth();
-    // Tile genişliğinden tile zoom seviyesini türet (Web Mercator: tileW = 360 / 2^z).
     const tz = Math.round(Math.log2(360 / Math.max(tW, 1e-9)));
     const L2 = window.__bLock;
     const mz = (L2 && Number.isFinite(L2.minZoom)) ? Math.floor(L2.minZoom) : null;
     if (mz != null) {
-      // Sınırın fit zoom'unun altındaki her tile "çok uzak" → istenmez (dünya elenir).
       return tz < mz;
     }
-    // Fit zoom henüz bilinmiyor: güvenli yedek. Tek tile sınırın uzun kenarı kadar
-    // veya daha büyükse (yani sınırı tek karede gösterecek kadar uzaksak) engelle.
     if (!boundsRef) return false;
     const bW = boundsRef.getEast() - boundsRef.getWest();
     const bH = boundsRef.getNorth() - boundsRef.getSouth();
-    const bigEnough = (bW > 0.02 || bH > 0.02); // ~2 km altı sınırlarda yedek testi atla
+    const bigEnough = (bW > 0.02 || bH > 0.02);
     if (!bigEnough) return false;
     const tMax = Math.max(tW, tH), bMax = Math.max(bW, bH);
     return tMax >= bMax;
   } catch { return false; }
 }
 
-/* -- TEK KAYNAK tile izin testi (hem _isValidTile hem createTile guard aynısını kullanır) --
- *  1) bbox dışı  → istenmez
- *  2) çok kaba (dünya/uzak zoom) → istenmez  (asıl "önce tüm dünya yükleniyor" düzeltmesi)
- *  3) sınır poligonu (halkalar) dışı → istenmez
- * Yalnız bu üç koşulu geçen (yani sınır verisiyle kesişen, uygun zoom'daki) tile istenir.
- */
 function _tileAllowedByBoundary(tb, boundsRef, ringsRef){
   try {
     if (boundsRef && !boundsRef.overlaps(tb)) return false;
@@ -6868,19 +6827,8 @@ function _tileClipValidTile(coords){
   return _tileAllowedByBoundary(tb, __clipBounds, __clipRings);
 }
 
-/* ===================== TILE'I POLİGONA GÖRE PİKSEL DÜZEYİNDE KIRP =====================
- * Maske (ayrı katman) her zaman tile'ların üstünde olsa bile, sınıra DEĞEN (straddle)
- * tile'lar yüklenirken bir kare boyunca sınır dışı pikselleri görünebiliyordu.
- * Kesin çözüm: her tile'ı bir <canvas>'a, SINIR POLİGONUNA KIRPARAK çizmek. Tarayıcı
- * sınır dışı pikselleri hiç boyamaz → hiçbir karede (zoom animasyonunda dahi) sınır
- * dışı veri görünmez. Sınır dışı tile'lar zaten _isValidTile ile hiç istenmez; bu
- * mekanizma yalnızca kenar tile'larının dış kısmını gizler.
- * Not: canvas yalnızca EKRANA çizim için kullanılır (getImageData/toDataURL YOK),
- * bu yüzden crossOrigin gerekmez; "tainted" canvas ekranda sorunsuz gösterilir.
- * ------------------------------------------------------------------------------------ */
 let __clipProjCache = { z: null, rings: null };
 function _invalidateClipProjCache(){ __clipProjCache = { z: null, rings: null }; }
-// Sınır halkalarını verilen zoom için DÜNYA-piksel koordinatlarına (bir kez) yansıtır.
 function _projectedRingsForZoom(z){
   try {
     if (__clipProjCache.z === z && __clipProjCache.rings) return __clipProjCache.rings;
@@ -6895,14 +6843,11 @@ function _projectedRingsForZoom(z){
   } catch { return []; }
 }
 
-// osmTileLayer'ın createTile'ını, sınır poligonuna kırpan canvas sürümüyle değiştirir.
 function _installBoundaryCanvasTiles(){
   if (!osmTileLayer || osmTileLayer.__boundaryCanvasInstalled) return;
   osmTileLayer.__boundaryCanvasInstalled = true;
 
   osmTileLayer.createTile = function(coords, done){
-    // 1) İSTEK ENGELLEME (index.html createTile guard'ıyla aynı mantık): sınır dışı /
-    //    çok kaba / sınır çözülmeden → src atanmaz, OSM'e istek GİTMEZ.
     try {
       const bc = window.__boundaryClip;
       const pending = window.__boundaryClipPending === true;
@@ -6914,14 +6859,13 @@ function _installBoundaryCanvasTiles(){
         block = true;
       }
       if (block){
-        const empty = document.createElement('img'); // src YOK → istek yok
+        const empty = document.createElement('img');
         empty.alt = ''; empty.setAttribute('role','presentation');
         if (done) setTimeout(function(){ done(null, empty); }, 0);
         return empty;
       }
     } catch (e) {}
 
-    // 2) İZİN VERİLEN (kenar) tile: canvas'a poligona kırparak çiz.
     const size = this.getTileSize();
     const canvas = document.createElement('canvas');
     canvas.width = size.x; canvas.height = size.y;
@@ -6929,7 +6873,6 @@ function _installBoundaryCanvasTiles(){
     const z = coords.z;
     const originX = coords.x * size.x, originY = coords.y * size.y;
     const img = new Image();
-    // crossOrigin AYARLAMIYORUZ (SW/proxy CORS sorunlarından kaçınmak için) — yalnız çizim.
     img.onload = function(){
       try {
         const pr = _projectedRingsForZoom(z);
@@ -6966,7 +6909,7 @@ function _setTileClipOnLayer(){
   if (!bb) return false;
   __clipBounds = bb;
   __clipRings = _collectBoundaryRings(); // sınır poligonunun halkaları [lat,lng]
-  _invalidateClipProjCache();            // yeni halkalar → yansıtma önbelleğini sıfırla
+  _invalidateClipProjCache();
   // index.html'deki L.tileLayer override'ının da doğru bbox'ı görmesi için kilidi güncelle
   window.__bLock = Object.assign({}, window.__bLock || {}, { active: true, bounds: bb, center: bb.getCenter() });
 
@@ -6987,7 +6930,6 @@ function _setTileClipOnLayer(){
   osmTileLayer._isValidTile = (__clipRings && __clipRings.length)
     ? _tileClipValidTile
     : L.TileLayer.prototype._isValidTile;
-  // Kenar tile'larının sınır dışı kısmı hiçbir karede görünmesin diye canvas kırpmayı kur.
   if (__clipRings && __clipRings.length) { try { _installBoundaryCanvasTiles(); } catch(e){ console.warn('_installBoundaryCanvasTiles', e); } }
   window.__boundaryClipPending = false; // sınır çözüldü → blokaj kalksın
   window.__redrawMainTiles = function(){ try { osmTileLayer.redraw(); } catch {} };
@@ -7020,17 +6962,15 @@ async function ensureBoundaryThenClip(attempt){
     const bb = _boundaryBounds();
     if (bb && osmTileLayer && map){
       // fitBounds YALNIZCA ilk kez (kullanıcı zoom yaptıktan sonra geri sıçratmasın).
-      // Header'ın örttüğü üst şeridi düşerek fit zoom'u hesapla → tüm sınır header altında görünür.
       const fz = _headerAwareFitZoom(bb);
       if (Number.isFinite(fz)){
-        // __bLock.bounds HER ZAMAN ham kutu tutar; header padding çalışma zamanında eklenir.
         window.__bLock = { active: true, center: bb.getCenter(), minZoom: fz, bounds: bb };
         map.setMinZoom(fz);
       } else {
         window.__bLock = { active: true, center: bb.getCenter(), minZoom: null, bounds: bb };
       }
       _wireHeaderBoundsRefresh();
-      _refreshBoundaryMaxBounds();         // KATI kilit + header toleransı (yalnız kuzey)
+      _refreshBoundaryMaxBounds();
       map.options.maxBoundsViscosity = 1.0;
       if (!window.__boundaryFitted){
         const px = _mapTopObstructionPx();
@@ -7044,7 +6984,6 @@ async function ensureBoundaryThenClip(attempt){
       window.__boundaryClipPending = false;
       try { osmTileLayer.redraw(); } catch {}
       try { drawBoundaryMask(); } catch {}
-      // Sınır ÇİZGİSİNİ (renkli outline) giriş yapılmadan da göster.
       try { drawBoundaryLayer(); } catch {}
       __boundaryConstraintsApplied = true;
       return;
@@ -7080,9 +7019,6 @@ function removeBoundaryMask(){
   if (__boundaryMask && map){ try { map.removeLayer(__boundaryMask); } catch {} }
   __boundaryMask = null;
 }
-// Maskeyi ÇİZ: önce YENİ maskeyi ekle, SONRA eskisini kaldır (arada boşluk kalmasın →
-// hiçbir karede tile'lar maskesiz görünmez). Maske özel "boundaryMaskPane"e çizilir;
-// bu pane tile'ların üstünde (z=350) olduğundan sınır dışı asla görünmez.
 function drawBoundaryMask(){
   if (!map) return;
   const rings = _collectBoundaryRings();
@@ -7096,38 +7032,22 @@ function drawBoundaryMask(){
     if (map.getPane && map.getPane('boundaryMaskPane')) opts.pane = 'boundaryMaskPane';
     const fresh = L.polygon([world, ...rings], opts).addTo(map);
     __boundaryMask = fresh;
-    // Eski maskeyi ancak yenisi eklendikten SONRA kaldır (flash olmaz).
     if (prev && prev !== fresh){ try { map.removeLayer(prev); } catch {} }
     if (__boundaryLayer) try { __boundaryLayer.bringToFront(); } catch {}
   } catch (e) { console.warn('drawBoundaryMask error:', e); }
 }
-// Tile katmanı EKLENMEDEN önce (harita oluşturulurken) maskeyi kurmak için:
-// prefetch sınır geometrisini yüklediyse maskeyi hemen çizer. Böylece ilk tile bile
-// üstünde maske OLMADAN boyanamaz → sınır dışı verinin "ara aşama"da görünmesi biter.
 function _ensureEarlyBoundaryMask(){
   try {
     if (!map) return;
     if (!_wantBoundaryClip()) return;
     if (!__boundary || !__boundary.enabled || !__boundary.geojson) return;
-    if (__boundaryMask) return; // zaten çizili
+    if (__boundaryMask) return;
     drawBoundaryMask();
   } catch (e) { console.warn('_ensureEarlyBoundaryMask error:', e); }
 }
 function _restyleBoundaryMask(){
   if (__boundaryMask) try { __boundaryMask.setStyle({ fillColor:_maskFill() }); } catch {}
 }
-/* ---------------------------------------------------------------------------
- * HEADER-AWARE SINIR KİLİDİ
- * Sınır kilidi KATI kalır (sınır dışına çıkılamaz), fakat sitenin üstündeki
- * sabit "header" haritanın üst şeridini örttüğü için, sınırın kuzey (üst) kenarı
- * header'ın ARKASINDA kalıp görünmüyordu. Aşağıdaki yardımcılar header'ın
- * haritayı kaç piksel örttüğünü ÇALIŞMA ZAMANINDA ölçer ve:
- *   1) maxBounds'u yalnızca kuzey yönde bu piksel kadar genişletir (mevcut zoom'a
- *      göre lat karşılığı) → üst kenar header'ın altına kaydırılabilir,
- *   2) "fit" (minZoom) hesabını da bu üst boşluğu düşerek yapar → en geniş
- *      görünümde bile TÜM sınır header'ın altında tam görünür.
- * Sınır dışına çıkma serbestisi verilmez; yalnızca header kadar tolerans eklenir.
- * ------------------------------------------------------------------------- */
 function _mapTopObstructionPx(){
   try {
     if (!map) return 0;
@@ -7141,20 +7061,14 @@ function _mapTopObstructionPx(){
     if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity || '1') === 0) return 0;
     const hr = hdr.getBoundingClientRect();
     if (!hr || hr.height <= 0) return 0;
-    // Header haritanın üstüyle yatayda kesişmiyorsa örtme yoktur.
     if (hr.right <= mr.left || hr.left >= mr.right) return 0;
-    // Header haritanın üst kenarından belirgin şekilde AŞAĞIDA başlıyorsa (haritanın
-    // üstünü örtmüyorsa) tolerans ekleme.
     if (hr.top > mr.top + 4) return 0;
-    // Haritanın üstünü örten şerit yüksekliği.
     const covered = hr.bottom - mr.top;
     if (!(covered > 0)) return 0;
     return Math.min(Math.round(covered), Math.floor(mr.height * 0.6));
   } catch { return 0; }
 }
 
-// bb'yi (ham sınır kutusu) yalnızca KUZEY yönde, header'ın örttüğü piksel kadar
-// (mevcut zoom'daki lat karşılığı) genişletir. Diğer kenarlara dokunmaz.
 function _boundsWithHeaderPad(bb, zoomOverride){
   try {
     if (!bb || !map) return bb;
@@ -7163,7 +7077,7 @@ function _boundsWithHeaderPad(bb, zoomOverride){
     const z = (zoomOverride != null && Number.isFinite(zoomOverride)) ? zoomOverride : map.getZoom();
     const nw = bb.getNorthWest();
     const p = map.project(nw, z);
-    const northPadded = map.unproject(L.point(p.x, p.y - px), z); // yukarı (kuzey)
+    const northPadded = map.unproject(L.point(p.x, p.y - px), z);
     let newNorth = northPadded.lat;
     if (!Number.isFinite(newNorth)) return bb;
     if (newNorth > 85) newNorth = 85;
@@ -7172,7 +7086,6 @@ function _boundsWithHeaderPad(bb, zoomOverride){
   } catch { return bb; }
 }
 
-// Sınırın tam sığdığı en büyük zoom'u header üst boşluğunu düşerek hesaplar.
 function _headerAwareFitZoom(bb){
   try {
     if (!bb || !map) return NaN;
@@ -7182,8 +7095,6 @@ function _headerAwareFitZoom(bb){
   } catch { return NaN; }
 }
 
-// Depolanan HAM sınır kutusundan header-farkındalı maxBounds'u yeniden uygular.
-// zoomend/resize'da çağrılır: her zoom'da üst tolerans tam header yüksekliği kadar olur.
 function _refreshBoundaryMaxBounds(){
   try {
     if (!map) return;
@@ -7195,7 +7106,6 @@ function _refreshBoundaryMaxBounds(){
   } catch (e) { console.warn('_refreshBoundaryMaxBounds error:', e); }
 }
 
-// zoomend/resize dinleyicilerini yalnızca bir kez bağlar.
 function _wireHeaderBoundsRefresh(){
   if (!map || map.__hdrBoundsWired) return;
   map.__hdrBoundsWired = true;
@@ -7210,13 +7120,11 @@ function applyBoundaryZoomLock(){
   if (!b) return;
   try {
     if (__savedMinZoom === null) __savedMinZoom = map.getMinZoom();
-    // Header'ın örttüğü üst şeridi düşerek fit zoom'u hesapla → tüm sınır header altında görünür.
-    const fitZoom = _headerAwareFitZoom(b); // sınırın (header düşülerek) tam sığdığı en büyük zoom
-    // __bLock.bounds HER ZAMAN ham kutu tutar; padding çalışma zamanında eklenir.
+    const fitZoom = _headerAwareFitZoom(b);
     window.__bLock = { active: true, center: b.getCenter(), minZoom: (Number.isFinite(fitZoom) ? fitZoom : null), bounds: b };
     if (Number.isFinite(fitZoom)) map.setMinZoom(fitZoom);
     _wireHeaderBoundsRefresh();
-    _refreshBoundaryMaxBounds();          // KATI kilit + header toleransı (yalnız kuzey)
+    _refreshBoundaryMaxBounds();
     map.options.maxBoundsViscosity = 1.0;
     if (!window.__boundaryFitted){
       const px = _mapTopObstructionPx();
@@ -7240,7 +7148,6 @@ function _applyBoundaryConstraints(){
   if (!_boundaryZoomLockOn()) return;
   applyTileClip();
   drawBoundaryMask();
-  // Sınır ÇİZGİSİNİ (renkli outline) giriş yapılmadan da göster.
   try { drawBoundaryLayer(); } catch {}
   applyBoundaryZoomLock();
   __boundaryConstraintsApplied = true;
@@ -9233,7 +9140,6 @@ async function checkMe(){
     markersLayer.clearLayers(); 
     
     try { ensureMapLegend(map); } catch {}
-    // Giriş yapılmamışken de sınır ÇİZGİSİNİ göster (kaldırma).
     try { drawBoundaryLayer(); } catch {}
   }
 }
@@ -9383,7 +9289,6 @@ async function logout(){
   
   reflectAuth();
   try { markersLayer.clearLayers(); } catch {}
-  // Çıkış sonrası (giriş yapılmamış görünüm) sınır ÇİZGİSİ görünür kalsın.
   try { drawBoundaryLayer(); } catch {}
   resetEdit();
   detachMapClickForLoggedOut();

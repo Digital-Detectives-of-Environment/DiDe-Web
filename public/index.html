@@ -506,7 +506,6 @@
         <!-- Instagram-style floating counter (top-right, fades in/out) -->
         <div id="polygon-records-float-counter" class="pr-float-counter"></div>
         <div id="polygon-records-swiper">
-          <!-- pages injected by JS -->
         </div>
         <!-- Instagram-style dots (always visible) -->
         <div id="polygon-records-dots" class="pr-records-dots"></div>
@@ -719,7 +718,6 @@
               <table id="regions-table">
                 <thead>
                   <tr id="regions-thead-row">
-                    <!-- columns injected by JS based on PK1/PK2 -->
                   </tr>
                 </thead>
                 <tbody id="region-tbody"></tbody>
@@ -1034,14 +1032,12 @@
       if (!window.L) return;
       const WORLD_BOUNDS = L.latLngBounds(L.latLng(-85, -180), L.latLng(85, 180));
 
-      // Sınır çözülene kadar TÜM tile'lar bloklanır (ilk açılışta tüm dünya yüklenmesin).
-      // app.js sınırı çözünce __boundaryClipPending=false yapar. Güvenlik: 12sn sonra aç.
+
       if (typeof window.__boundaryClipPending === 'undefined') window.__boundaryClipPending = true;
       setTimeout(function(){ window.__boundaryClipPending = false;
         try { if (window.__redrawMainTiles) window.__redrawMainTiles(); } catch(e){} }, 12000);
 
-      // Sınır kilidi (ZOOM_LEVEL_BOUNDARY=yes) aktifse dünya sınırlarını DAYATMA;
-      // app.js'in boundary bbox'ını kullanmasına izin ver.
+
       const bLockBounds = () => {
         const b = window.__bLock;
         return (b && b.active && b.bounds) ? b.bounds : null;
@@ -1049,8 +1045,7 @@
       const _map = L.map;
       L.map = function(id, options){
         const lock = bLockBounds();
-        // KATI kilit: sınır bbox'ı (buffer yok). maxBounds viewport'u sınırla sınırlar;
-        // yakınlaştırınca köşelere kadar gidilir ama dışarı çıkılamaz.
+
         const mb = lock || WORLD_BOUNDS;
         const o = Object.assign({},
           { maxZoom: 18, minZoom: 2, worldCopyJump: false, maxBounds: mb, maxBoundsViscosity: 1.0 },
@@ -1068,11 +1063,7 @@
         return _tile.call(this, url, o);
       };
 
-      // ===== KESİN GARANTİ: sınır dışı tile için OSM'e istek GİTMEZ =====
-      // Leaflet'in tile isteğini fiilen başlatan yer createTile'dır (img.src atanır).
-      // (1) Sınır henüz çözülmediyse (__boundaryClipPending) HİÇBİR tile istenmez.
-      // (2) Sınır çözüldüyse ve tile sınır poligonu DIŞINDA ise istenmez.
-      // Bu tüm haritalarda ve her zamanlamada geçerli; hiçbir kod yolu atlayamaz.
+
       const _origCreateTile = L.TileLayer.prototype.createTile;
       L.TileLayer.prototype.createTile = function(coords, done){
         try {
