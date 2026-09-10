@@ -2806,7 +2806,11 @@ th:has(#btn-add-type){
   background: var(--surface, #1e293b);
 }
 /* ===================== Leaflet Dark Theme ===================== */
-.theme-dark .leaflet-tile-pane img {
+/* Sınır kırpması aktifken ana harita tile'ları <canvas> olarak çizilir (poligona
+   kırpılmış). Koyu tema filtresi hem normal <img> hem de <canvas> tile'lara uygulanmalı
+   ki sınırlı haritada da gece modu çalışsın. */
+.theme-dark .leaflet-tile-pane img,
+.theme-dark .leaflet-tile-pane canvas {
   filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
 }
 .theme-dark .leaflet-control-zoom-in,

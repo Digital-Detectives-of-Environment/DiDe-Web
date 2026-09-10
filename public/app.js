@@ -6713,7 +6713,19 @@ function _boundaryZoomLockOn(){
   return on && __boundary.enabled && !!__boundary.geojson;
 }
 function _maskFill(){
-  return document.documentElement.classList.contains('theme-dark') ? '#0a0a0a' : '#ffffff';
+  const isDark = document.documentElement.classList.contains('theme-dark');
+  if (!isDark) return '#ffffff';
+  // Koyu tema: maske rengi haritanın KENDİ koyu arka planıyla AYNI olsun ki "beyaz üstüne
+  // siyah / iki katman" izlenimi olmasın. Container arka planını (CSS .theme-dark
+  // .leaflet-container) canlı okuruz; okunamazsa o CSS değeriyle aynı sabite düşeriz.
+  try {
+    const el = (map && map.getContainer) ? map.getContainer() : document.querySelector('.leaflet-container');
+    if (el){
+      const bg = getComputedStyle(el).backgroundColor;
+      if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') return bg;
+    }
+  } catch {}
+  return '#1a1a2e';
 }
 function _collectBoundaryRings(){
   const rings = [];
@@ -7032,6 +7044,8 @@ async function ensureBoundaryThenClip(attempt){
       window.__boundaryClipPending = false;
       try { osmTileLayer.redraw(); } catch {}
       try { drawBoundaryMask(); } catch {}
+      // Sınır ÇİZGİSİNİ (renkli outline) giriş yapılmadan da göster.
+      try { drawBoundaryLayer(); } catch {}
       __boundaryConstraintsApplied = true;
       return;
     }
@@ -7226,6 +7240,8 @@ function _applyBoundaryConstraints(){
   if (!_boundaryZoomLockOn()) return;
   applyTileClip();
   drawBoundaryMask();
+  // Sınır ÇİZGİSİNİ (renkli outline) giriş yapılmadan da göster.
+  try { drawBoundaryLayer(); } catch {}
   applyBoundaryZoomLock();
   __boundaryConstraintsApplied = true;
 }
@@ -9217,7 +9233,8 @@ async function checkMe(){
     markersLayer.clearLayers(); 
     
     try { ensureMapLegend(map); } catch {}
-    try { removeBoundaryLayer(); } catch {}
+    // Giriş yapılmamışken de sınır ÇİZGİSİNİ göster (kaldırma).
+    try { drawBoundaryLayer(); } catch {}
   }
 }
 
@@ -9366,7 +9383,8 @@ async function logout(){
   
   reflectAuth();
   try { markersLayer.clearLayers(); } catch {}
-  try { removeBoundaryLayer(); } catch {}
+  // Çıkış sonrası (giriş yapılmamış görünüm) sınır ÇİZGİSİ görünür kalsın.
+  try { drawBoundaryLayer(); } catch {}
   resetEdit();
   detachMapClickForLoggedOut();
   
