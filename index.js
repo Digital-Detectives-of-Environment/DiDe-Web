@@ -1137,19 +1137,19 @@ function cookieOptsSession(req = null) {
 // Bir kullanıcının olay/beğeni istatistiklerini event tablosundan yeniden hesaplar
 // ve users tablosuna yazar. Beğeni değişince, olay eklenince/kapatılınca çağrılır.
 //   num_events  = kullanıcının eklediği toplam olay (aktif+deaktif)
-//   liked_point = gönderilerinde aldığı toplam beğeni
-//   posts_point = SUM(2*num_likes + 1) = 2*liked_point + num_events
+//   agreed_point = gönderilerinde aldığı toplam beğeni
+//   posts_point = SUM(2*num_agrees + 1) = 2*agreed_point + num_events
 async function recomputeUserStats(userId) {
   if (userId == null) return;
   try {
     await pool.query(
       `UPDATE public.users u SET
          num_events  = COALESCE(sub.cnt, 0),
-         liked_point = COALESCE(sub.likes, 0),
-         posts_point = COALESCE(2*sub.likes + sub.cnt, 0)
+         agreed_point = COALESCE(sub.agrees, 0),
+         posts_point = COALESCE(2*sub.agrees + sub.cnt, 0)
        FROM (
          SELECT COUNT(*) AS cnt,
-                COALESCE(SUM(COALESCE(num_likes,0)),0) AS likes
+                COALESCE(SUM(COALESCE(num_agrees,0)),0) AS agrees
          FROM public.event
          WHERE created_by_id = $1
        ) sub
@@ -1997,31 +1997,34 @@ async function ensureDbSqlHelpers() {
   await run('users solver default false',      `UPDATE public.users SET solver=false WHERE solver IS NULL`);
 
   // ===== Beğeni (like) ve puanlama altyapısı =====
-  // event.num_likes  : o gönderinin (olayın) aldığı toplam beğeni sayısı (dinamik güncellenir)
-  // event.liked_ids  : gönderiyi beğenen kullanıcı ID'lerinin listesi (JSONB dizi)
-  await run('event add num_likes',            `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS num_likes integer DEFAULT 0`);
-  await run('event add liked_ids',            `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS liked_ids jsonb DEFAULT '[]'::jsonb`);
-  await run('event num_likes default 0',       `UPDATE public.event SET num_likes=0 WHERE num_likes IS NULL`);
-  await run('event liked_ids default []',      `UPDATE public.event SET liked_ids='[]'::jsonb WHERE liked_ids IS NULL`);
+  // event.num_agrees  : o gönderinin (olayın) aldığı toplam beğeni sayısı (dinamik güncellenir)
+  // event.agreed_ids  : gönderiyi beğenen kullanıcı ID'lerinin listesi (JSONB dizi)
+  await run('event rename num_likes->num_agrees', `DO $$ BEGIN IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='event' AND column_name='num_likes') AND NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='event' AND column_name='num_agrees') THEN ALTER TABLE public.event RENAME COLUMN num_likes TO num_agrees; END IF; END $$;`);
+  await run('event rename liked_ids->agreed_ids', `DO $$ BEGIN IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='event' AND column_name='liked_ids') AND NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='event' AND column_name='agreed_ids') THEN ALTER TABLE public.event RENAME COLUMN liked_ids TO agreed_ids; END IF; END $$;`);
+  await run('event add num_agrees',            `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS num_agrees integer DEFAULT 0`);
+  await run('event add agreed_ids',            `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS agreed_ids jsonb DEFAULT '[]'::jsonb`);
+  await run('event num_agrees default 0',       `UPDATE public.event SET num_agrees=0 WHERE num_agrees IS NULL`);
+  await run('event agreed_ids default []',      `UPDATE public.event SET agreed_ids='[]'::jsonb WHERE agreed_ids IS NULL`);
 
   // users (olay ekleyen "expert" hesapları) için agregat istatistikler:
   //   num_events  : kullanıcının eklediği toplam olay sayısı (aktif + deaktif)
-  //   liked_point : kullanıcının gönderilerinde aldığı toplam beğeni sayısı
-  //   posts_point : genel hesaplanan puan = SUM(2*num_likes + 1) = 2*liked_point + num_events
+  //   agreed_point : kullanıcının gönderilerinde aldığı toplam beğeni sayısı
+  //   posts_point : genel hesaplanan puan = SUM(2*num_agrees + 1) = 2*agreed_point + num_events
   await run('users add num_events',           `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS num_events integer DEFAULT 0`);
-  await run('users add liked_point',          `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS liked_point integer DEFAULT 0`);
+  await run('users rename liked_point->agreed_point', `DO $$ BEGIN IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='liked_point') AND NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='agreed_point') THEN ALTER TABLE public.users RENAME COLUMN liked_point TO agreed_point; END IF; END $$;`);
+  await run('users add agreed_point',          `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS agreed_point integer DEFAULT 0`);
   await run('users add posts_point',          `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS posts_point integer DEFAULT 0`);
 
   // İlk kurulum/mevcut veriler için tek seferlik geri-doldurma (backfill)
   await run('backfill user stats', `
     UPDATE public.users u SET
       num_events  = COALESCE(sub.cnt, 0),
-      liked_point = COALESCE(sub.likes, 0),
-      posts_point = COALESCE(2*sub.likes + sub.cnt, 0)
+      agreed_point = COALESCE(sub.agrees, 0),
+      posts_point = COALESCE(2*sub.agrees + sub.cnt, 0)
     FROM (
       SELECT created_by_id AS uid,
              COUNT(*) AS cnt,
-             COALESCE(SUM(COALESCE(num_likes,0)),0) AS likes
+             COALESCE(SUM(COALESCE(num_agrees,0)),0) AS agrees
       FROM public.event
       WHERE created_by_id IS NOT NULL
       GROUP BY created_by_id
@@ -3044,8 +3047,8 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
         o.updated_by_role_name,
         o.photo_urls,
         o.video_urls,
-        COALESCE(o.num_likes, 0) AS num_likes,
-        (COALESCE(o.liked_ids, '[]'::jsonb) @> to_jsonb($3::int)) AS i_liked,
+        COALESCE(o.num_agrees, 0) AS num_agrees,
+        (COALESCE(o.agreed_ids, '[]'::jsonb) @> to_jsonb($3::int)) AS i_agreed,
         ${POLYGON_PKS.map(p => `o."${p.safeName}"`).join(',\n        ')}${POLYGON_PKS.length > 0 ? ',' : ''}
         ((o.created_by_id = $1) OR (o.created_by_name = $2)) AS is_mine
       FROM event o
@@ -3103,12 +3106,12 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
 /* =============== Beğeni (Like) toggle ===============
    Yalnızca 'user' rolündeki hesaplar (olay ekleyen + solver) beğenebilir.
    Aynı kullanıcı tekrar isterse beğeniyi geri alır (toggle).
-   num_likes ve liked_ids dinamik güncellenir; gönderi sahibinin puanı yeniden hesaplanır. */
-app.post('/api/event/:id/like', requireAuth, async (req, res) => {
+   num_agrees ve agreed_ids dinamik güncellenir; gönderi sahibinin puanı yeniden hesaplanır. */
+app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
   const id = +req.params.id;
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
   if (req.user.role !== 'user') {
-    return res.status(403).json({ error: 'like_only_users', message: getErrorMessage(req, 'like_only_users') });
+    return res.status(403).json({ error: 'agree_only_users', message: getErrorMessage(req, 'agree_only_users') });
   }
 
   const uid = req.user.id;
@@ -3116,8 +3119,8 @@ app.post('/api/event/:id/like', requireAuth, async (req, res) => {
   try {
     await client.query('BEGIN');
     const cur = await client.query(
-      `SELECT event_id, created_by_id, COALESCE(num_likes,0) AS num_likes,
-              COALESCE(liked_ids,'[]'::jsonb) AS liked_ids
+      `SELECT event_id, created_by_id, COALESCE(num_agrees,0) AS num_agrees,
+              COALESCE(agreed_ids,'[]'::jsonb) AS agreed_ids
          FROM event
         WHERE event_id=$1 AND COALESCE(active,true)=true
         FOR UPDATE`,
@@ -3131,24 +3134,24 @@ app.post('/api/event/:id/like', requireAuth, async (req, res) => {
     // Kullanıcı kendi eklediği gönderiyi beğenemez.
     if (cur.rows[0].created_by_id != null && Number(cur.rows[0].created_by_id) === Number(uid)) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'cannot_like_own', message: getErrorMessage(req, 'cannot_like_own') });
+      return res.status(403).json({ error: 'cannot_agree_own', message: getErrorMessage(req, 'cannot_agree_own') });
     }
 
     let ids = [];
-    try { ids = Array.isArray(cur.rows[0].liked_ids) ? cur.rows[0].liked_ids.map(Number) : JSON.parse(cur.rows[0].liked_ids).map(Number); } catch { ids = []; }
+    try { ids = Array.isArray(cur.rows[0].agreed_ids) ? cur.rows[0].agreed_ids.map(Number) : JSON.parse(cur.rows[0].agreed_ids).map(Number); } catch { ids = []; }
     const already = ids.includes(uid);
-    let liked;
+    let agreed;
     if (already) {
       ids = ids.filter(x => x !== uid);
-      liked = false;
+      agreed = false;
     } else {
       ids.push(uid);
-      liked = true;
+      agreed = true;
     }
     const newCount = ids.length;
 
     await client.query(
-      `UPDATE event SET num_likes=$2, liked_ids=$3::jsonb WHERE event_id=$1`,
+      `UPDATE event SET num_agrees=$2, agreed_ids=$3::jsonb WHERE event_id=$1`,
       [id, newCount, JSON.stringify(ids)]
     );
     await client.query('COMMIT');
@@ -3156,10 +3159,10 @@ app.post('/api/event/:id/like', requireAuth, async (req, res) => {
     // Gönderi sahibinin puanını güncelle
     try { await recomputeUserStats(cur.rows[0].created_by_id); } catch {}
 
-    res.json({ ok: true, event_id: id, num_likes: newCount, liked });
+    res.json({ ok: true, event_id: id, num_agrees: newCount, agreed });
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch {}
-    console.error('POST /api/event/:id/like error:', e);
+    console.error('POST /api/event/:id/agree error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   } finally {
     client.release();
@@ -3176,7 +3179,7 @@ app.get('/api/me/stats', requireAuth, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT username, role, COALESCE(solver,false) AS solver,
               COALESCE(num_events,0) AS num_events,
-              COALESCE(liked_point,0) AS liked_point,
+              COALESCE(agreed_point,0) AS agreed_point,
               COALESCE(posts_point,0) AS posts_point
          FROM users WHERE id=$1`,
       [req.user.id]
@@ -3195,7 +3198,7 @@ app.get('/api/me/stats', requireAuth, async (req, res) => {
       role: u.role,
       solver: u.solver === true,
       num_events: u.num_events,
-      liked_point: u.liked_point,
+      agreed_point: u.agreed_point,
       posts_point: u.posts_point,
       closed_count
     });
@@ -3222,8 +3225,8 @@ app.get('/api/me/posts', requireAuth, async (req, res) => {
          o.created_at,
          o.deactivated_at,
          COALESCE(o.active,true) AS active,
-         COALESCE(o.num_likes,0) AS num_likes,
-         (COALESCE(o.liked_ids,'[]'::jsonb) @> to_jsonb($1::int)) AS i_liked,
+         COALESCE(o.num_agrees,0) AS num_agrees,
+         (COALESCE(o.agreed_ids,'[]'::jsonb) @> to_jsonb($1::int)) AS i_agreed,
          o.created_by_id,
          o.created_by_name AS created_by_username,
          o.created_by_role_name AS created_by_role_name,
@@ -3891,7 +3894,7 @@ app.get('/api/admin/users', adminOnly, async (req, res) => {
               COALESCE(is_active, true) AS is_active, deleted_by, deleted_by_role, deleted_by_id, deleted_at,
               registration_date, COALESCE(solver, false) AS solver,
               COALESCE(num_events, 0)  AS num_events,
-              COALESCE(liked_point, 0) AS liked_point,
+              COALESCE(agreed_point, 0) AS agreed_point,
               COALESCE(posts_point, 0) AS posts_point
        FROM users
        WHERE ${where}

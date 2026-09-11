@@ -188,14 +188,6 @@ function createOrUpdateMapFromConfig() {
       worldCopyJump: false
     }).setView([lat, lng], zoom);
 
-    try {
-      if (!map.getPane('boundaryMaskPane')){
-        map.createPane('boundaryMaskPane');
-        const mp = map.getPane('boundaryMaskPane');
-        if (mp){ mp.style.zIndex = 350; mp.style.pointerEvents = 'none'; }
-      }
-    } catch (e) { console.warn('boundaryMaskPane create', e); }
-
     osmTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution:'© OpenStreetMap contributors',
       noWrap: true,
@@ -487,6 +479,7 @@ function placeMicIntoMediaBar(){
 let __layerCtrl = null;
 let __geomLayers = []; // [{table, geomType, layer, visible, z}]
 let __eventsGeomLayers = [];
+let __eventTypeGroups = new Map(); // event_type_id -> {name, markers:Set, visible}
 
 function ensureLayerDrawer(mapInstance, listId){
   if(!mapInstance) return;
@@ -573,7 +566,11 @@ function renderLayerList(mapInstance, layers, listId){
     list.__wheelHandled = true;
   }
 
+  const hasTypeEntries = layers.some(x => x.__isEventType);
+
   layers.forEach((it, idx)=>{
+    if (hasTypeEntries && it.table === 'Events' && !it.__isEventType) return;
+
     const wrap = document.createElement('div');
     wrap.style.cssText = 'border:1px solid #e5e7eb; border-radius:10px; overflow:hidden;';
 
@@ -585,6 +582,7 @@ function renderLayerList(mapInstance, layers, listId){
     chk.checked = !!it.visible;
     chk.onchange = ()=>{
       it.visible = chk.checked;
+      if (it.__isEventType){ toggleEventTypeMarkers(it.__typeId, it.visible); return; }
       if(it.visible) it.layer.addTo(mapInstance);
       else mapInstance.removeLayer(it.layer);
     };
@@ -666,6 +664,50 @@ function renderLayerList(mapInstance, layers, listId){
 
     list.appendChild(wrap);
   });
+}
+
+// Bir olay türüne ait noktaları haritada göster/gizle (küme katmanı üzerinde)
+function toggleEventTypeMarkers(typeId, visible){
+  const grp = __eventTypeGroups.get(String(typeId));
+  if (!grp || !markersLayer) return;
+  grp.visible = visible;
+  const arr = Array.from(grp.markers);
+  if (!arr.length) return;
+  if (visible){
+    if (markersLayer.addLayers) markersLayer.addLayers(arr);
+    else arr.forEach(m => markersLayer.addLayer(m));
+  } else {
+    if (markersLayer.removeLayers) markersLayer.removeLayers(arr);
+    else arr.forEach(m => markersLayer.removeLayer(m));
+  }
+}
+
+// Katman panelini olay türlerine göre kurar: yalnızca active=true ve en az bir noktası olan türler
+async function rebuildEventTypeLayerPanel(mapInstance){
+  mapInstance = mapInstance || map;
+  if (!mapInstance || !markersLayer) return;
+  let types = (tableStates && tableStates.types && Array.isArray(tableStates.types.data)) ? tableStates.types.data : [];
+  if (!types.length){
+    try { const r = await fetch('/api/event_types'); if (r.ok) types = await r.json(); } catch {}
+  }
+  const activeIds = new Set(), nameById = new Map();
+  types.forEach(tp => {
+    if (tp && tp.active !== false && tp.is_point !== false){
+      activeIds.add(String(tp.event_type_id));
+      nameById.set(String(tp.event_type_id), tp.event_type_name);
+    }
+  });
+  __geomLayers = __geomLayers.filter(x => !x.__isEventType);
+  __eventTypeGroups.forEach((grp, tid) => {
+    if (!activeIds.has(String(tid))) return;
+    if (!grp.markers || grp.markers.size === 0) return;
+    __geomLayers.push({
+      table: nameById.get(String(tid)) || grp.name || ('#' + tid),
+      geomType: 'point', __isEventType: true, __typeId: String(tid),
+      visible: grp.visible !== false, z: 100
+    });
+  });
+  try { renderLayerList(mapInstance); } catch {}
 }
 
 /* ===================== Existing Data geometry: colors + selection + value popup ===================== */
@@ -5867,7 +5909,7 @@ function renderUserTableRows(data) {
       <td>${u.email_verified ? t('yes') : t('no')}</td>
       <td data-cell="solver">${solverCell}</td>
       <td>${(u.num_events != null ? u.num_events : 0)}</td>
-      <td>${(u.liked_point != null ? u.liked_point : 0)}</td>
+      <td>${(u.agreed_point != null ? u.agreed_point : 0)}</td>
       <td>${(u.posts_point != null ? u.posts_point : 0)}</td>
       <td>${deleteBtn}</td>
     `;
@@ -6012,7 +6054,7 @@ function renderEventTableRows(data) {
       <td>${hasVideo}</td>
       <td>${dateStr}</td>
       <td>${escapeHtml(tdText)}</td>
-      <td>${(o.num_likes != null ? o.num_likes : 0)}</td>
+      <td>${(o.num_agrees != null ? o.num_agrees : 0)}</td>
       <td><button class="btn danger" data-del-event="${o.event_id}">${t('delete')}</button></td>
     `;
     tb.appendChild(tr);
@@ -6108,6 +6150,7 @@ async function loadOlayTypes() {
     tableStates.types.currentPage = 1;
 
     renderTable('types');
+    try { rebuildEventTypeLayerPanel(map); } catch {}
     return list;
   } catch (e) {
     setError(qs('#error-message'), t('eventTypesLoadFailed'));
@@ -7029,10 +7072,10 @@ function drawBoundaryMask(){
     const opts = {
       stroke:false, fill:true, fillColor:_maskFill(), fillOpacity:1, interactive:false
     };
-    if (map.getPane && map.getPane('boundaryMaskPane')) opts.pane = 'boundaryMaskPane';
     const fresh = L.polygon([world, ...rings], opts).addTo(map);
     __boundaryMask = fresh;
     if (prev && prev !== fresh){ try { map.removeLayer(prev); } catch {} }
+    try { fresh.bringToBack(); } catch {}
     if (__boundaryLayer) try { __boundaryLayer.bringToFront(); } catch {}
   } catch (e) { console.warn('drawBoundaryMask error:', e); }
 }
@@ -7112,6 +7155,32 @@ function _wireHeaderBoundsRefresh(){
   map.on('zoomend', _refreshBoundaryMaxBounds);
   window.addEventListener('resize', () => { setTimeout(_refreshBoundaryMaxBounds, 60); });
   window.addEventListener('orientationchange', () => { setTimeout(_refreshBoundaryMaxBounds, 120); });
+  _wirePopupAutoPan();
+}
+
+// Sınır ucundaki marker'larda pop-up görünür olsun: pop-up açılınca maxBounds'u geçici
+// gevşetip autoPan'ı (header yüksekliğini de hesaba katarak) yeniden çalıştırırız; böylece
+// pop-up boşluğun olduğu yöne kayarak tam görünür. Kapanınca sınır kilidi geri gelir.
+function _wirePopupAutoPan(){
+  if (!map || map.__popupAutoPanWired) return;
+  map.__popupAutoPanWired = true;
+  map.on('popupopen', (e) => {
+    try {
+      const px = (typeof _mapTopObstructionPx === 'function') ? _mapTopObstructionPx() : 0;
+      const p = e.popup;
+      if (p && p.options){
+        p.options.autoPan = true;
+        p.options.keepInView = false;
+        p.options.autoPanPaddingTopLeft = L.point(16, px + 16);
+        p.options.autoPanPaddingBottomRight = L.point(16, 16);
+      }
+      map.setMaxBounds(null);
+      if (p && p._adjustPan) p._adjustPan();
+    } catch {}
+  });
+  map.on('popupclose', () => {
+    try { _refreshBoundaryMaxBounds(); } catch {}
+  });
 }
 
 function applyBoundaryZoomLock(){
@@ -7336,21 +7405,23 @@ function addSolverCloseButton(btnRow, evt, opts = {}) {
 // gösterilir (kalp yok, çünkü kendi gönderisini beğenemez).
 function addLikeControl(container, evt, opts = {}) {
   if (!container || !evt) return;
-  if (!currentUser || currentUser.role !== 'user') return; // yalnızca kullanıcılar için
 
   const wrap = document.createElement('div');
   wrap.className = 'like-control';
 
   const count = document.createElement('span');
   count.className = 'like-count';
-  count.textContent = String(evt.num_likes != null ? evt.num_likes : 0);
+  count.textContent = String(evt.num_agrees != null ? evt.num_agrees : 0);
 
   const label = document.createElement('span');
   label.className = 'like-label';
-  label.textContent = t('numLikes');
+  label.textContent = t('numAgrees');
 
-  // Kendi gönderisi VEYA countOnly modu (profil haritası): yalnızca sayı (kalp/beğen butonu yok)
-  if (evt.is_mine || opts.countOnly) {
+  // Katılma butonu yalnızca 'user' rolünde, başkasının gönderisinde ve salt-okunur olmayan modda.
+  // Diğer herkes (giriş yapmamış, supervisor, admin, kendi gönderisi) yalnızca SAYIYI görür.
+  const canAgree = !!(currentUser && currentUser.role === 'user' && !evt.is_mine && !opts.countOnly);
+
+  if (!canAgree) {
     wrap.classList.add('readonly');
     wrap.appendChild(count);
     wrap.appendChild(label);
@@ -7360,13 +7431,15 @@ function addLikeControl(container, evt, opts = {}) {
 
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'like-btn' + (evt.i_liked ? ' liked' : '');
-  btn.setAttribute('aria-label', t('like'));
-  btn.title = t('like');
+  btn.className = 'like-btn' + (evt.i_agreed ? ' liked' : '');
+  btn.setAttribute('aria-label', t('agree'));
+  btn.title = t('agree');
 
-  const heart = document.createElement('span');
+  const heart = document.createElement('img');
   heart.className = 'like-heart';
-  heart.textContent = evt.i_liked ? '♥' : '♡';
+  heart.alt = '';
+  heart.width = 30; heart.height = 30;
+  heart.src = evt.i_agreed ? '/dont_agree.svg' : '/agree.svg';
 
   btn.appendChild(heart);
   wrap.appendChild(btn);
@@ -7377,18 +7450,18 @@ function addLikeControl(container, evt, opts = {}) {
     e.stopPropagation();
     btn.disabled = true;
     try {
-      const resp = await fetch(`/api/event/${evt.event_id}/like`, { method: 'POST' });
+      const resp = await fetch(`/api/event/${evt.event_id}/agree`, { method: 'POST' });
       const d = await resp.json().catch(() => ({}));
       if (!resp.ok) {
         toast((d.message || d.error || t('unknownError')), 'error');
       } else {
-        evt.i_liked = !!d.liked;
-        evt.num_likes = d.num_likes;
-        heart.textContent = d.liked ? '♥' : '♡';
-        btn.classList.toggle('liked', !!d.liked);
-        count.textContent = String(d.num_likes);
+        evt.i_agreed = !!d.agreed;
+        evt.num_agrees = d.num_agrees;
+        heart.src = d.agreed ? '/dont_agree.svg' : '/agree.svg';
+        btn.classList.toggle('liked', !!d.agreed);
+        count.textContent = String(d.num_agrees);
         // Diğer görünümlerdeki (varsa) aynı olayın verisini de tazele
-        try { if (typeof syncEventLikeInStates === 'function') syncEventLikeInStates(evt.event_id, d.num_likes, d.liked); } catch {}
+        try { if (typeof syncEventLikeInStates === 'function') syncEventLikeInStates(evt.event_id, d.num_agrees, d.agreed); } catch {}
       }
     } catch (err) {
       toast(t('unknownError') + ': ' + err.message, 'error');
@@ -7401,7 +7474,7 @@ function addLikeControl(container, evt, opts = {}) {
 }
 
 // Beğeni değişince tablo state'lerindeki ilgili event kaydını günceller (varsa)
-function syncEventLikeInStates(eventId, numLikes, liked) {
+function syncEventLikeInStates(eventId, numAgrees, agreed) {
   try {
     ['events'].forEach(k => {
       const st = tableStates[k];
@@ -7409,7 +7482,7 @@ function syncEventLikeInStates(eventId, numLikes, liked) {
       [st.data, st.filtered].forEach(arr => {
         if (!Array.isArray(arr)) return;
         const rec = arr.find(x => String(x.event_id) === String(eventId));
-        if (rec) { rec.num_likes = numLikes; rec.i_liked = liked; }
+        if (rec) { rec.num_agrees = numAgrees; rec.i_agreed = agreed; }
       });
     });
     if (typeof renderTable === 'function' && tableStates.events) {
@@ -7644,6 +7717,7 @@ async function loadExistingEvents(opts = {}) {
 
     eventIndex.clear();
     if (markersLayer) markersLayer.clearLayers();
+    __eventTypeGroups = new Map();
 
     let addedMarkers = 0;
     events.forEach(evt => {
@@ -7665,6 +7739,12 @@ async function loadExistingEvents(opts = {}) {
       if (markersLayer) {
         m.addTo(markersLayer);
         addedMarkers++;
+      }
+      const __tid = (e2.event_type_id != null) ? String(e2.event_type_id) : '';
+      if (__tid){
+        let __grp = __eventTypeGroups.get(__tid);
+        if (!__grp){ __grp = { name: e2.event_type_name || ('#' + __tid), markers: new Set(), visible: true }; __eventTypeGroups.set(__tid, __grp); }
+        __grp.markers.add(m);
       }
 
       const turHtml = e2.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(e2.event_type_name)}<br>` : '';
@@ -7740,6 +7820,8 @@ async function loadExistingEvents(opts = {}) {
     } catch(e) {
       console.warn('[loadExistingEvents] Legend could not be updated:', e);
     }
+
+    try { rebuildEventTypeLayerPanel(map); } catch {}
 
   } catch(err) {
     console.error('loadExistingEvents error:', err);
@@ -10751,7 +10833,7 @@ function updateTableHeaders() {
     rebuildHeader(headers[5], t('video'), true);          
     rebuildHeader(headers[6], t('addedDate'), true);      
     rebuildHeader(headers[7], t('timeDependentColumn'), true);
-    rebuildHeader(headers[8], t('numLikes'), false);      
+    rebuildHeader(headers[8], t('numAgrees'), false);      
     rebuildHeader(headers[9], t('actions'), false);       
   }
   
@@ -10778,7 +10860,7 @@ function updateTableHeaders() {
     rebuildHeader(headers[4], t('verified'), true);      
     rebuildHeader(headers[5], t('solver'), false);        
     rebuildHeader(headers[6], t('posts'), false);         
-    rebuildHeader(headers[7], t('likes'), false);         
+    rebuildHeader(headers[7], t('agrees'), false);         
     rebuildHeader(headers[8], t('postsPoint'), false);    
     rebuildHeader(headers[9], t('actions'), false);       
   }
@@ -11093,13 +11175,13 @@ function pfRenderPostsTable(){
     const typeName = p.event_type_name ? escapeHtml(p.event_type_name) : '-';
     const createdStr = p.created_at ? formatDate(p.created_at) : '-';
     const deacStr = p.deactivated_at ? formatDate(p.deactivated_at) : '-';
-    const likes = (p.num_likes != null ? p.num_likes : 0);
+    const likes = (p.num_agrees != null ? p.num_agrees : 0);
 
     tr.innerHTML = `
       <td data-label="${escapeHtml(t('type'))}">${typeName}</td>
       <td data-label="${escapeHtml(t('addedDate'))}">${createdStr}</td>
       <td data-label="${escapeHtml(t('deactivatedAt'))}">${deacStr}</td>
-      <td data-label="${escapeHtml(t('numLikes'))}">${likes}</td>`;
+      <td data-label="${escapeHtml(t('numAgrees'))}">${likes}</td>`;
 
     // Satıra tıkla → haritada göster
     tr.addEventListener('click', () => { pfOpenMap(p.event_id); });
@@ -11305,7 +11387,7 @@ function pfApplyLanguage(){
       if (ths[0]) ths[0].textContent = t('type');
       if (ths[1]) ths[1].textContent = t('addedDate');
       if (ths[2]) ths[2].textContent = t('deactivatedAt');
-      if (ths[3]) ths[3].textContent = t('numLikes');
+      if (ths[3]) ths[3].textContent = t('numAgrees');
     }
   } catch {}
 
@@ -11421,10 +11503,10 @@ async function pollSupervisorTables(){
           arr.forEach(rec => {
             const src = byId[String(rec.id)];
             if (src){
-              if (rec.num_events !== src.num_events || rec.liked_point !== src.liked_point ||
+              if (rec.num_events !== src.num_events || rec.agreed_point !== src.agreed_point ||
                   rec.posts_point !== src.posts_point || rec.solver !== src.solver) changed = true;
               rec.num_events = src.num_events;
-              rec.liked_point = src.liked_point;
+              rec.agreed_point = src.agreed_point;
               rec.posts_point = src.posts_point;
               rec.solver = src.solver;
             }
@@ -11445,8 +11527,8 @@ async function pollSupervisorTables(){
           arr.forEach(rec => {
             const src = byId[String(rec.event_id)];
             if (src){
-              if (rec.num_likes !== src.num_likes) changed = true;
-              rec.num_likes = src.num_likes;
+              if (rec.num_agrees !== src.num_agrees) changed = true;
+              rec.num_agrees = src.num_agrees;
             }
           });
         });

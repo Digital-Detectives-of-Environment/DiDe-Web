@@ -3113,23 +3113,18 @@ th:has(#btn-add-type){
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  min-width:38px;
-  min-height:38px;
-  padding:6px 10px;
-  border:1.5px solid var(--danger-soft, #fca5a5);
-  border-radius:999px;
-  background:#fff;
-  color:var(--danger, #b91c1c);
+  background:transparent;
+  border:none;
+  padding:0;
   cursor:pointer;
-  font-size:20px;
   line-height:1;
-  transition:transform .08s ease, background .15s ease;
+  transition:transform .08s ease;
 }
-.like-btn:hover{ background:#fff1f2; }
+.like-btn:hover{ background:transparent; }
 .like-btn:active{ transform:scale(.92); }
-.like-btn.liked{ background:var(--danger, #b91c1c); color:#fff; border-color:var(--danger, #b91c1c); }
+.like-btn.liked{ background:transparent; }
 .like-btn:disabled{ opacity:.6; cursor:not-allowed; }
-.like-heart{ pointer-events:none; }
+.like-heart{ pointer-events:none; width:30px; height:30px; display:block; }
 .like-count{ font-weight:700; font-size:15px; min-width:16px; text-align:center; }
 .like-label{ color:var(--muted, #6b7280); font-size:13px; }
 /* Kendi gönderisi: yalnızca beğeni sayısı (kalp yok) */
