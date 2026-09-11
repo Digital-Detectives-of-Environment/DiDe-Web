@@ -3716,3 +3716,32 @@ th:has(#btn-add-type){
   border-top:9px solid var(--primary, #2563eb);
 }
 .company-marker-popup{ font-weight:700; font-size:14px; color:var(--text, #111); }
+
+/* ===================== Company detail: users & orders ===================== */
+.cd-user-form{ display:flex; flex-direction:column; gap:8px; margin-bottom:16px; }
+.cd-user-add{ background:var(--primary,#2563eb); color:#fff; border:none; padding:10px 16px; border-radius:10px; font-weight:600; cursor:pointer; }
+.cd-user-add:hover{ filter:brightness(1.06); }
+.cd-user-add:disabled{ opacity:.6; cursor:not-allowed; }
+.cd-section-title{ font-weight:700; margin:6px 0 10px; color:var(--text,#111); }
+.cd-user-list{ display:flex; flex-direction:column; gap:8px; }
+.cd-user-row{
+  display:flex; flex-wrap:wrap; gap:6px 14px; align-items:center;
+  padding:10px 12px; border:1px solid var(--border-soft,#eef2f7); border-radius:10px; background:var(--bg,#fff);
+}
+.cd-user-uname{ font-weight:700; color:var(--text,#111); }
+.cd-user-fn{ color:var(--text,#111); }
+.cd-user-em{ color:var(--muted,#6b7280); font-size:13px; margin-left:auto; word-break:break-all; }
+.cd-empty{ padding:16px; text-align:center; color:var(--muted,#6b7280); }
+
+.cd-orders{ display:flex; flex-direction:column; gap:10px; }
+.cd-order-card{ border:1px solid var(--border-soft,#eef2f7); border-radius:12px; padding:10px 12px; background:var(--bg,#fff); }
+.cd-order-line{ display:flex; justify-content:space-between; gap:12px; padding:4px 0; border-bottom:1px dashed var(--border-soft,#eef2f7); }
+.cd-order-line:last-child{ border-bottom:none; }
+.cd-order-line span{ color:var(--muted,#6b7280); font-size:13px; }
+.cd-order-line b{ color:var(--text,#111); text-align:right; word-break:break-word; }
+
+@media (max-width:640px){
+  .cd-user-em{ margin-left:0; width:100%; }
+  .cd-order-line{ flex-direction:column; gap:2px; }
+  .cd-order-line b{ text-align:left; }
+}

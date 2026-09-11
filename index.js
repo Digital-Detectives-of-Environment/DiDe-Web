@@ -4532,6 +4532,7 @@ async function ensureOrdersSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.orders (
       order_id serial PRIMARY KEY,
+      company_id integer,
       person_placing_order text,
       order_amount_before_discount numeric(12,2),
       order_amount_after_discount numeric(12,2),
@@ -4541,6 +4542,11 @@ async function ensureOrdersSchema() {
       order_date timestamptz NOT NULL DEFAULT now()
     )
   `);
+  try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS company_id integer`); } catch (e) {}
+  try {
+    await pool.query(`ALTER TABLE public.orders ADD CONSTRAINT orders_company_fk
+      FOREIGN KEY (company_id) REFERENCES public.companies(company_id) ON DELETE SET NULL`);
+  } catch (e) { /* zaten var / companies yoksa */ }
   try {
     await pool.query(`ALTER TABLE public.orders ADD CONSTRAINT orders_person_fk
       FOREIGN KEY (person_placing_order) REFERENCES public.users(username)`);
@@ -4624,6 +4630,103 @@ app.get('/api/companies', tryAuth, async (req, res) => {
     res.json(r.rows);
   } catch (e) {
     console.error('GET /api/companies error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+// Bir şirketin kullanıcıları (company rolü)
+app.get('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
+  try {
+    const col = await pool.query(`SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='dependent_company'`);
+    if (!col.rows.length) return res.json([]);
+    const r = await pool.query(
+      `SELECT id, username, name, surname, email
+         FROM users
+        WHERE dependent_company=$1 AND role='company' AND COALESCE(is_active,true)=true
+        ORDER BY id`,
+      [req.params.id]
+    );
+    res.json(r.rows);
+  } catch (e) {
+    console.error('GET company users error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+// Şirkete company rolünde kullanıcı ekle (2FA/base32 zorunlu)
+app.post('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
+  const companyId = +req.params.id;
+  if (!Number.isInteger(companyId)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
+  const username = norm(req.body?.username);
+  const password = req.body?.password;
+  const name = req.body?.name || null;
+  const surname = req.body?.surname || null;
+  const email = norm(req.body?.email);
+  const base32Raw = norm(req.body?.BASE32Code || req.body?.base32 || req.body?.base32Code || req.body?.totp || '');
+
+  if (!username || !password || !email || !base32Raw) return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
+  if (!isStrongPassword(password)) return res.status(400).json({ error: 'zayif_sifre', message: getErrorMessage(req, 'zayif_sifre') });
+  if (!isEmailAllowed(email)) return res.status(400).json({ error: 'gecersiz_eposta', message: getErrorMessage(req, 'gecersiz_eposta') });
+
+  try {
+    if (!(await companiesTableExists())) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    const c = await pool.query(`SELECT company_id FROM public.companies WHERE company_id=$1 AND COALESCE(active,true)=true`, [companyId]);
+    if (!c.rows.length) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+  } catch (e) {
+    return res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+
+  try {
+    await failIfAnyDuplicate(username, email);
+  } catch (e) {
+    if (e.code === 'USERNAME_DUP') return res.status(409).json({ error: 'usernameTaken', message: getErrorMessage(req, 'usernameTaken') });
+    if (e.code === 'EMAIL_DUP') return res.status(409).json({ error: 'emailTaken', message: getErrorMessage(req, 'emailTaken') });
+    if (e.code === 'BOTH_DUP') return res.status(409).json({ error: 'bothTaken', message: getErrorMessage(req, 'bothTaken') });
+    return res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+
+  await ensureUsersDependentCompany();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`SELECT set_config('app.password_plain', $1, true)`, [password]);
+    const hashPw = await bcrypt.hash(password, 10);
+    const twoFactorSecretPlain = normalizeBase32(base32Raw);
+    const r = await client.query(
+      `INSERT INTO users (username, password_hash, role, name, surname, email, email_verified, is_verified, is_active,
+                          two_factor_norm_hash, two_factor_enabled, dependent_company)
+       VALUES ($1,$2,'company',$3,$4,$5,true,true,true,$6,true,$7)
+       RETURNING id, username, role, dependent_company`,
+      [username, hashPw, name, surname, email, twoFactorSecretPlain, companyId]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true, user: r.rows[0] });
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch {}
+    if (e.code === 'P0001' || e.code === 'P0002' || e.code === 'P0003') return res.status(400).json({ error: 'gecersiz', message: e.message });
+    if (e.code === '23505') return res.status(409).json({ error: 'base32_cakisma', message: getErrorMessage(req, 'base32_cakisma') });
+    console.error('create company user error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  } finally {
+    try { await client.query(`SELECT set_config('app.password_plain', NULL, true)`); } catch {}
+    client.release();
+  }
+});
+
+// Bir şirketin siparişleri
+app.get('/api/admin/companies/:id/orders', adminOnly, async (req, res) => {
+  try {
+    const t = await pool.query(`SELECT to_regclass('public.orders') AS t`);
+    if (!t.rows[0].t) return res.json([]);
+    const r = await pool.query(
+      `SELECT order_id, person_placing_order, order_amount_before_discount, order_amount_after_discount,
+              discount_percentage, items, order_date
+         FROM public.orders WHERE company_id=$1 ORDER BY order_date DESC`,
+      [req.params.id]
+    );
+    res.json(r.rows);
+  } catch (e) {
+    console.error('GET company orders error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 });

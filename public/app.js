@@ -6441,7 +6441,97 @@ function openCompanyDetail(c) {
   const name = qs('#company-detail-name'); if (name) name.textContent = c.company_name || '';
   switchCompanyDetailTab('users');
   ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false');
+  try { loadCompanyUsers(c.company_id); } catch (e) { console.warn('loadCompanyUsers', e); }
+  try { loadCompanyOrders(c.company_id); } catch (e) { console.warn('loadCompanyOrders', e); }
 }
+
+function _cdFmtDate(d) { try { return d ? new Date(d).toLocaleString() : ''; } catch { return d || ''; } }
+function _cdFmtMoney(v) { return (v == null || v === '') ? '-' : String(v); }
+
+async function loadCompanyUsers(companyId) {
+  const pane = qs('#company-detail-users'); if (!pane) return;
+  pane.innerHTML = '';
+  const form = document.createElement('div'); form.className = 'cd-user-form';
+  const mk = (id, ph, type) => { const i = document.createElement('input'); i.id = id; i.className = 'company-input'; i.type = type || 'text'; i.placeholder = ph; i.autocomplete = 'off'; return i; };
+  const uname = mk('cd-user-username', t('usernamePlaceholder'));
+  const nm = mk('cd-user-name', t('firstNamePlaceholder'));
+  const sn = mk('cd-user-surname', t('lastNamePlaceholder'));
+  const em = mk('cd-user-email', t('emailPlaceholder'), 'email');
+  const pw = mk('cd-user-password', t('passwordPlaceholder'), 'password');
+  const b32 = mk('cd-user-base32', t('base32Placeholder'));
+  [uname, nm, sn, em, pw, b32].forEach(el => { const row = document.createElement('div'); row.className = 'company-form-row'; row.appendChild(el); form.appendChild(row); });
+  const addBtn = document.createElement('button'); addBtn.type = 'button'; addBtn.className = 'btn cd-user-add'; addBtn.textContent = t('addCompanyUser');
+  const btnRow = document.createElement('div'); btnRow.className = 'company-form-row'; btnRow.appendChild(addBtn); form.appendChild(btnRow);
+  addBtn.onclick = () => submitCompanyUser(companyId, { uname, nm, sn, em, pw, b32, addBtn });
+  const title = document.createElement('div'); title.className = 'cd-section-title'; title.textContent = t('companyUsers');
+  pane.appendChild(form);
+  pane.appendChild(title);
+  const listWrap = document.createElement('div'); listWrap.className = 'cd-user-list'; listWrap.id = 'cd-user-list';
+  pane.appendChild(listWrap);
+  await refreshCompanyUsersList(companyId);
+}
+
+async function refreshCompanyUsersList(companyId) {
+  const wrap = qs('#cd-user-list'); if (!wrap) return;
+  let list = [];
+  try { const r = await fetch(`/api/admin/companies/${companyId}/users`); if (r.ok) list = await r.json(); } catch {}
+  if (!Array.isArray(list)) list = [];
+  wrap.innerHTML = '';
+  if (!list.length) { const d = document.createElement('div'); d.className = 'cd-empty'; d.textContent = t('noUsersYet'); wrap.appendChild(d); return; }
+  list.forEach(u => {
+    const row = document.createElement('div'); row.className = 'cd-user-row';
+    const nm = [u.name, u.surname].filter(Boolean).join(' ');
+    row.innerHTML = `<span class="cd-user-uname">${escapeHtml(u.username || '')}</span>${nm ? `<span class="cd-user-fn">${escapeHtml(nm)}</span>` : ''}<span class="cd-user-em">${escapeHtml(u.email || '')}</span>`;
+    wrap.appendChild(row);
+  });
+}
+
+async function submitCompanyUser(companyId, els) {
+  const username = (els.uname.value || '').trim();
+  const email = (els.em.value || '').trim();
+  const password = els.pw.value || '';
+  const base32 = (els.b32.value || '').trim();
+  if (!username || !email || !password || !base32) { toast(t('fillRequiredFields'), 'error', 4000); return; }
+  els.addBtn.disabled = true;
+  try {
+    const r = await fetch(`/api/admin/companies/${companyId}/users`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, email, password, name: els.nm.value || null, surname: els.sn.value || null, BASE32Code: base32 })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); return; }
+    toast(t('userAdded'), 'success');
+    els.uname.value = ''; els.nm.value = ''; els.sn.value = ''; els.em.value = ''; els.pw.value = ''; els.b32.value = '';
+    await refreshCompanyUsersList(companyId);
+  } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); }
+  finally { els.addBtn.disabled = false; }
+}
+
+async function loadCompanyOrders(companyId) {
+  const pane = qs('#company-detail-orders'); if (!pane) return;
+  pane.innerHTML = '';
+  let list = [];
+  try { const r = await fetch(`/api/admin/companies/${companyId}/orders`); if (r.ok) list = await r.json(); } catch {}
+  if (!Array.isArray(list)) list = [];
+  if (!list.length) { const d = document.createElement('div'); d.className = 'cd-empty'; d.textContent = t('noOrdersYet'); pane.appendChild(d); return; }
+  const box = document.createElement('div'); box.className = 'cd-orders';
+  list.forEach(o => {
+    let items = '';
+    try { items = Array.isArray(o.items) ? o.items.map(it => (it && (it.name || it.product || it.title)) || (typeof it === 'string' ? it : '')).filter(Boolean).join(', ') : ''; } catch {}
+    const card = document.createElement('div'); card.className = 'cd-order-card';
+    const line = (label, val) => `<div class="cd-order-line"><span>${escapeHtml(label)}</span><b>${escapeHtml(val)}</b></div>`;
+    card.innerHTML =
+      line(t('placedBy'), o.person_placing_order || '-') +
+      line(t('amountBefore'), _cdFmtMoney(o.order_amount_before_discount)) +
+      line(t('amountAfter'), _cdFmtMoney(o.order_amount_after_discount)) +
+      line(t('discountPct'), (o.discount_percentage != null ? o.discount_percentage + '%' : '-')) +
+      line(t('orderItems'), items || '-') +
+      line(t('orderDateCol'), _cdFmtDate(o.order_date));
+    box.appendChild(card);
+  });
+  pane.appendChild(box);
+}
+
 function closeCompanyDetail() { const ov = qs('#company-detail-overlay'); if (ov) { ov.classList.add('hidden'); ov.setAttribute('aria-hidden', 'true'); } }
 function switchCompanyDetailTab(which) {
   document.querySelectorAll('.company-detail-tab').forEach(tb => tb.classList.toggle('active', tb.getAttribute('data-cdt') === which));
