@@ -4494,6 +4494,140 @@ app.post('/api/import/geojson', adminOnly, express.json({ limit: '50mb' }), asyn
   }
 });
 
+/* ===================== Şirketler (company) altyapısı ===================== */
+// Tablolar yalnızca ihtiyaç anında (ilk şirket / ilk sipariş) oluşturulur.
+async function ensureCompaniesSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.companies (
+      company_id serial PRIMARY KEY,
+      company_name text NOT NULL,
+      logo_url text,
+      latitude double precision,
+      longitude double precision,
+      menu jsonb NOT NULL DEFAULT '[]'::jsonb,
+      discount_percentage integer,
+      discount_threshold_point integer,
+      active boolean NOT NULL DEFAULT true,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      created_by_name text,
+      deactivated_at timestamptz,
+      deactivated_by_name text
+    )
+  `);
+}
+
+// users.dependent_company: ilk şirket kullanıcısı eklendiğinde oluşur (companies FK)
+async function ensureUsersDependentCompany() {
+  await ensureCompaniesSchema();
+  await pool.query(`ALTER TABLE public.users ADD COLUMN IF NOT EXISTS dependent_company integer`);
+  try {
+    await pool.query(`ALTER TABLE public.users ADD CONSTRAINT users_dependent_company_fk
+      FOREIGN KEY (dependent_company) REFERENCES public.companies(company_id) ON DELETE SET NULL`);
+  } catch (e) { /* zaten var */ }
+}
+
+// orders: ilk sipariş oluşturulduğunda oluşur
+async function ensureOrdersSchema() {
+  try { await pool.query(`ALTER TABLE public.users ADD CONSTRAINT users_username_key UNIQUE (username)`); } catch (e) { /* var / eklenemedi */ }
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.orders (
+      order_id serial PRIMARY KEY,
+      person_placing_order text,
+      order_amount_before_discount numeric(12,2),
+      order_amount_after_discount numeric(12,2),
+      discount_percentage integer,
+      items jsonb NOT NULL DEFAULT '[]'::jsonb,
+      points_spent integer NOT NULL DEFAULT 0,
+      order_date timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  try {
+    await pool.query(`ALTER TABLE public.orders ADD CONSTRAINT orders_person_fk
+      FOREIGN KEY (person_placing_order) REFERENCES public.users(username)`);
+  } catch (e) { /* username unique değilse FK kurulamaz; kolon metin olarak kalır */ }
+}
+
+async function companiesTableExists() {
+  const r = await pool.query(`SELECT to_regclass('public.companies') AS t`);
+  return !!(r.rows[0] && r.rows[0].t);
+}
+
+// Şirket oluştur (supervisor/admin)
+app.post('/api/admin/companies', requireAuth, requireAnyRole(['supervisor', 'admin']), async (req, res) => {
+  try {
+    const name = String(req.body?.company_name || '').trim();
+    const logo = String(req.body?.logo_url || '').trim();
+    const lat = Number(req.body?.latitude);
+    const lng = Number(req.body?.longitude);
+    if (!name)  return res.status(400).json({ error: 'company_name_required',  message: getErrorMessage(req, 'company_name_required') });
+    if (!logo)  return res.status(400).json({ error: 'company_logo_required',  message: getErrorMessage(req, 'company_logo_required') });
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({ error: 'company_coords_required', message: getErrorMessage(req, 'company_coords_required') });
+    }
+    await ensureCompaniesSchema();
+    const r = await pool.query(
+      `INSERT INTO public.companies (company_name, logo_url, latitude, longitude, created_by_name)
+       VALUES ($1,$2,$3,$4,$5)
+       RETURNING company_id, company_name, logo_url, latitude, longitude, COALESCE(active,true) AS active, created_at, created_by_name`,
+      [name, logo, lat, lng, req.user.username]
+    );
+    res.json({ ok: true, company: r.rows[0] });
+  } catch (e) {
+    console.error('POST /api/admin/companies error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+// Şirket listesi (supervisor/admin)
+app.get('/api/admin/companies', requireAuth, requireAnyRole(['supervisor', 'admin']), async (req, res) => {
+  try {
+    if (!(await companiesTableExists())) return res.json([]);
+    const r = await pool.query(
+      `SELECT company_id, company_name, logo_url, latitude, longitude, COALESCE(active,true) AS active, created_at, created_by_name
+       FROM public.companies WHERE COALESCE(active,true)=true ORDER BY created_at DESC`
+    );
+    res.json(r.rows);
+  } catch (e) {
+    console.error('GET /api/admin/companies error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+// Şirket detayı (supervisor/admin)
+app.get('/api/admin/companies/:id', requireAuth, requireAnyRole(['supervisor', 'admin']), async (req, res) => {
+  try {
+    if (!(await companiesTableExists())) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    const r = await pool.query(
+      `SELECT company_id, company_name, logo_url, latitude, longitude, menu,
+              discount_percentage, discount_threshold_point, COALESCE(active,true) AS active,
+              created_at, created_by_name
+       FROM public.companies WHERE company_id=$1`,
+      [req.params.id]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    res.json(r.rows[0]);
+  } catch (e) {
+    console.error('GET /api/admin/companies/:id error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+// Tüm haritalar için aktif şirketler (giriş yapılmadan da erişilir) — logolu marker
+app.get('/api/companies', tryAuth, async (req, res) => {
+  try {
+    if (!(await companiesTableExists())) return res.json([]);
+    const r = await pool.query(
+      `SELECT company_id, company_name, logo_url, latitude, longitude
+       FROM public.companies
+       WHERE COALESCE(active,true)=true AND latitude IS NOT NULL AND longitude IS NOT NULL`
+    );
+    res.json(r.rows);
+  } catch (e) {
+    console.error('GET /api/companies error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
 /* ===================== Upload Uçları ===================== */
 app.post('/api/upload/photo', requireAuth, upload.array('files', 10), (req, res) => {
   try {
