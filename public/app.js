@@ -11082,9 +11082,15 @@ function pfStopLivePolling(){
 
 function pfRenderProfile(stats){
   const uname = pfEl('profile-username');
+  const fullname = pfEl('profile-fullname');
   const role = pfEl('profile-role');
   const score = pfEl('profile-score-value');
   if (uname) uname.textContent = (stats && stats.username) ? stats.username : (currentUser ? currentUser.username : '');
+  if (fullname) {
+    const fn = [ (stats && stats.name) ? stats.name : '', (stats && stats.surname) ? stats.surname : '' ].filter(Boolean).join(' ').trim();
+    fullname.textContent = fn;
+    fullname.style.display = fn ? '' : 'none';
+  }
   if (role) {
     role.textContent = __pf.solver ? t('solver') : t('openEvent');
     role.classList.toggle('is-solver', __pf.solver);

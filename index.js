@@ -3177,7 +3177,7 @@ app.get('/api/me/stats', requireAuth, async (req, res) => {
       try { await recomputeUserStats(req.user.id); } catch {}
     }
     const { rows } = await pool.query(
-      `SELECT username, role, COALESCE(solver,false) AS solver,
+      `SELECT username, name, surname, role, COALESCE(solver,false) AS solver,
               COALESCE(num_events,0) AS num_events,
               COALESCE(agreed_point,0) AS agreed_point,
               COALESCE(posts_point,0) AS posts_point
@@ -3195,6 +3195,8 @@ app.get('/api/me/stats', requireAuth, async (req, res) => {
     }
     res.json({
       username: u.username,
+      name: u.name || '',
+      surname: u.surname || '',
       role: u.role,
       solver: u.solver === true,
       num_events: u.num_events,

@@ -3252,6 +3252,13 @@ th:has(#btn-add-type){
   color:var(--text, #111);
   word-break:break-word;
 }
+.profile-fullname{
+  margin-top:2px;
+  font-size:clamp(13px, 3.4vw, 16px);
+  font-weight:600;
+  color:var(--muted, #6b7280);
+  word-break:break-word;
+}
 .profile-role{
   display:none;
 }
