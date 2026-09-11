@@ -4785,6 +4785,149 @@ app.patch('/api/company/config', requireAuth, requireAnyRole(['company']), async
   }
 });
 
+/* ===================== QR (indirim) altyapısı ===================== */
+function _b64url(buf) { return Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function signQrToken(payload) {
+  const body = _b64url(Buffer.from(JSON.stringify(payload), 'utf8'));
+  const sig = _b64url(crypto.createHmac('sha256', JWT_SECRET).update(body).digest());
+  return body + '.' + sig;
+}
+function verifyQrToken(token) {
+  try {
+    if (typeof token !== 'string' || token.indexOf('.') < 0) return null;
+    const [body, sig] = token.split('.');
+    if (!body || !sig) return null;
+    const expected = _b64url(crypto.createHmac('sha256', JWT_SECRET).update(body).digest());
+    const a = Buffer.from(sig), b = Buffer.from(expected);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    const json = JSON.parse(Buffer.from(body.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+    if (!json || typeof json !== 'object') return null;
+    if (json.exp && (Date.now() / 1000) > Number(json.exp)) return null;
+    return json;
+  } catch { return null; }
+}
+// Kullanıcının harcanabilir puanı = posts_point − toplam harcanan (orders.points_spent)
+async function userEffectivePoints(username) {
+  const u = await pool.query(
+    `SELECT id, username, name, surname, COALESCE(posts_point,0) AS posts_point
+       FROM users WHERE lower(btrim(username))=lower($1) LIMIT 1`, [username]);
+  if (!u.rows.length) return null;
+  const row = u.rows[0];
+  let spent = 0;
+  const t = await pool.query(`SELECT to_regclass('public.orders') AS t`);
+  if (t.rows[0].t) {
+    const s = await pool.query(`SELECT COALESCE(SUM(points_spent),0)::int AS s FROM public.orders WHERE person_placing_order=$1`, [row.username]);
+    spent = s.rows[0].s || 0;
+  }
+  return { id: row.id, username: row.username, name: row.name || '', surname: row.surname || '', posts_point: row.posts_point, spent, effective: Math.max(0, row.posts_point - spent) };
+}
+
+// Opener/solver: kendi puanına göre tek kullanımlık QR üretir (5 dk geçerli)
+app.post('/api/qr/generate', requireAuth, requireAnyRole(['user']), async (req, res) => {
+  try {
+    const eff = await userEffectivePoints(req.user.username);
+    const points = eff ? eff.effective : 0;
+    const payload = { u: req.user.username, p: points, exp: Math.floor(Date.now() / 1000) + 300, n: crypto.randomBytes(9).toString('hex') };
+    res.json({ ok: true, token: signQrToken(payload), points, expires_in: 300 });
+  } catch (e) {
+    console.error('POST /api/qr/generate error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+async function _companyCfgFor(userId) {
+  const cu = await pool.query(`SELECT dependent_company FROM users WHERE id=$1`, [userId]);
+  const cid = cu.rows[0] && cu.rows[0].dependent_company;
+  if (!cid) return null;
+  const cc = await pool.query(`SELECT company_id, menu, discount_percentage, discount_threshold_point FROM companies WHERE company_id=$1`, [cid]);
+  if (!cc.rows.length) return null;
+  const c = cc.rows[0];
+  c.menu = Array.isArray(c.menu) ? c.menu : [];
+  return c;
+}
+
+// Company: QR okut → uygunluk + kullanıcı bilgisi + menü döner
+app.post('/api/company/scan', requireAuth, requireAnyRole(['company']), async (req, res) => {
+  try {
+    const payload = verifyQrToken(req.body && req.body.token);
+    if (!payload || !payload.u) return res.status(400).json({ error: 'qr_invalid', message: getErrorMessage(req, 'qr_invalid') });
+    const cfg = await _companyCfgFor(req.user.id);
+    if (!cfg) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    if (cfg.discount_threshold_point == null || cfg.discount_percentage == null || !cfg.menu.length) {
+      return res.status(400).json({ error: 'company_params_missing', message: getErrorMessage(req, 'company_params_missing') });
+    }
+    const eff = await userEffectivePoints(payload.u);
+    if (!eff) return res.status(404).json({ error: 'accountNotFound', message: getErrorMessage(req, 'accountNotFound') });
+    res.json({
+      ok: true,
+      eligible: eff.effective >= cfg.discount_threshold_point,
+      username: eff.username, name: eff.name, surname: eff.surname,
+      points: eff.effective, threshold: cfg.discount_threshold_point,
+      discount_percentage: cfg.discount_percentage, menu: cfg.menu
+    });
+  } catch (e) {
+    console.error('POST /api/company/scan error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+// Company: sipariş oluştur (atomik) + eşik kadar puan düş (points_spent) + QR tek kullanımlık
+app.post('/api/company/order', requireAuth, requireAnyRole(['company']), async (req, res) => {
+  const payload = verifyQrToken(req.body && req.body.token);
+  if (!payload || !payload.u || !payload.n) return res.status(400).json({ error: 'qr_invalid', message: getErrorMessage(req, 'qr_invalid') });
+  let items = req.body && req.body.items;
+  if (!Array.isArray(items) || !items.length || items.length > 3) return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
+  items = items
+    .filter(x => x && typeof x.name === 'string' && x.name.trim())
+    .slice(0, 3)
+    .map(x => ({ name: String(x.name).trim().slice(0, 160), price: (x.price != null && Number.isFinite(Number(x.price))) ? Number(x.price) : 0 }));
+  if (!items.length) return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
+
+  let cfg;
+  try {
+    cfg = await _companyCfgFor(req.user.id);
+    if (!cfg) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    if (cfg.discount_threshold_point == null || cfg.discount_percentage == null) {
+      return res.status(400).json({ error: 'company_params_missing', message: getErrorMessage(req, 'company_params_missing') });
+    }
+  } catch (e) { return res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') }); }
+
+  await ensureOrdersSchema();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`CREATE TABLE IF NOT EXISTS public.used_qr_nonces (nonce text PRIMARY KEY, used_at timestamptz NOT NULL DEFAULT now())`);
+    try {
+      await client.query(`INSERT INTO public.used_qr_nonces (nonce) VALUES ($1)`, [payload.n]);
+    } catch (dup) {
+      await client.query('ROLLBACK');
+      if (dup.code === '23505') return res.status(409).json({ error: 'qr_used', message: getErrorMessage(req, 'qr_used') });
+      throw dup;
+    }
+    const ur = await client.query(`SELECT id, username, COALESCE(posts_point,0) AS posts_point FROM users WHERE lower(btrim(username))=lower($1) FOR UPDATE`, [payload.u]);
+    if (!ur.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'accountNotFound', message: getErrorMessage(req, 'accountNotFound') }); }
+    const uname = ur.rows[0].username;
+    const sp = await client.query(`SELECT COALESCE(SUM(points_spent),0)::int AS s FROM public.orders WHERE person_placing_order=$1`, [uname]);
+    const effective = Math.max(0, ur.rows[0].posts_point - (sp.rows[0].s || 0));
+    if (effective < cfg.discount_threshold_point) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'not_eligible', message: getErrorMessage(req, 'not_eligible') }); }
+    const before = Math.round(items.reduce((s, it) => s + (Number(it.price) || 0), 0) * 100) / 100;
+    const after = Math.round(before * (1 - cfg.discount_percentage / 100) * 100) / 100;
+    const ins = await client.query(
+      `INSERT INTO public.orders (company_id, person_placing_order, order_amount_before_discount, order_amount_after_discount, discount_percentage, items, points_spent)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7) RETURNING order_id`,
+      [cfg.company_id, uname, before, after, cfg.discount_percentage, JSON.stringify(items), cfg.discount_threshold_point]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true, order_id: ins.rows[0].order_id, amount_before: before, amount_after: after, discount_percentage: cfg.discount_percentage, points_spent: cfg.discount_threshold_point, remaining_points: effective - cfg.discount_threshold_point });
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch {}
+    console.error('POST /api/company/order error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  } finally {
+    client.release();
+  }
+});
+
 /* ===================== Upload Uçları ===================== */
 app.post('/api/upload/photo', requireAuth, upload.array('files', 10), (req, res) => {
   try {

@@ -1107,6 +1107,7 @@
   <script src="https://unpkg.com/proj4@2.9.2/dist/proj4.js"></script>
   <script src="https://unpkg.com/georaster@1.6.0/dist/georaster.browser.bundle.min.js"></script>
   <script src="https://unpkg.com/georaster-layer-for-leaflet@3.10.0/dist/georaster-layer-for-leaflet.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <script>
     (function(){
@@ -1218,6 +1219,32 @@
       });
     });
   </script>
+
+  <!-- Company: QR scan -->
+  <div id="company-scan-overlay" class="company-scan-overlay hidden" aria-hidden="true">
+    <div class="company-scan-card">
+      <div class="company-scan-head">
+        <span data-i18n="scanTitle">Scan QR code</span>
+        <button type="button" id="company-scan-close" class="company-scan-close" aria-label="Close" data-i18n-title="close">&#10005;</button>
+      </div>
+      <div id="company-qr-reader" class="company-qr-reader"></div>
+      <div id="company-scan-err" class="company-scan-err"></div>
+      <div class="company-scan-manual">
+        <input id="company-scan-token" type="text" class="company-input" data-i18n-placeholder="manualTokenPlaceholder" />
+        <button type="button" id="company-scan-verify" class="btn" data-i18n="verifyBtn">Verify</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Company: order result (tik / çarpı) -->
+  <div id="company-order-overlay" class="company-order-overlay hidden" aria-hidden="true">
+    <div class="company-order-card">
+      <button type="button" id="company-order-close" class="company-order-close" aria-label="Close" data-i18n-title="close">&#10005;</button>
+      <div id="company-order-verdict" class="company-order-verdict"></div>
+      <div id="company-order-user" class="company-order-user"></div>
+      <div id="company-order-body" class="company-order-body"></div>
+    </div>
+  </div>
 
   <!-- Company: pick location on map -->
   <div id="company-map-overlay" class="company-map-overlay hidden" aria-hidden="true">

@@ -6649,12 +6649,142 @@ async function saveCompanyConfig() {
   finally { if (btn) btn.disabled = false; }
 }
 
+/* ---- QR okutma + sipariş (company) ---- */
+const __companyScan = { qr: null, running: false, token: null, result: null };
+
+function _companyParamsReady() {
+  const c = __companyPanel.data && __companyPanel.data.company;
+  return !!(c && c.discount_threshold_point != null && c.discount_percentage != null && Array.isArray(c.menu) && c.menu.length);
+}
+
+function openCompanyScan() {
+  if (!_companyParamsReady()) { toast(t('company_params_missing'), 'error', 4000); return; }
+  const ov = qs('#company-scan-overlay'); if (!ov) return;
+  const err = qs('#company-scan-err'); if (err) err.textContent = '';
+  const tok = qs('#company-scan-token'); if (tok) tok.value = '';
+  ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false');
+  startCompanyQr();
+}
+async function startCompanyQr() {
+  const err = qs('#company-scan-err');
+  if (typeof Html5Qrcode === 'undefined') { if (err) err.textContent = t('cameraError'); return; }
+  try {
+    if (!__companyScan.qr) __companyScan.qr = new Html5Qrcode('company-qr-reader');
+    __companyScan.running = true;
+    await __companyScan.qr.start({ facingMode: 'environment' }, { fps: 10, qrbox: 240 },
+      (decoded) => { if (__companyScan.running) { __companyScan.running = false; handleScanToken(decoded); } },
+      () => {});
+  } catch (e) { __companyScan.running = false; if (err) err.textContent = t('cameraError'); }
+}
+async function stopCompanyQr() {
+  __companyScan.running = false;
+  try { if (__companyScan.qr) { await __companyScan.qr.stop(); await __companyScan.qr.clear(); } } catch {}
+}
+async function closeCompanyScan() {
+  await stopCompanyQr();
+  const ov = qs('#company-scan-overlay'); if (ov) { ov.classList.add('hidden'); ov.setAttribute('aria-hidden', 'true'); }
+}
+async function handleScanToken(token) {
+  token = (token || '').trim(); if (!token) return;
+  try {
+    const r = await fetch('/api/company/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); if (!__companyScan.running) await startCompanyQr(); return; }
+    await closeCompanyScan();
+    openOrderResult(d, token);
+  } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); }
+}
+
+function openOrderResult(data, token) {
+  __companyScan.token = token; __companyScan.result = data;
+  const ov = qs('#company-order-overlay'); if (!ov) return;
+  const verdict = qs('#company-order-verdict'), userEl = qs('#company-order-user'), body = qs('#company-order-body');
+  if (!data.eligible) {
+    if (verdict) { verdict.className = 'company-order-verdict bad'; verdict.textContent = '✕'; }
+    if (userEl) userEl.textContent = t('notEligibleTitle');
+    if (body) body.innerHTML = '';
+    ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false');
+    return;
+  }
+  if (verdict) { verdict.className = 'company-order-verdict good'; verdict.textContent = '✓'; }
+  const nm = [data.name, data.surname].filter(Boolean).join(' ');
+  if (userEl) userEl.innerHTML = `<div class="co-title">${escapeHtml(t('eligibleTitle'))}</div>${nm ? `<div class="co-fn">${escapeHtml(nm)}</div>` : ''}<div class="co-un">@${escapeHtml(data.username || '')}</div>`;
+  if (body) {
+    body.innerHTML = '';
+    const prods = document.createElement('div'); prods.className = 'co-products'; prods.id = 'co-products'; body.appendChild(prods);
+    const addBtn = document.createElement('button'); addBtn.type = 'button'; addBtn.className = 'btn co-add'; addBtn.id = 'co-add-btn'; addBtn.textContent = t('addProduct'); addBtn.onclick = () => addOrderProductRow();
+    body.appendChild(addBtn);
+    const totals = document.createElement('div'); totals.className = 'co-totals'; totals.id = 'co-totals'; body.appendChild(totals);
+    const paid = document.createElement('button'); paid.type = 'button'; paid.className = 'btn co-paid'; paid.id = 'co-paid-btn'; paid.textContent = t('markPaid'); paid.disabled = true; paid.onclick = () => submitOrder();
+    body.appendChild(paid);
+    addOrderProductRow();
+  }
+  ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false');
+}
+function addOrderProductRow() {
+  const wrap = qs('#co-products'); if (!wrap) return;
+  if (wrap.querySelectorAll('.co-prod-row').length >= 3) return;
+  const menu = (__companyScan.result && __companyScan.result.menu) || [];
+  const row = document.createElement('div'); row.className = 'co-prod-row';
+  const sel = document.createElement('select'); sel.className = 'company-input co-prod-sel';
+  const ph = document.createElement('option'); ph.value = ''; ph.textContent = t('selectProduct'); sel.appendChild(ph);
+  menu.forEach((m, idx) => { const o = document.createElement('option'); o.value = String(idx); o.textContent = m.name + (m.price != null ? ' — ' + m.price : ''); sel.appendChild(o); });
+  sel.onchange = () => recomputeOrderTotals();
+  const del = document.createElement('button'); del.type = 'button'; del.className = 'co-prod-del'; del.textContent = '×'; del.onclick = () => { row.remove(); recomputeOrderTotals(); updateOrderAddBtn(); };
+  row.appendChild(sel); row.appendChild(del);
+  wrap.appendChild(row);
+  updateOrderAddBtn();
+}
+function updateOrderAddBtn() {
+  const wrap = qs('#co-products'), addBtn = qs('#co-add-btn'); if (!wrap || !addBtn) return;
+  addBtn.disabled = wrap.querySelectorAll('.co-prod-row').length >= 3;
+}
+function _selectedOrderItems() {
+  const menu = (__companyScan.result && __companyScan.result.menu) || [];
+  const items = [];
+  qsa('#co-products .co-prod-sel').forEach(sel => { const v = sel.value; if (v !== '') { const m = menu[+v]; if (m) items.push({ name: m.name, price: (m.price != null ? Number(m.price) : 0) }); } });
+  return items;
+}
+function recomputeOrderTotals() {
+  const items = _selectedOrderItems();
+  const dp = (__companyScan.result && __companyScan.result.discount_percentage) || 0;
+  const before = Math.round(items.reduce((s, it) => s + (Number(it.price) || 0), 0) * 100) / 100;
+  const after = Math.round(before * (1 - dp / 100) * 100) / 100;
+  const el = qs('#co-totals');
+  if (el) el.innerHTML = items.length
+    ? `<div class="co-line"><span>${escapeHtml(t('totalBefore'))}</span><b>${before}</b></div><div class="co-line"><span>${escapeHtml(t('discountPct'))}</span><b>${dp}%</b></div><div class="co-line co-strong"><span>${escapeHtml(t('totalAfter'))}</span><b>${after}</b></div>`
+    : '';
+  const paid = qs('#co-paid-btn'); if (paid) paid.disabled = items.length === 0;
+}
+async function submitOrder() {
+  const items = _selectedOrderItems();
+  if (!items.length) return;
+  const paid = qs('#co-paid-btn'); if (paid) paid.disabled = true;
+  try {
+    const r = await fetch('/api/company/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: __companyScan.token, items }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); if (paid) paid.disabled = false; return; }
+    closeOrderResult(true);
+    toast(t('orderSuccess'), 'success');
+  } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); if (paid) paid.disabled = false; }
+}
+function closeOrderResult(skipConfirm) {
+  const ov = qs('#company-order-overlay'); if (!ov) return;
+  const eligible = __companyScan.result && __companyScan.result.eligible;
+  if (!skipConfirm && eligible) { if (!confirm(t('cancelOrderConfirm'))) return; }
+  ov.classList.add('hidden'); ov.setAttribute('aria-hidden', 'true');
+  __companyScan.token = null; __companyScan.result = null;
+}
+
 function initCompanyPanelUI() {
   if (__companyPanel.wired) return;
   __companyPanel.wired = true;
   const addRow = qs('#company-menu-add'); if (addRow) addRow.onclick = () => { const w = qs('#company-menu-rows'); if (w) w.appendChild(buildCompanyMenuRow({})); };
   const save = qs('#company-save-btn'); if (save) save.onclick = saveCompanyConfig;
-  // Kamera/QR (Aşama 5b) burada bağlanacak
+  const scanBtn = qs('#company-scan-btn'); if (scanBtn) scanBtn.onclick = openCompanyScan;
+  const scanClose = qs('#company-scan-close'); if (scanClose) scanClose.onclick = closeCompanyScan;
+  const scanVerify = qs('#company-scan-verify'); if (scanVerify) scanVerify.onclick = () => { const v = qs('#company-scan-token'); handleScanToken(v ? v.value : ''); };
+  const orderClose = qs('#company-order-close'); if (orderClose) orderClose.onclick = () => closeOrderResult(false);
 }
 
 function initTabs() {
