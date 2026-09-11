@@ -6563,6 +6563,100 @@ async function refreshCompanyMarkers() {
   });
 }
 
+/* ==================== ŞİRKET HESABI PANELİ (company role) ==================== */
+const __companyPanel = { data: null, wired: false };
+
+function hideCompanyPanel() { const el = qs('#company-card'); if (el) el.classList.add('hidden'); }
+function showCompanyPanel() {
+  const el = qs('#company-card'); if (!el) return;
+  el.classList.remove('hidden');
+  initCompanyPanelUI();
+  loadCompanyPanel();
+}
+
+async function loadCompanyPanel() {
+  try { const r = await fetch('/api/company/me'); __companyPanel.data = r.ok ? await r.json() : null; }
+  catch { __companyPanel.data = null; }
+  renderCompanyPanel();
+}
+
+function renderCompanyPanel() {
+  const d = __companyPanel.data, c = d && d.company;
+  const nameEl = qs('#company-panel-name'), userEl = qs('#company-panel-user'), logoEl = qs('#company-panel-logo');
+  if (nameEl) nameEl.textContent = c ? (c.company_name || '') : '';
+  if (userEl) userEl.textContent = d ? (d.username || '') : '';
+  if (logoEl) logoEl.src = c ? (c.logo_url || '') : '';
+  const thr = qs('#company-threshold'), dp = qs('#company-discount');
+  if (thr) thr.value = (c && c.discount_threshold_point != null) ? c.discount_threshold_point : '';
+  if (dp) dp.value = (c && c.discount_percentage != null) ? c.discount_percentage : '';
+  renderCompanyMenuRows((c && Array.isArray(c.menu)) ? c.menu : []);
+}
+
+function buildCompanyMenuRow(it) {
+  it = it || {};
+  const row = document.createElement('div'); row.className = 'company-menu-row';
+  const name = document.createElement('input'); name.className = 'company-input cm-name'; name.placeholder = t('menuItemName'); name.value = it.name || '';
+  const price = document.createElement('input'); price.className = 'company-input cm-price'; price.type = 'number'; price.min = '0'; price.placeholder = t('menuItemPrice'); price.value = (it.price != null ? it.price : '');
+  const disLbl = document.createElement('label'); disLbl.className = 'cm-dis';
+  const dis = document.createElement('input'); dis.type = 'checkbox'; dis.className = 'cm-discounted'; dis.checked = !!it.discounted;
+  const dsp = document.createElement('span'); dsp.textContent = t('onDiscount');
+  disLbl.appendChild(dis); disLbl.appendChild(dsp);
+  const del = document.createElement('button'); del.type = 'button'; del.className = 'cm-del'; del.setAttribute('aria-label', 'x'); del.textContent = '×';
+  del.onclick = () => row.remove();
+  row.appendChild(name); row.appendChild(price); row.appendChild(disLbl); row.appendChild(del);
+  return row;
+}
+
+function renderCompanyMenuRows(items) {
+  const wrap = qs('#company-menu-rows'); if (!wrap) return;
+  wrap.innerHTML = '';
+  if (items && items.length) items.forEach(it => wrap.appendChild(buildCompanyMenuRow(it)));
+  else wrap.appendChild(buildCompanyMenuRow({}));
+}
+
+function collectCompanyMenu() {
+  const out = [];
+  qsa('#company-menu-rows .company-menu-row').forEach(r => {
+    const name = (r.querySelector('.cm-name').value || '').trim();
+    if (!name) return;
+    const priceRaw = r.querySelector('.cm-price').value;
+    const price = (priceRaw !== '' && Number.isFinite(Number(priceRaw))) ? Number(priceRaw) : null;
+    const discounted = r.querySelector('.cm-discounted').checked;
+    out.push({ name, price, discounted });
+  });
+  return out;
+}
+
+async function saveCompanyConfig() {
+  const thr = qs('#company-threshold'), dp = qs('#company-discount');
+  const body = {
+    menu: collectCompanyMenu(),
+    discount_threshold_point: (thr && thr.value !== '') ? Number(thr.value) : null,
+    discount_percentage: (dp && dp.value !== '') ? Number(dp.value) : null
+  };
+  const btn = qs('#company-save-btn'); if (btn) btn.disabled = true;
+  try {
+    const r = await fetch('/api/company/config', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); return; }
+    if (__companyPanel.data && __companyPanel.data.company) {
+      __companyPanel.data.company.menu = d.menu;
+      __companyPanel.data.company.discount_percentage = d.discount_percentage;
+      __companyPanel.data.company.discount_threshold_point = d.discount_threshold_point;
+    }
+    toast(t('configSaved'), 'success');
+  } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); }
+  finally { if (btn) btn.disabled = false; }
+}
+
+function initCompanyPanelUI() {
+  if (__companyPanel.wired) return;
+  __companyPanel.wired = true;
+  const addRow = qs('#company-menu-add'); if (addRow) addRow.onclick = () => { const w = qs('#company-menu-rows'); if (w) w.appendChild(buildCompanyMenuRow({})); };
+  const save = qs('#company-save-btn'); if (save) save.onclick = saveCompanyConfig;
+  // Kamera/QR (Aşama 5b) burada bağlanacak
+}
+
 function initTabs() {
   const tabBtns = qsa('.tab-btn');
   const tabContents = qsa('.tab-content');
@@ -9307,7 +9401,7 @@ function reflectAuth(){
     hide(qs('#login-card')); 
     hide(qs('#register-card')); 
     hide(qs('#forgot-card')); 
-    if (currentUser.role === 'user') {
+    if (currentUser.role === 'user' || currentUser.role === 'company') {
       hide(olayCard);
     } else {
       show(olayCard);
@@ -9318,10 +9412,17 @@ function reflectAuth(){
       show(adminCard);
       qs('#sup-panel-toggle')?.remove();
       body.classList.remove('supervisor-mode-form', 'supervisor-mode-admin');
+      hideCompanyPanel();
     } else if (currentUser.role === 'supervisor') {
       ensureSupervisorToggle();
       const saved = (localStorage.getItem(SUP_MODE_KEY) || 'admin');
       setSupervisorMode(saved === 'form' ? 'form' : 'admin');
+      hideCompanyPanel();
+    } else if (currentUser.role === 'company') {
+      hide(adminCard);
+      qs('#sup-panel-toggle')?.remove();
+      body.classList.remove('supervisor-mode-form', 'supervisor-mode-admin');
+      try { showCompanyPanel(); } catch (e) { console.warn('showCompanyPanel', e); }
     } else {
       hide(adminCard);
       qs('#sup-panel-toggle')?.remove();
@@ -9330,6 +9431,7 @@ function reflectAuth(){
       window.FORCE_BLUE_MARKERS = false;
       try { attachMapClickForLoggedIn(); } catch {}
       try { ensureMapLegend(map); } catch {}
+      hideCompanyPanel();
     }
   } else {
     who && (who.textContent = '');
@@ -9343,6 +9445,7 @@ function reflectAuth(){
     hide(adminCard);
     qs('#sup-panel-toggle')?.remove();
     body.classList.remove('supervisor-mode-form', 'supervisor-mode-admin');
+    hideCompanyPanel();
   }
 
   try { ensureMapLegend(map); } catch (e) {}

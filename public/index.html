@@ -437,6 +437,42 @@
         </div>
       </section>
 
+      <!-- COMPANY PANEL -->
+      <section id="company-card" class="card company-card hidden">
+        <div class="company-panel-head">
+          <img id="company-panel-logo" class="company-panel-logo" alt="" />
+          <div class="company-panel-idn">
+            <div id="company-panel-name" class="company-panel-name">—</div>
+            <div id="company-panel-user" class="company-panel-user">—</div>
+          </div>
+          <button type="button" id="company-scan-btn" class="company-scan-btn" data-i18n-title="scanQr" aria-label="Scan QR">📷</button>
+        </div>
+
+        <div class="company-panel-section">
+          <div class="company-panel-section-title" data-i18n="discountSettings">Discount settings</div>
+          <div class="company-form-row">
+            <label class="company-field">
+              <span data-i18n="thresholdPoint">Discount threshold (points)</span>
+              <input id="company-threshold" type="number" min="0" class="company-input" />
+            </label>
+            <label class="company-field">
+              <span data-i18n="discountPct">Discount (%)</span>
+              <input id="company-discount" type="number" min="0" max="100" class="company-input" />
+            </label>
+          </div>
+        </div>
+
+        <div class="company-panel-section">
+          <div class="company-panel-section-title" data-i18n="companyMenu">Menu</div>
+          <div id="company-menu-rows" class="company-menu-rows"></div>
+          <button type="button" id="company-menu-add" class="btn company-menu-add" data-i18n="addMenuItem">Add item</button>
+        </div>
+
+        <div class="company-panel-actions">
+          <button type="button" id="company-save-btn" class="btn company-save-btn" data-i18n="saveConfig">Save</button>
+        </div>
+      </section>
+
       <!-- EVENT FORM -->
       <section id="olay-card" class="card hidden">
         <div class="card-title-line">

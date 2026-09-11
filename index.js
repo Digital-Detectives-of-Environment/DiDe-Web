@@ -2200,7 +2200,7 @@ async function ensureDbSqlHelpers() {
       bypass := current_setting('app.bypass_totp_check', true);
       IF bypass = '1' THEN RETURN NEW; END IF;
 
-      IF NEW.role IS DISTINCT FROM 'supervisor' THEN
+      IF NEW.role NOT IN ('supervisor','company') THEN
         NEW.two_factor_secret := NULL;
         NEW.two_factor_norm_hash := NULL;
         RETURN NEW;
@@ -2224,7 +2224,7 @@ async function ensureDbSqlHelpers() {
 
       h := app_api._sha256_hex(b32);
       PERFORM 1 FROM public.users u
-        WHERE u.role='supervisor'
+        WHERE u.role IN ('supervisor','company')
           AND u.two_factor_norm_hash = h
           AND (TG_OP='INSERT' OR u.id <> NEW.id)
         LIMIT 1;
@@ -2453,6 +2453,12 @@ async function ensureDbSqlHelpers() {
     CREATE UNIQUE INDEX IF NOT EXISTS users_supervisor_totp_norm_uniq
       ON public.users (two_factor_norm_hash)
       WHERE role='supervisor' AND two_factor_norm_hash IS NOT NULL
+  `);
+
+  await run('users_2fa_totp_norm_uniq', `
+    CREATE UNIQUE INDEX IF NOT EXISTS users_2fa_totp_norm_uniq
+      ON public.users (two_factor_norm_hash)
+      WHERE role IN ('supervisor','company') AND two_factor_norm_hash IS NOT NULL
   `);
 
 }
@@ -4694,7 +4700,7 @@ app.post('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
     const twoFactorSecretPlain = normalizeBase32(base32Raw);
     const r = await client.query(
       `INSERT INTO users (username, password_hash, role, name, surname, email, email_verified, is_verified, is_active,
-                          two_factor_norm_hash, two_factor_enabled, dependent_company)
+                          two_factor_secret, two_factor_enabled, dependent_company)
        VALUES ($1,$2,'company',$3,$4,$5,true,true,true,$6,true,$7)
        RETURNING id, username, role, dependent_company`,
       [username, hashPw, name, surname, email, twoFactorSecretPlain, companyId]
@@ -4727,6 +4733,54 @@ app.get('/api/admin/companies/:id/orders', adminOnly, async (req, res) => {
     res.json(r.rows);
   } catch (e) {
     console.error('GET company orders error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+// Giriş yapan company kullanıcısının şirketi + menü/indirim ayarları
+app.get('/api/company/me', requireAuth, requireAnyRole(['company']), async (req, res) => {
+  try {
+    const u = await pool.query(`SELECT dependent_company FROM users WHERE id=$1`, [req.user.id]);
+    const cid = u.rows[0] && u.rows[0].dependent_company;
+    if (!cid) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    const c = await pool.query(
+      `SELECT company_id, company_name, logo_url, menu, discount_percentage, discount_threshold_point
+         FROM public.companies WHERE company_id=$1`, [cid]);
+    if (!c.rows.length) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    res.json({ username: req.user.username, company: c.rows[0] });
+  } catch (e) {
+    console.error('GET /api/company/me error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+// Company kullanıcısı menü/indirim/eşik ayarlarını kaydeder
+app.patch('/api/company/config', requireAuth, requireAnyRole(['company']), async (req, res) => {
+  try {
+    const u = await pool.query(`SELECT dependent_company FROM users WHERE id=$1`, [req.user.id]);
+    const cid = u.rows[0] && u.rows[0].dependent_company;
+    if (!cid) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    let menu = req.body && req.body.menu;
+    if (!Array.isArray(menu)) menu = [];
+    menu = menu
+      .filter(x => x && typeof x.name === 'string' && x.name.trim())
+      .slice(0, 100)
+      .map(x => ({
+        name: String(x.name).trim().slice(0, 160),
+        price: (x.price != null && x.price !== '' && Number.isFinite(Number(x.price))) ? Number(x.price) : null,
+        discounted: !!x.discounted
+      }));
+    let dp = req.body && req.body.discount_percentage;
+    dp = (dp != null && dp !== '' && Number.isFinite(Number(dp))) ? Math.max(0, Math.min(100, Math.round(Number(dp)))) : null;
+    let thr = req.body && req.body.discount_threshold_point;
+    thr = (thr != null && thr !== '' && Number.isFinite(Number(thr))) ? Math.max(0, Math.round(Number(thr))) : null;
+    await pool.query(
+      `UPDATE public.companies SET menu=$1::jsonb, discount_percentage=$2, discount_threshold_point=$3 WHERE company_id=$4`,
+      [JSON.stringify(menu), dp, thr, cid]
+    );
+    res.json({ ok: true, menu, discount_percentage: dp, discount_threshold_point: thr });
+  } catch (e) {
+    console.error('PATCH /api/company/config error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 });
