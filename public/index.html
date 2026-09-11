@@ -527,6 +527,7 @@
           <button class="tab-btn active" data-tab="types-tab" data-i18n="eventTypes">Event Types</button>
           <button class="tab-btn" data-tab="users-tab" data-i18n="users">Users</button>
           <button class="tab-btn" data-tab="events-tab" data-i18n="events">Events</button>
+          <button class="tab-btn" data-tab="companies-tab" data-i18n="companies">Companies</button>
           <button class="tab-btn" data-tab="veri-tipi-tab" data-i18n="existingData">Existing Data</button>
           <button class="tab-btn" data-tab="regions-tab" id="btn-regions-tab" data-i18n="findMyRegion" style="display:none;">Find My Region</button>
         </div>
@@ -585,6 +586,47 @@
             <div class="pagination">
               <div class="pagination-info" id="types-pagination-info"></div>
               <div class="pagination-controls" id="types-pagination-controls"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Companies Tab -->
+        <div id="companies-tab" class="tab-content">
+          <div class="panel">
+            <div class="company-form">
+              <div class="company-form-row">
+                <input id="company-name" type="text" class="company-input" data-i18n-placeholder="companyNamePlaceholder" />
+              </div>
+              <div class="company-form-row company-logo-row">
+                <button type="button" id="company-logo-btn" class="btn company-logo-btn" data-i18n="uploadLogo">Upload logo</button>
+                <input id="company-logo-file" type="file" accept=".svg,.png,.jpg,.jpeg,.webp,.gif,image/svg+xml,image/png,image/jpeg,image/webp,image/gif" hidden />
+                <img id="company-logo-preview" class="company-logo-preview" alt="" hidden />
+                <span id="company-logo-status" class="company-logo-status"></span>
+              </div>
+              <div class="company-note" data-i18n="wgs84Note">Enter coordinates in WGS84 datum (decimal degrees).</div>
+              <div class="company-form-row company-coords-row">
+                <input id="company-lat" type="text" class="company-input" data-i18n-placeholder="latPlaceholder" />
+                <input id="company-lng" type="text" class="company-input" data-i18n-placeholder="lngPlaceholder" />
+                <button type="button" id="company-map-btn" class="icon-btn company-map-btn" data-i18n-title="pickOnMap" aria-label="Pick on map">🗺️</button>
+              </div>
+              <div class="company-form-row">
+                <button type="button" id="company-add-btn" class="btn company-add-btn" aria-label="Add">
+                  <span class="company-add-plus">+</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="table-wrap company-table-wrap">
+              <table id="companies-table" class="company-table">
+                <thead>
+                  <tr><th data-i18n="company">Company</th></tr>
+                </thead>
+                <tbody id="companies-tbody"></tbody>
+              </table>
+            </div>
+            <div class="pagination">
+              <div class="pagination-info" id="companies-pagination-info"></div>
+              <div class="pagination-controls" id="companies-pagination-controls"></div>
             </div>
           </div>
         </div>
@@ -1140,5 +1182,33 @@
       });
     });
   </script>
+
+  <!-- Company: pick location on map -->
+  <div id="company-map-overlay" class="company-map-overlay hidden" aria-hidden="true">
+    <div class="company-map-card">
+      <div class="company-map-head">
+        <span data-i18n="selectLocationTitle">Select location</span>
+        <button type="button" id="company-map-close" class="company-map-close" aria-label="Close" data-i18n-title="close">&#10005;</button>
+      </div>
+      <div id="company-picker-map" class="company-picker-map"></div>
+    </div>
+  </div>
+
+  <!-- Company detail overlay -->
+  <div id="company-detail-overlay" class="company-detail-overlay hidden" aria-hidden="true">
+    <div class="company-detail-card">
+      <button type="button" id="company-detail-close" class="company-detail-close" aria-label="Close" data-i18n-title="close">&#10005;</button>
+      <div class="company-detail-head">
+        <img id="company-detail-logo" class="company-detail-logo" alt="" />
+        <h3 id="company-detail-name" class="company-detail-name"></h3>
+      </div>
+      <div class="company-detail-tabs">
+        <button type="button" class="company-detail-tab active" data-cdt="users" data-i18n="users">Users</button>
+        <button type="button" class="company-detail-tab" data-cdt="orders" data-i18n="orders">Orders</button>
+      </div>
+      <div id="company-detail-users" class="company-detail-pane active"></div>
+      <div id="company-detail-orders" class="company-detail-pane"></div>
+    </div>
+  </div>
 </body>
 </html>

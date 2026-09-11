@@ -230,6 +230,7 @@ function createOrUpdateMapFromConfig() {
     map.invalidateSize();
   }
   ensureMapLegend(map);
+  try { refreshCompanyMarkers(); } catch (e) { console.warn('refreshCompanyMarkers', e); }
 }
 function loadToken() {
   try { authToken = localStorage.getItem(AUTH_KEY) || null; } catch { authToken = null; }
@@ -6230,6 +6231,248 @@ async function refreshAdminEvents(){
 
 /* ==================== TAB NAVIGATION ==================== */
 
+/* ==================== ŞİRKETLER (Companies) ==================== */
+const __companies = { data: [], page: 1, perPage: 8, logoUrl: '', pickerMap: null, pickerMarker: null, detailId: null, _rz: null };
+const COMPANY_LOGO_EXT = ['svg', 'png', 'jpg', 'jpeg', 'webp', 'gif'];
+const COMPANY_LOGO_MIME = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+
+// Girilen koordinatı decimal (WGS84) değere çevirir; decimal, DMS ve derece-ondalık-dakika kabul eder
+function _coordToDecimal(raw) {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  if (/^[-+]?\d+(\.\d+)?$/.test(s)) { const n = parseFloat(s); return Number.isFinite(n) ? n : null; }
+  let m = s.match(/^\s*([-+]?\d+(?:\.\d+)?)[°:\s]+(\d+(?:\.\d+)?)['’:\s]+(\d+(?:\.\d+)?)?["”\s]*\s*([NSEWnsew])?\s*$/);
+  if (m) {
+    const deg = parseFloat(m[1] || '0'), min = parseFloat(m[2] || '0'), sec = parseFloat(m[3] || '0');
+    let dec = Math.abs(deg) + min / 60 + sec / 3600; dec = deg < 0 ? -dec : dec;
+    const h = (m[4] || '').toUpperCase();
+    if (h === 'S' || h === 'W') dec = -Math.abs(dec);
+    if (h === 'N' || h === 'E') dec = Math.abs(dec);
+    return Math.round(dec * 1e7) / 1e7;
+  }
+  m = s.match(/^\s*([-+]?\d+(?:\.\d+)?)[°:\s]+(\d+(?:\.\d+)?)['’\s]*\s*([NSEWnsew])?\s*$/);
+  if (m) {
+    const deg = parseFloat(m[1] || '0'), min = parseFloat(m[2] || '0');
+    let dec = Math.abs(deg) + min / 60; dec = deg < 0 ? -dec : dec;
+    const h = (m[3] || '').toUpperCase();
+    if (h === 'S' || h === 'W') dec = -Math.abs(dec);
+    if (h === 'N' || h === 'E') dec = Math.abs(dec);
+    return Math.round(dec * 1e7) / 1e7;
+  }
+  const n = parseFloat(s); return Number.isFinite(n) ? n : null;
+}
+
+function initCompaniesUI() {
+  const logoBtn = qs('#company-logo-btn'), logoFile = qs('#company-logo-file');
+  if (logoBtn && logoFile) {
+    logoBtn.onclick = () => logoFile.click();
+    logoFile.onchange = () => handleCompanyLogoSelect(logoFile.files && logoFile.files[0]);
+  }
+  const latI = qs('#company-lat'), lngI = qs('#company-lng');
+  if (latI) latI.addEventListener('blur', () => { const v = _coordToDecimal(latI.value); if (v != null) latI.value = String(v); });
+  if (lngI) lngI.addEventListener('blur', () => { const v = _coordToDecimal(lngI.value); if (v != null) lngI.value = String(v); });
+  const mapBtn = qs('#company-map-btn'); if (mapBtn) mapBtn.onclick = openCompanyMapPicker;
+  const mapClose = qs('#company-map-close'); if (mapClose) mapClose.onclick = closeCompanyMapPicker;
+  const addBtn = qs('#company-add-btn'); if (addBtn) addBtn.onclick = submitCompany;
+  const dClose = qs('#company-detail-close'); if (dClose) dClose.onclick = closeCompanyDetail;
+  document.querySelectorAll('.company-detail-tab').forEach(tb => tb.onclick = () => switchCompanyDetailTab(tb.getAttribute('data-cdt')));
+  window.addEventListener('resize', () => {
+    clearTimeout(__companies._rz);
+    __companies._rz = setTimeout(() => { if (qs('#companies-tab') && qs('#companies-tab').classList.contains('active')) renderCompaniesTable(); }, 150);
+  });
+}
+
+function handleCompanyLogoSelect(file) {
+  if (!file) return;
+  const name = (file.name || '').toLowerCase();
+  const ext = name.split('.').pop();
+  const okExt = COMPANY_LOGO_EXT.includes(ext);
+  const okMime = !file.type || COMPANY_LOGO_MIME.includes(file.type);
+  const st = qs('#company-logo-status');
+  if (!okExt || !okMime) {
+    __companies.logoUrl = '';
+    const prev = qs('#company-logo-preview'); if (prev) { prev.hidden = true; prev.src = ''; }
+    if (st) st.textContent = '';
+    toast(t('invalidLogoFormat'), 'error', 4000);
+    const f = qs('#company-logo-file'); if (f) f.value = '';
+    return;
+  }
+  if (st) st.textContent = '…';
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const url = await uploadDataUrl('/api/upload/photo', reader.result);
+      __companies.logoUrl = url;
+      const prev = qs('#company-logo-preview'); if (prev) { prev.src = url; prev.hidden = false; }
+      if (st) st.textContent = t('logoSelected');
+    } catch (e) { if (st) st.textContent = ''; toast(t('unknownError') + ': ' + (e.message || ''), 'error'); }
+  };
+  reader.readAsDataURL(file);
+}
+
+function openCompanyMapPicker() {
+  const ov = qs('#company-map-overlay'); if (!ov) return;
+  ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false');
+  setTimeout(() => {
+    try {
+      if (!__companies.pickerMap) {
+        __companies.pickerMap = L.map('company-picker-map', { center: [39.92, 32.85], zoom: 6 });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors' }).addTo(__companies.pickerMap);
+        __companies.pickerMap.on('click', (e) => {
+          const { lat, lng } = e.latlng;
+          if (__companies.pickerMarker) __companies.pickerMarker.setLatLng(e.latlng);
+          else __companies.pickerMarker = L.marker(e.latlng).addTo(__companies.pickerMap);
+          const la = qs('#company-lat'), lo = qs('#company-lng');
+          if (la) la.value = String(Math.round(lat * 1e7) / 1e7);
+          if (lo) lo.value = String(Math.round(lng * 1e7) / 1e7);
+        });
+      }
+      __companies.pickerMap.invalidateSize();
+      const la = _coordToDecimal(qs('#company-lat') && qs('#company-lat').value);
+      const lo = _coordToDecimal(qs('#company-lng') && qs('#company-lng').value);
+      if (la != null && lo != null) {
+        if (__companies.pickerMarker) __companies.pickerMarker.setLatLng([la, lo]);
+        else __companies.pickerMarker = L.marker([la, lo]).addTo(__companies.pickerMap);
+        __companies.pickerMap.setView([la, lo], 13);
+      }
+    } catch (e) { console.warn('company map picker', e); }
+  }, 60);
+}
+function closeCompanyMapPicker() { const ov = qs('#company-map-overlay'); if (ov) { ov.classList.add('hidden'); ov.setAttribute('aria-hidden', 'true'); } }
+
+async function submitCompany() {
+  const name = (qs('#company-name') && qs('#company-name').value || '').trim();
+  if (!name) { toast(t('company_name_required'), 'error', 4000); return; }
+  if (!__companies.logoUrl) { toast(t('company_logo_required'), 'error', 4000); return; }
+  const lat = _coordToDecimal(qs('#company-lat') && qs('#company-lat').value);
+  const lng = _coordToDecimal(qs('#company-lng') && qs('#company-lng').value);
+  if (lat == null || lng == null || !(lat >= -90 && lat <= 90) || !(lng >= -180 && lng <= 180)) {
+    toast(t('company_coords_required'), 'error', 4000); return;
+  }
+  const btn = qs('#company-add-btn'); if (btn) btn.disabled = true;
+  try {
+    const r = await fetch('/api/admin/companies', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ company_name: name, logo_url: __companies.logoUrl, latitude: lat, longitude: lng })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); return; }
+    toast(t('companyAdded'), 'success');
+    if (qs('#company-name')) qs('#company-name').value = '';
+    if (qs('#company-lat')) qs('#company-lat').value = '';
+    if (qs('#company-lng')) qs('#company-lng').value = '';
+    __companies.logoUrl = '';
+    const prev = qs('#company-logo-preview'); if (prev) { prev.hidden = true; prev.src = ''; }
+    const st = qs('#company-logo-status'); if (st) st.textContent = '';
+    const f = qs('#company-logo-file'); if (f) f.value = '';
+    await loadCompanies();
+    try { if (typeof refreshCompanyMarkers === 'function') refreshCompanyMarkers(); } catch {}
+  } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); }
+  finally { if (btn) btn.disabled = false; }
+}
+
+async function loadCompanies() {
+  try {
+    const r = await fetch('/api/admin/companies');
+    if (!r.ok) throw 0;
+    const d = await r.json();
+    __companies.data = Array.isArray(d) ? d : [];
+  } catch { __companies.data = []; }
+  __companies.page = 1;
+  renderCompaniesTable();
+}
+
+function _companiesPerPage() {
+  const wrap = qs('.company-table-wrap');
+  const rowH = 56;
+  let avail = 0;
+  try { avail = wrap ? wrap.clientHeight : 0; } catch {}
+  if (!avail || avail < 120) { const vh = window.innerHeight || 700; avail = Math.max(220, Math.floor(vh * 0.5)); }
+  return Math.max(3, Math.floor(avail / rowH));
+}
+
+function renderCompaniesTable() {
+  const tb = qs('#companies-tbody'); if (!tb) return;
+  const per = _companiesPerPage(); __companies.perPage = per;
+  const total = __companies.data.length;
+  const pages = Math.max(1, Math.ceil(total / per));
+  if (__companies.page > pages) __companies.page = pages;
+  const start = (__companies.page - 1) * per;
+  const pageData = __companies.data.slice(start, start + per);
+  tb.innerHTML = '';
+  if (!total) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td'); td.className = 'company-empty'; td.textContent = t('noCompaniesYet');
+    tr.appendChild(td); tb.appendChild(tr);
+  } else {
+    pageData.forEach(c => {
+      const tr = document.createElement('tr'); tr.className = 'company-row'; tr.tabIndex = 0;
+      const td = document.createElement('td'); td.className = 'company-cell';
+      const img = document.createElement('img'); img.className = 'company-cell-logo'; img.src = c.logo_url || ''; img.alt = '';
+      const span = document.createElement('span'); span.className = 'company-cell-name'; span.textContent = c.company_name || '';
+      td.appendChild(img); td.appendChild(span); tr.appendChild(td);
+      tr.onclick = () => openCompanyDetail(c);
+      tr.onkeydown = (e) => { if (e.key === 'Enter') openCompanyDetail(c); };
+      tb.appendChild(tr);
+    });
+  }
+  renderCompaniesPagination(total, per, pages);
+}
+
+function renderCompaniesPagination(total, per, pages) {
+  const info = qs('#companies-pagination-info'), ctr = qs('#companies-pagination-controls');
+  if (info) { const s = total ? (__companies.page - 1) * per + 1 : 0; const e = Math.min(__companies.page * per, total); info.textContent = total ? `${s}-${e} / ${total}` : ''; }
+  if (ctr) {
+    ctr.innerHTML = '';
+    if (pages > 1) {
+      const mk = (label, pg, dis) => { const b = document.createElement('button'); b.className = 'btn pagination-btn'; b.textContent = label; b.disabled = !!dis; b.onclick = () => { __companies.page = pg; renderCompaniesTable(); }; return b; };
+      ctr.appendChild(mk('‹', Math.max(1, __companies.page - 1), __companies.page <= 1));
+      const cur = document.createElement('span'); cur.className = 'pagination-current'; cur.textContent = `${__companies.page}/${pages}`; ctr.appendChild(cur);
+      ctr.appendChild(mk('›', Math.min(pages, __companies.page + 1), __companies.page >= pages));
+    }
+  }
+}
+
+function openCompanyDetail(c) {
+  __companies.detailId = c.company_id;
+  const ov = qs('#company-detail-overlay'); if (!ov) return;
+  const logo = qs('#company-detail-logo'); if (logo) logo.src = c.logo_url || '';
+  const name = qs('#company-detail-name'); if (name) name.textContent = c.company_name || '';
+  switchCompanyDetailTab('users');
+  ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false');
+}
+function closeCompanyDetail() { const ov = qs('#company-detail-overlay'); if (ov) { ov.classList.add('hidden'); ov.setAttribute('aria-hidden', 'true'); } }
+function switchCompanyDetailTab(which) {
+  document.querySelectorAll('.company-detail-tab').forEach(tb => tb.classList.toggle('active', tb.getAttribute('data-cdt') === which));
+  const u = qs('#company-detail-users'), o = qs('#company-detail-orders');
+  if (u) u.classList.toggle('active', which === 'users');
+  if (o) o.classList.toggle('active', which === 'orders');
+}
+
+// Tüm haritalarda (public/user/supervisor) logolu şirket işaretleri — cluster yok
+let companyMarkersLayer = null;
+async function refreshCompanyMarkers() {
+  if (!map || typeof L === 'undefined') return;
+  if (!companyMarkersLayer) companyMarkersLayer = L.layerGroup().addTo(map);
+  let list = [];
+  try { const r = await fetch('/api/companies'); if (r.ok) list = await r.json(); } catch {}
+  if (!Array.isArray(list)) list = [];
+  companyMarkersLayer.clearLayers();
+  list.forEach(c => {
+    const lat = Number(c.latitude), lng = Number(c.longitude);
+    if (c.latitude == null || c.longitude == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const icon = L.divIcon({
+      className: 'company-logo-marker',
+      html: `<div class="company-logo-pin"><img src="${escapeHtml(c.logo_url || '')}" alt=""></div>`,
+      iconSize: [46, 54], iconAnchor: [23, 52], popupAnchor: [0, -48]
+    });
+    const m = L.marker([lat, lng], { icon, title: c.company_name || '' });
+    m.bindPopup(`<div class="company-marker-popup">${escapeHtml(c.company_name || '')}</div>`);
+    m.addTo(companyMarkersLayer);
+  });
+}
+
 function initTabs() {
   const tabBtns = qsa('.tab-btn');
   const tabContents = qsa('.tab-content');
@@ -6305,8 +6548,10 @@ function initTabs() {
           renderTable(tableKey);
         }
       } catch {}
+      if (targetTab === 'companies-tab') { try { loadCompanies(); } catch {} }
     });
   });
+  try { initCompaniesUI(); } catch(e){ console.warn('initCompaniesUI', e); }
 }
 
 /* ==================== PAGE SIZE SETTINGS ==================== */

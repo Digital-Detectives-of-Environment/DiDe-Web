@@ -3625,3 +3625,94 @@ th:has(#btn-add-type){
 @media (max-width: 768px){
   #whoami{ display: none !important; }
 }
+/* ===================== Companies (supervisor) ===================== */
+.company-form{ display:flex; flex-direction:column; gap:10px; margin:6px 0 14px; }
+.company-form-row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.company-input{
+  flex:1 1 160px; min-width:0; padding:10px 12px; border-radius:10px;
+  border:1px solid var(--border, #cbd5e1); background:var(--surface, #fff);
+  color:var(--text, #111); font-size:clamp(13px,3.6vw,15px);
+}
+.company-input:focus{ outline:none; border-color:var(--primary, #2563eb); box-shadow:0 0 0 3px color-mix(in srgb, var(--primary,#2563eb) 20%, transparent); }
+.company-logo-row{ align-items:center; }
+.company-logo-btn{ display:inline-flex; align-items:center; gap:6px; }
+.company-logo-preview{ width:40px; height:40px; border-radius:8px; object-fit:contain; background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb); }
+.company-logo-status{ font-size:13px; color:var(--muted, #6b7280); }
+.company-note{ font-size:clamp(11px,3vw,13px); color:var(--muted, #6b7280); }
+.company-coords-row .company-input{ flex:1 1 120px; }
+.company-map-btn{ flex:0 0 auto; font-size:20px; line-height:1; padding:8px 10px; border-radius:10px; border:1px solid var(--border,#cbd5e1); background:var(--surface,#fff); cursor:pointer; }
+.company-map-btn:hover{ border-color:var(--primary,#2563eb); }
+.company-add-btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:48px; height:48px; border-radius:50%; border:none; cursor:pointer;
+  background:var(--primary, #2563eb); color:#fff; box-shadow:var(--shadow-sm);
+  transition:transform .08s ease, filter .15s ease;
+}
+.company-add-btn:hover{ filter:brightness(1.06); }
+.company-add-btn:active{ transform:scale(.94); }
+.company-add-btn:disabled{ opacity:.6; cursor:not-allowed; }
+.company-add-plus{ font-size:28px; line-height:1; font-weight:700; }
+
+.company-table-wrap{ overflow:auto; max-height:min(56vh, 520px); border-radius:12px; }
+.company-table{ width:100%; border-collapse:collapse; }
+.company-table thead th{ text-align:left; padding:10px 12px; font-size:13px; color:var(--muted,#6b7280); position:sticky; top:0; background:var(--surface,#fff); }
+.company-row{ cursor:pointer; transition:background .12s ease; }
+.company-row:hover, .company-row:focus{ background:color-mix(in srgb, var(--primary,#2563eb) 8%, transparent); outline:none; }
+.company-cell{ display:flex; align-items:center; gap:12px; padding:10px 12px; border-top:1px solid var(--border-soft, #eef2f7); }
+.company-cell-logo{ width:36px; height:36px; border-radius:8px; object-fit:contain; background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb); flex:0 0 auto; }
+.company-cell-name{ font-weight:600; color:var(--text,#111); font-size:clamp(14px,3.8vw,16px); word-break:break-word; }
+.company-empty{ padding:18px 12px; text-align:center; color:var(--muted,#6b7280); }
+
+/* Company map picker overlay */
+.company-map-overlay, .company-detail-overlay{
+  position:fixed; inset:0; z-index:12000; display:flex; align-items:center; justify-content:center;
+  background:rgba(15,23,42,.55); padding:16px;
+}
+.company-map-overlay.hidden, .company-detail-overlay.hidden{ display:none; }
+.company-map-card{
+  width:min(920px, 96vw); height:min(80vh, 680px); background:var(--surface,#fff); color:var(--text,#111);
+  border-radius:16px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,.4);
+}
+.company-map-head{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px; font-weight:700; border-bottom:1px solid var(--border,#e5e7eb); }
+.company-map-close, .company-detail-close{ border:none; background:transparent; font-size:22px; line-height:1; cursor:pointer; color:var(--text,#111); padding:4px 8px; border-radius:8px; }
+.company-map-close:hover, .company-detail-close:hover{ background:color-mix(in srgb, var(--text,#111) 8%, transparent); }
+.company-picker-map{ flex:1 1 auto; width:100%; }
+
+/* Company detail overlay */
+.company-detail-card{
+  position:relative; width:min(760px, 96vw); max-height:92vh; overflow:auto; background:var(--surface,#fff); color:var(--text,#111);
+  border-radius:16px; padding:20px; box-shadow:0 20px 60px rgba(0,0,0,.4);
+}
+.company-detail-close{ position:absolute; top:12px; right:12px; }
+.company-detail-head{ display:flex; align-items:center; gap:14px; margin:4px 4px 16px; }
+.company-detail-logo{ width:56px; height:56px; border-radius:12px; object-fit:contain; background:var(--bg,#fff); border:1px solid var(--border,#e5e7eb); }
+.company-detail-name{ margin:0; font-size:clamp(18px,5vw,24px); font-weight:800; word-break:break-word; }
+.company-detail-tabs{ display:flex; gap:8px; border-bottom:1px solid var(--border,#e5e7eb); margin-bottom:14px; flex-wrap:wrap; }
+.company-detail-tab{
+  border:none; background:transparent; cursor:pointer; padding:10px 14px; font-weight:600;
+  color:var(--muted,#6b7280); border-bottom:2px solid transparent; margin-bottom:-1px;
+}
+.company-detail-tab.active{ color:var(--primary,#2563eb); border-bottom-color:var(--primary,#2563eb); }
+.company-detail-pane{ display:none; }
+.company-detail-pane.active{ display:block; }
+
+@media (max-width: 640px){
+  .company-add-btn{ width:52px; height:52px; }
+  .company-detail-card{ padding:16px; border-radius:14px; }
+  .company-table-wrap{ max-height:min(60vh, 70vh); }
+}
+
+/* ===================== Company map markers ===================== */
+.company-logo-marker{ background:transparent; border:none; }
+.company-logo-pin{
+  width:46px; height:46px; border-radius:50%; background:#fff;
+  border:3px solid var(--primary, #2563eb); box-shadow:0 3px 10px rgba(0,0,0,.35);
+  display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative;
+}
+.company-logo-pin img{ width:34px; height:34px; object-fit:contain; border-radius:50%; }
+.company-logo-pin::after{
+  content:''; position:absolute; bottom:-8px; left:50%; transform:translateX(-50%);
+  border-left:7px solid transparent; border-right:7px solid transparent;
+  border-top:9px solid var(--primary, #2563eb);
+}
+.company-marker-popup{ font-weight:700; font-size:14px; color:var(--text, #111); }
