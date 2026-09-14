@@ -445,31 +445,69 @@
             <div id="company-panel-name" class="company-panel-name">—</div>
             <div id="company-panel-user" class="company-panel-user">—</div>
           </div>
-          <button type="button" id="company-scan-btn" class="company-scan-btn" data-i18n-title="scanQr" aria-label="Scan QR">📷</button>
+          <button type="button" id="company-scan-btn" class="company-scan-btn" data-i18n-title="scanQr" aria-label="Scan QR">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+          </button>
         </div>
 
-        <div class="company-panel-section">
-          <div class="company-panel-section-title" data-i18n="discountSettings">Discount settings</div>
-          <div class="company-form-row">
-            <label class="company-field">
-              <span data-i18n="thresholdPoint">Discount threshold (points)</span>
-              <input id="company-threshold" type="number" min="0" class="company-input" />
-            </label>
-            <label class="company-field">
-              <span data-i18n="discountPct">Discount (%)</span>
-              <input id="company-discount" type="number" min="0" max="100" class="company-input" />
-            </label>
+        <div class="company-subtabs">
+          <button type="button" class="company-subtab active" data-cst="settings" data-i18n="companyPanelTitle">Panel</button>
+          <button type="button" class="company-subtab" data-cst="orders" data-i18n="orders">Orders</button>
+        </div>
+
+        <div id="company-view-settings" class="company-view active">
+          <div class="company-panel-section">
+            <div class="company-panel-section-title" data-i18n="discountSettings">Discount settings</div>
+            <div id="company-disc-display" class="company-disc-display">
+              <div class="cdd-item"><span data-i18n="thresholdPoint">Discount threshold (points)</span><b id="cdd-threshold">—</b></div>
+              <div class="cdd-item"><span data-i18n="discountPct">Discount (%)</span><b id="cdd-discount">—</b></div>
+              <button type="button" id="company-disc-update" class="btn company-disc-update" data-i18n="updateBtn">Update</button>
+            </div>
+            <div id="company-disc-edit" class="company-disc-edit">
+              <div class="company-disc-row">
+                <label class="company-field-sm">
+                  <span data-i18n="thresholdPoint">Discount threshold (points)</span>
+                  <input id="company-threshold" type="number" min="0" class="company-input-sm" />
+                </label>
+                <label class="company-field-sm">
+                  <span data-i18n="discountPct">Discount (%)</span>
+                  <input id="company-discount" type="number" min="0" max="100" class="company-input-sm" />
+                </label>
+              </div>
+              <button type="button" id="company-disc-save" class="btn company-disc-save" data-i18n="saveConfig">Save</button>
+            </div>
+          </div>
+
+          <div class="company-panel-section company-menu-section">
+            <div class="company-panel-section-title" data-i18n="companyMenu">Menu</div>
+            <div class="company-menu-add-form">
+              <input id="company-menu-new-name" class="company-input cm-name" data-i18n-placeholder="menuItemName" />
+              <input id="company-menu-new-price" type="number" min="0" class="company-input cm-price" data-i18n-placeholder="menuItemPrice" />
+              <label class="cm-dis"><input id="company-menu-new-dis" type="checkbox" /><span data-i18n="onDiscount">On discount</span></label>
+              <button type="button" id="company-menu-add" class="company-menu-add-icon" data-i18n-title="addMenuItem" aria-label="Add item">
+              <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+            </button>
+            </div>
+            <div id="company-menu-rows" class="company-menu-rows"></div>
+            <div id="company-menu-pagination" class="company-menu-pagination"></div>
           </div>
         </div>
 
-        <div class="company-panel-section">
-          <div class="company-panel-section-title" data-i18n="companyMenu">Menu</div>
-          <div id="company-menu-rows" class="company-menu-rows"></div>
-          <button type="button" id="company-menu-add" class="btn company-menu-add" data-i18n="addMenuItem">Add item</button>
-        </div>
-
-        <div class="company-panel-actions">
-          <button type="button" id="company-save-btn" class="btn company-save-btn" data-i18n="saveConfig">Save</button>
+        <div id="company-view-orders" class="company-view">
+          <div class="company-table-wrap">
+            <table id="company-orders-table" class="company-orders-table">
+              <thead>
+                <tr>
+                  <th data-i18n="ordPerson">User</th>
+                  <th data-i18n="ordTotal">Total</th>
+                  <th data-i18n="ordDiscount">Disc. %</th>
+                  <th data-i18n="ordFinal">Paid</th>
+                </tr>
+              </thead>
+              <tbody id="company-orders-tbody"></tbody>
+            </table>
+          </div>
+          <div id="company-orders-pagination" class="company-orders-pagination"></div>
         </div>
       </section>
 
@@ -701,7 +739,7 @@
                     </th>
                     <th data-i18n="solver">Solver</th>
                     <th data-i18n="posts">Posts</th>
-                    <th data-i18n="likes">Likes</th>
+                    <th data-i18n="agrees">Likes</th>
                     <th data-i18n="postsPoint">Points</th>
                     <th data-i18n="actions">Actions</th>
                   </tr>
@@ -759,7 +797,7 @@
                       <span class="filter-icon" data-column="timedependent" data-i18n-title="search">▼</span>
                       <div class="filter-dropdown" data-column="timedependent"></div>
                     </th>
-                    <th data-i18n="numLikes">Likes</th>
+                    <th data-i18n="numAgrees">Likes</th>
                     <th data-i18n="actions">Actions</th>
                   </tr>
                 </thead>
@@ -1003,6 +1041,17 @@
               <span class="profile-score-label" data-i18n="points">Points</span>
               <span id="profile-score-value" class="profile-score-value">0</span>
             </div>
+            <div id="profile-qr" class="profile-qr">
+              <button id="profile-qr-btn" class="btn profile-qr-btn" type="button" data-i18n="generateQr">Generate QR</button>
+              <div id="profile-qr-box" class="profile-qr-box hidden">
+                <div id="profile-qr-img" class="profile-qr-img"></div>
+                <div class="profile-qr-hint" data-i18n="qrHint">Show this to the company. Valid 5 minutes, single use.</div>
+                <div class="profile-qr-copy">
+                  <input id="profile-qr-text" class="profile-qr-text" readonly />
+                  <button id="profile-qr-copy-btn" type="button" class="btn" data-i18n="copy">Copy</button>
+                </div>
+              </div>
+            </div>
             <button id="profile-map-open-big" class="profile-map-open-big" type="button" data-i18n-title="openMap" title="Open map">
               <img src="/map-view.svg" alt="map" class="profile-map-open-big-img" onerror="this.onerror=null;this.src='/useposition.svg';" />
             </button>
@@ -1024,7 +1073,7 @@
                   <th data-i18n="type">Type</th>
                   <th data-i18n="addedDate">Created</th>
                   <th data-i18n="deactivatedAt">Deactivated</th>
-                  <th data-i18n="numLikes">Likes</th>
+                  <th data-i18n="numAgrees">Likes</th>
                 </tr>
               </thead>
               <tbody id="profile-posts-tbody"></tbody>
@@ -1108,6 +1157,7 @@
   <script src="https://unpkg.com/georaster@1.6.0/dist/georaster.browser.bundle.min.js"></script>
   <script src="https://unpkg.com/georaster-layer-for-leaflet@3.10.0/dist/georaster-layer-for-leaflet.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@master/qrcode.min.js"></script>
 
   <script>
     (function(){
@@ -1128,13 +1178,19 @@
       };
       const _map = L.map;
       L.map = function(id, options){
+        const opts = options || {};
+        // Muaf haritalar (supervisor olaylar/companies) sınırdan bağımsız: dünya sınırları, serbest pan/zoom
+        if (opts.boundaryExempt){
+          const o = Object.assign({ maxZoom: 18, minZoom: 2, worldCopyJump: false, maxBounds: WORLD_BOUNDS, maxBoundsViscosity: 0.0 }, opts);
+          return _map.call(this, id, o);
+        }
         const lock = bLockBounds();
         // KATI kilit: sınır bbox'ı (buffer yok). maxBounds viewport'u sınırla sınırlar;
         // yakınlaştırınca köşelere kadar gidilir ama dışarı çıkılamaz.
         const mb = lock || WORLD_BOUNDS;
         const o = Object.assign({},
           { maxZoom: 18, minZoom: 2, worldCopyJump: false, maxBounds: mb, maxBoundsViscosity: 1.0 },
-          (options||{})
+          opts
         );
         const m = _map.call(this, id, o);
         try { m.setMaxBounds(mb); } catch {}
@@ -1142,8 +1198,12 @@
       };
       const _tile = L.tileLayer;
       L.tileLayer = function(url, options){
-        const lock = bLockBounds();
         const o = Object.assign({}, { noWrap: true }, (options||{}));
+        if (o.boundaryExempt){
+          if (!o.bounds) o.bounds = WORLD_BOUNDS;
+          return _tile.call(this, url, o);
+        }
+        const lock = bLockBounds();
         if (!o.bounds) o.bounds = (lock || WORLD_BOUNDS);
         return _tile.call(this, url, o);
       };
@@ -1152,9 +1212,10 @@
       // Leaflet'in tile isteğini fiilen başlatan yer createTile'dır (img.src atanır).
       // (1) Sınır henüz çözülmediyse (__boundaryClipPending) HİÇBİR tile istenmez.
       // (2) Sınır çözüldüyse ve tile sınır poligonu DIŞINDA ise istenmez.
-      // Bu tüm haritalarda ve her zamanlamada geçerli; hiçbir kod yolu atlayamaz.
+      // (3) boundaryExempt katmanları (supervisor olaylar/companies haritaları) muaftır.
       const _origCreateTile = L.TileLayer.prototype.createTile;
       L.TileLayer.prototype.createTile = function(coords, done){
+        if (this.options && this.options.boundaryExempt) return _origCreateTile.call(this, coords, done);
         try {
           const bc = window.__boundaryClip;
           const pending = window.__boundaryClipPending === true;

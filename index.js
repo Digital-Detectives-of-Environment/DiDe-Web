@@ -1453,6 +1453,7 @@ function saveDataUrlToUploads(dataUrl, kind /* 'photo'|'video' */) {
 
   const ext = (() => {
     if (kind === 'photo') {
+      if (mime.includes('svg')) return '.svg';
       if (mime.includes('png')) return '.png';
       if (mime.includes('webp')) return '.webp';
       if (mime.includes('gif')) return '.gif';
@@ -3193,6 +3194,17 @@ app.get('/api/me/stats', requireAuth, async (req, res) => {
     if (!rows.length) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
 
     const u = rows[0];
+    // Sipariş harcaması: profildeki gösterilen puan = posts_point − Σ orders.points_spent
+    // (Her başarılı siparişte eşik puan kadar düşer; kazandıkça posts_point artar.)
+    let spent = 0;
+    try {
+      const t = await pool.query(`SELECT to_regclass('public.orders') AS t`);
+      if (t.rows[0].t) {
+        const s = await pool.query(`SELECT COALESCE(SUM(points_spent),0)::int AS s FROM public.orders WHERE person_placing_order=$1`, [u.username]);
+        spent = s.rows[0].s || 0;
+      }
+    } catch {}
+    const effectivePosts = Math.max(0, (u.posts_point || 0) - spent);
     // Solver için "silinen olay" sayısını da hesapla (kendi kapattıkları)
     let closed_count = 0;
     if (u.solver === true) {
@@ -3207,7 +3219,7 @@ app.get('/api/me/stats', requireAuth, async (req, res) => {
       solver: u.solver === true,
       num_events: u.num_events,
       agreed_point: u.agreed_point,
-      posts_point: u.posts_point,
+      posts_point: effectivePosts,
       closed_count
     });
   } catch (e) {
@@ -4549,6 +4561,7 @@ async function ensureOrdersSchema() {
     )
   `);
   try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS company_id integer`); } catch (e) {}
+  try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS points_spent integer NOT NULL DEFAULT 0`); } catch (e) {}
   try {
     await pool.query(`ALTER TABLE public.orders ADD CONSTRAINT orders_company_fk
       FOREIGN KEY (company_id) REFERENCES public.companies(company_id) ON DELETE SET NULL`);
@@ -4750,6 +4763,27 @@ app.get('/api/company/me', requireAuth, requireAnyRole(['company']), async (req,
     res.json({ username: req.user.username, company: c.rows[0] });
   } catch (e) {
     console.error('GET /api/company/me error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+// Company kullanıcısının kendi şirketinin siparişleri (profil tablosu gibi responsive gösterim için)
+app.get('/api/company/orders', requireAuth, requireAnyRole(['company']), async (req, res) => {
+  try {
+    const u = await pool.query(`SELECT dependent_company FROM users WHERE id=$1`, [req.user.id]);
+    const cid = u.rows[0] && u.rows[0].dependent_company;
+    if (!cid) return res.json([]);
+    const t = await pool.query(`SELECT to_regclass('public.orders') AS t`);
+    if (!t.rows[0].t) return res.json([]);
+    const r = await pool.query(
+      `SELECT order_id, person_placing_order, order_amount_before_discount, order_amount_after_discount,
+              discount_percentage, items, order_date
+         FROM public.orders WHERE company_id=$1 ORDER BY order_date DESC`,
+      [cid]
+    );
+    res.json(r.rows);
+  } catch (e) {
+    console.error('GET /api/company/orders error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 });

@@ -2529,13 +2529,14 @@ function ensureEventsMap() {
   if (!eventsMap) {
     eventsMap = L.map('events-map', {
       zoomControl: false,
-      minZoom: minZoom,
+      minZoom: 2,
       maxZoom: 18,
-      worldCopyJump: false
+      worldCopyJump: false,
+      boundaryExempt: true
     }).setView([lat, lng], zoom);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution:'© OpenStreetMap contributors'
+      attribution:'© OpenStreetMap contributors', boundaryExempt: true
     }).addTo(eventsMap);
 
     eventsMarkersLayer = makeMarkersLayer().addTo(eventsMap);
@@ -6317,8 +6318,8 @@ function openCompanyMapPicker() {
   setTimeout(() => {
     try {
       if (!__companies.pickerMap) {
-        __companies.pickerMap = L.map('company-picker-map', { center: [39.92, 32.85], zoom: 6 });
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors' }).addTo(__companies.pickerMap);
+        __companies.pickerMap = L.map('company-picker-map', { center: [39.92, 32.85], zoom: 6, boundaryExempt: true });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', boundaryExempt: true }).addTo(__companies.pickerMap);
         __companies.pickerMap.on('click', (e) => {
           const { lat, lng } = e.latlng;
           if (__companies.pickerMarker) __companies.pickerMarker.setLatLng(e.latlng);
@@ -6567,11 +6568,20 @@ async function refreshCompanyMarkers() {
 const __companyPanel = { data: null, wired: false };
 
 function hideCompanyPanel() { const el = qs('#company-card'); if (el) el.classList.add('hidden'); }
+function _setCompanyTop() {
+  try {
+    const hdr = document.querySelector('header');
+    if (hdr) document.documentElement.style.setProperty('--company-top', Math.round(hdr.getBoundingClientRect().height) + 'px');
+  } catch {}
+}
 function showCompanyPanel() {
   const el = qs('#company-card'); if (!el) return;
   el.classList.remove('hidden');
   initCompanyPanelUI();
+  _setCompanyTop();
+  try { switchCompanySubtab('settings'); } catch {}
   loadCompanyPanel();
+  requestAnimationFrame(() => { _setCompanyTop(); });
 }
 
 async function loadCompanyPanel() {
@@ -6580,73 +6590,260 @@ async function loadCompanyPanel() {
   renderCompanyPanel();
 }
 
+const __companyMenu = { page: 1, editIndex: -1, perPage: 5, _rz: null };
+
 function renderCompanyPanel() {
   const d = __companyPanel.data, c = d && d.company;
   const nameEl = qs('#company-panel-name'), userEl = qs('#company-panel-user'), logoEl = qs('#company-panel-logo');
   if (nameEl) nameEl.textContent = c ? (c.company_name || '') : '';
   if (userEl) userEl.textContent = d ? (d.username || '') : '';
   if (logoEl) logoEl.src = c ? (c.logo_url || '') : '';
+  if (c && !Array.isArray(c.menu)) c.menu = [];
+  __companyMenu.editIndex = -1;
+  __companyMenu.page = 1;
+  renderDiscountView();
+  renderCompanyMenu();
+  requestAnimationFrame(() => { try { companyMenuAutoFit(); } catch {} });
+}
+
+// Menü + eşik + indirim'in TAMAMINI sunucuya yazar (mevcut PATCH ucu tümünü değiştirir)
+async function saveCompanyState(toastKey) {
+  const c = __companyPanel.data && __companyPanel.data.company;
+  if (!c) return false;
+  try {
+    const r = await fetch('/api/company/config', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ menu: c.menu || [], discount_threshold_point: c.discount_threshold_point, discount_percentage: c.discount_percentage })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); return false; }
+    c.menu = d.menu; c.discount_percentage = d.discount_percentage; c.discount_threshold_point = d.discount_threshold_point;
+    if (toastKey) toast(t(toastKey), 'success');
+    return true;
+  } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); return false; }
+}
+
+// İndirim ayarları: tanımlıysa OBJE (salt görünüm + Update); değilse/Update'te düzenleme (input + Save)
+function renderDiscountView() {
+  const c = __companyPanel.data && __companyPanel.data.company;
+  const has = !!(c && c.discount_threshold_point != null && c.discount_percentage != null);
+  const disp = qs('#company-disc-display'), edit = qs('#company-disc-edit');
+  if (has) {
+    const tv = qs('#cdd-threshold'), dv = qs('#cdd-discount');
+    if (tv) tv.textContent = String(c.discount_threshold_point);
+    if (dv) dv.textContent = c.discount_percentage + '%';
+    if (disp) disp.style.display = '';
+    if (edit) edit.style.display = 'none';
+  } else {
+    const thr = qs('#company-threshold'), dp = qs('#company-discount');
+    if (thr) thr.value = ''; if (dp) dp.value = '';
+    if (disp) disp.style.display = 'none';
+    if (edit) edit.style.display = '';
+  }
+}
+function editDiscount() {
+  const c = __companyPanel.data && __companyPanel.data.company;
   const thr = qs('#company-threshold'), dp = qs('#company-discount');
   if (thr) thr.value = (c && c.discount_threshold_point != null) ? c.discount_threshold_point : '';
   if (dp) dp.value = (c && c.discount_percentage != null) ? c.discount_percentage : '';
-  renderCompanyMenuRows((c && Array.isArray(c.menu)) ? c.menu : []);
+  const disp = qs('#company-disc-display'), edit = qs('#company-disc-edit');
+  if (disp) disp.style.display = 'none';
+  if (edit) edit.style.display = '';
+}
+async function saveDiscount() {
+  const c = __companyPanel.data && __companyPanel.data.company; if (!c) return;
+  const thr = qs('#company-threshold'), dp = qs('#company-discount');
+  const hadValues = (c.discount_threshold_point != null && c.discount_percentage != null);
+  c.discount_threshold_point = (thr && thr.value !== '') ? Number(thr.value) : null;
+  c.discount_percentage = (dp && dp.value !== '') ? Number(dp.value) : null;
+  const btn = qs('#company-disc-save'); if (btn) btn.disabled = true;
+  const ok = await saveCompanyState(hadValues ? 'configUpdated' : 'configSaved');
+  if (btn) btn.disabled = false;
+  if (ok) renderDiscountView();
 }
 
-function buildCompanyMenuRow(it) {
-  it = it || {};
+function _cmpPagination(container, cur, pages, onGo) {
+  if (!container) return;
+  container.innerHTML = '';
+  if (pages <= 1) return;
+  const mk = (label, pg, dis, active) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'pf-page-btn' + (active ? ' active' : ''); b.textContent = label; b.disabled = !!dis; if (!dis && !active) b.onclick = () => onGo(pg); return b; };
+  container.appendChild(mk('‹', cur - 1, cur <= 1, false));
+  for (let i = 1; i <= pages; i++) container.appendChild(mk(String(i), i, false, i === cur));
+  container.appendChild(mk('›', cur + 1, cur >= pages, false));
+}
+
+function switchCompanySubtab(which) {
+  document.querySelectorAll('.company-subtab').forEach(b => b.classList.toggle('active', b.getAttribute('data-cst') === which));
+  const s = qs('#company-view-settings'), o = qs('#company-view-orders');
+  if (s) s.classList.toggle('active', which === 'settings');
+  if (o) o.classList.toggle('active', which === 'orders');
+  if (which === 'orders') { loadCompanyOrders(); }
+  else { renderCompanyMenu(); requestAnimationFrame(() => { try { companyMenuAutoFit(); } catch {} }); }
+}
+
+const __companyOrders = { data: [], page: 1, perPage: 6, _rz: null };
+async function loadCompanyOrders() {
+  try { const r = await fetch('/api/company/orders'); __companyOrders.data = r.ok ? await r.json() : []; }
+  catch { __companyOrders.data = []; }
+  if (!Array.isArray(__companyOrders.data)) __companyOrders.data = [];
+  __companyOrders.page = 1;
+  renderCompanyOrders();
+  requestAnimationFrame(() => { try { companyOrdersAutoFit(); } catch {} });
+}
+function renderCompanyOrders() {
+  const tb = qs('#company-orders-tbody'); if (!tb) return;
+  const data = __companyOrders.data;
+  const per = __companyOrders.perPage || 6;
+  const pages = Math.max(1, Math.ceil(data.length / per));
+  if (__companyOrders.page > pages) __companyOrders.page = pages;
+  if (__companyOrders.page < 1) __companyOrders.page = 1;
+  const start = (__companyOrders.page - 1) * per;
+  const pageData = data.slice(start, start + per);
+  tb.innerHTML = '';
+  if (!data.length) {
+    tb.innerHTML = `<tr><td colspan="4" class="company-orders-empty">${escapeHtml(t('noOrdersYet'))}</td></tr>`;
+  } else {
+    pageData.forEach(o => {
+      const tr = document.createElement('tr'); tr.className = 'company-order-row';
+      tr.innerHTML =
+        `<td data-label="${escapeHtml(t('ordPerson'))}">${escapeHtml(o.person_placing_order || '-')}</td>` +
+        `<td data-label="${escapeHtml(t('ordTotal'))}">${escapeHtml(_cdFmtMoney(o.order_amount_before_discount))}</td>` +
+        `<td data-label="${escapeHtml(t('ordDiscount'))}">${o.discount_percentage != null ? escapeHtml(o.discount_percentage + '%') : '-'}</td>` +
+        `<td data-label="${escapeHtml(t('ordFinal'))}">${escapeHtml(_cdFmtMoney(o.order_amount_after_discount))}</td>`;
+      tb.appendChild(tr);
+    });
+  }
+  _cmpPagination(qs('#company-orders-pagination'), __companyOrders.page, pages, (pg) => { __companyOrders.page = pg; renderCompanyOrders(); });
+}
+// Ekrana sığacak satır sayısını GERÇEK ölçümle bul (profildeki pfAutoFit ile aynı mantık)
+function companyOrdersAutoFit() {
+  const view = qs('#company-view-orders'); if (!view || !view.classList.contains('active')) return;
+  try { _setCompanyTop(); } catch {}
+  const tb = qs('#company-orders-tbody'); const wrap = view.querySelector('.company-table-wrap');
+  if (!tb || !wrap || !__companyOrders.data.length) { renderCompanyOrders(); return; }
+  try { view.scrollTop = 0; } catch {}
+  const saved = __companyOrders.page || 1;
+  __companyOrders.page = 1; __companyOrders.perPage = Math.min(__companyOrders.data.length, 60);
+  renderCompanyOrders();
+  const cs = getComputedStyle(view); const padB = parseFloat(cs.paddingBottom) || 0;
+  const viewBottom = view.getBoundingClientRect().bottom - padB;
+  const pag = qs('#company-orders-pagination'); const pagH = (pag && pag.getBoundingClientRect().height) || 0;
+  const limit = viewBottom - (Math.max(pagH, 52) + 16);
+  const rows = tb.querySelectorAll('tr.company-order-row');
+  let fit = 0; for (let i = 0; i < rows.length; i++) { if (rows[i].getBoundingClientRect().bottom <= limit) fit++; else break; }
+  if (fit < 1) fit = 1;
+  __companyOrders.perPage = fit;
+  const pages = Math.max(1, Math.ceil(__companyOrders.data.length / fit));
+  __companyOrders.page = Math.min(saved, pages);
+  renderCompanyOrders();
+}
+
+async function addMenuItem() {
+  const c = __companyPanel.data && __companyPanel.data.company; if (!c) return;
+  const nameEl = qs('#company-menu-new-name'), priceEl = qs('#company-menu-new-price'), disEl = qs('#company-menu-new-dis');
+  const name = (nameEl && nameEl.value || '').trim();
+  if (!name) { toast(t('fillRequiredFields'), 'error', 3500); if (nameEl) nameEl.focus(); return; }
+  const price = (priceEl && priceEl.value !== '' && Number.isFinite(Number(priceEl.value))) ? Number(priceEl.value) : null;
+  const discounted = !!(disEl && disEl.checked);
+  if (!Array.isArray(c.menu)) c.menu = [];
+  c.menu.push({ name, price, discounted });
+  const btn = qs('#company-menu-add'); if (btn) btn.disabled = true;
+  const ok = await saveCompanyState('menuItemAdded');
+  if (btn) btn.disabled = false;
+  if (ok) {
+    if (nameEl) nameEl.value = ''; if (priceEl) priceEl.value = ''; if (disEl) disEl.checked = false;
+    __companyMenu.page = 9999;
+    renderCompanyMenu();
+    requestAnimationFrame(() => { try { companyMenuAutoFit(); } catch {} });
+  }
+}
+
+function renderCompanyMenu() {
+  const c = __companyPanel.data && __companyPanel.data.company;
+  const menu = (c && Array.isArray(c.menu)) ? c.menu : [];
+  const wrap = qs('#company-menu-rows'); if (!wrap) return;
+  const per = __companyMenu.perPage || 5;
+  const pages = Math.max(1, Math.ceil(menu.length / per));
+  if (__companyMenu.page > pages) __companyMenu.page = pages;
+  if (__companyMenu.page < 1) __companyMenu.page = 1;
+  const start = (__companyMenu.page - 1) * per;
+  const pageItems = menu.slice(start, start + per);
+  wrap.innerHTML = '';
+  pageItems.forEach((it, i) => wrap.appendChild(buildMenuRow(it, start + i)));
+  _cmpPagination(qs('#company-menu-pagination'), __companyMenu.page, pages, (pg) => { __companyMenu.page = pg; renderCompanyMenu(); });
+}
+function companyMenuAutoFit() {
+  const view = qs('#company-view-settings'); if (!view || !view.classList.contains('active')) return;
+  try { _setCompanyTop(); } catch {}
+  const c = __companyPanel.data && __companyPanel.data.company; const menu = (c && Array.isArray(c.menu)) ? c.menu : [];
+  const wrap = qs('#company-menu-rows'); const pag = qs('#company-menu-pagination');
+  if (!wrap || !menu.length) { renderCompanyMenu(); return; }
+  try { view.scrollTop = 0; } catch {}
+  const saved = __companyMenu.page || 1;
+  __companyMenu.page = 1; __companyMenu.perPage = Math.min(menu.length, 40);
+  renderCompanyMenu();
+  const cs = getComputedStyle(view); const padB = parseFloat(cs.paddingBottom) || 0;
+  const viewBottom = view.getBoundingClientRect().bottom - padB;
+  const pagH = (pag && pag.getBoundingClientRect().height) || 0;
+  const limit = viewBottom - (Math.max(pagH, 52) + 16);
+  const rows = wrap.querySelectorAll('.company-menu-row');
+  let fit = 0; for (let i = 0; i < rows.length; i++) { if (rows[i].getBoundingClientRect().bottom <= limit) fit++; else break; }
+  if (fit < 1) fit = 1;
+  __companyMenu.perPage = fit;
+  const pages = Math.max(1, Math.ceil(menu.length / fit));
+  __companyMenu.page = Math.min(saved, pages);
+  renderCompanyMenu();
+}
+
+function buildMenuRow(it, idx) {
+  const editing = (__companyMenu.editIndex === idx);
   const row = document.createElement('div'); row.className = 'company-menu-row';
-  const name = document.createElement('input'); name.className = 'company-input cm-name'; name.placeholder = t('menuItemName'); name.value = it.name || '';
-  const price = document.createElement('input'); price.className = 'company-input cm-price'; price.type = 'number'; price.min = '0'; price.placeholder = t('menuItemPrice'); price.value = (it.price != null ? it.price : '');
   const disLbl = document.createElement('label'); disLbl.className = 'cm-dis';
   const dis = document.createElement('input'); dis.type = 'checkbox'; dis.className = 'cm-discounted'; dis.checked = !!it.discounted;
   const dsp = document.createElement('span'); dsp.textContent = t('onDiscount');
   disLbl.appendChild(dis); disLbl.appendChild(dsp);
-  const del = document.createElement('button'); del.type = 'button'; del.className = 'cm-del'; del.setAttribute('aria-label', 'x'); del.textContent = '×';
-  del.onclick = () => row.remove();
-  row.appendChild(name); row.appendChild(price); row.appendChild(disLbl); row.appendChild(del);
+
+  if (editing) {
+    const name = document.createElement('input'); name.className = 'company-input cm-name'; name.value = it.name || ''; name.placeholder = t('menuItemName');
+    const price = document.createElement('input'); price.className = 'company-input cm-price'; price.type = 'number'; price.min = '0'; price.value = (it.price != null ? it.price : ''); price.placeholder = t('menuItemPrice');
+    const ok = document.createElement('button'); ok.type = 'button'; ok.className = 'cm-ok'; ok.textContent = '✓'; ok.onclick = () => confirmUpdateMenu(idx, name.value, price.value, dis.checked);
+    const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'cm-del'; cancel.textContent = '×'; cancel.onclick = () => { __companyMenu.editIndex = -1; renderCompanyMenu(); };
+    row.appendChild(name); row.appendChild(price); row.appendChild(disLbl); row.appendChild(ok); row.appendChild(cancel);
+  } else {
+    const nameTxt = document.createElement('span'); nameTxt.className = 'cm-name-txt'; nameTxt.textContent = it.name || '';
+    const priceTxt = document.createElement('span'); priceTxt.className = 'cm-price-txt'; priceTxt.textContent = (it.price != null ? String(it.price) : '-');
+    dis.onchange = () => toggleMenuDiscount(idx, dis.checked);
+    const upd = document.createElement('button'); upd.type = 'button'; upd.className = 'cm-upd'; upd.textContent = t('updateBtn'); upd.onclick = () => { __companyMenu.editIndex = idx; renderCompanyMenu(); };
+    const del = document.createElement('button'); del.type = 'button'; del.className = 'cm-del'; del.textContent = '×'; del.onclick = () => deleteMenuItem(idx);
+    row.appendChild(nameTxt); row.appendChild(priceTxt); row.appendChild(disLbl); row.appendChild(upd); row.appendChild(del);
+  }
   return row;
 }
 
-function renderCompanyMenuRows(items) {
-  const wrap = qs('#company-menu-rows'); if (!wrap) return;
-  wrap.innerHTML = '';
-  if (items && items.length) items.forEach(it => wrap.appendChild(buildCompanyMenuRow(it)));
-  else wrap.appendChild(buildCompanyMenuRow({}));
+async function confirmUpdateMenu(idx, name, priceRaw, discounted) {
+  const c = __companyPanel.data && __companyPanel.data.company; if (!c || !c.menu[idx]) return;
+  name = (name || '').trim();
+  if (!name) { toast(t('fillRequiredFields'), 'error', 3500); return; }
+  const price = (priceRaw !== '' && Number.isFinite(Number(priceRaw))) ? Number(priceRaw) : null;
+  c.menu[idx] = { name, price, discounted: !!discounted };
+  __companyMenu.editIndex = -1;
+  await saveCompanyState('menuItemUpdated');
+  renderCompanyMenu();
 }
 
-function collectCompanyMenu() {
-  const out = [];
-  qsa('#company-menu-rows .company-menu-row').forEach(r => {
-    const name = (r.querySelector('.cm-name').value || '').trim();
-    if (!name) return;
-    const priceRaw = r.querySelector('.cm-price').value;
-    const price = (priceRaw !== '' && Number.isFinite(Number(priceRaw))) ? Number(priceRaw) : null;
-    const discounted = r.querySelector('.cm-discounted').checked;
-    out.push({ name, price, discounted });
-  });
-  return out;
+async function toggleMenuDiscount(idx, val) {
+  const c = __companyPanel.data && __companyPanel.data.company; if (!c || !c.menu[idx]) return;
+  c.menu[idx].discounted = !!val;
+  await saveCompanyState(null);
 }
 
-async function saveCompanyConfig() {
-  const thr = qs('#company-threshold'), dp = qs('#company-discount');
-  const body = {
-    menu: collectCompanyMenu(),
-    discount_threshold_point: (thr && thr.value !== '') ? Number(thr.value) : null,
-    discount_percentage: (dp && dp.value !== '') ? Number(dp.value) : null
-  };
-  const btn = qs('#company-save-btn'); if (btn) btn.disabled = true;
-  try {
-    const r = await fetch('/api/company/config', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); return; }
-    if (__companyPanel.data && __companyPanel.data.company) {
-      __companyPanel.data.company.menu = d.menu;
-      __companyPanel.data.company.discount_percentage = d.discount_percentage;
-      __companyPanel.data.company.discount_threshold_point = d.discount_threshold_point;
-    }
-    toast(t('configSaved'), 'success');
-  } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); }
-  finally { if (btn) btn.disabled = false; }
+async function deleteMenuItem(idx) {
+  const c = __companyPanel.data && __companyPanel.data.company; if (!c || !Array.isArray(c.menu)) return;
+  c.menu.splice(idx, 1);
+  if (__companyMenu.editIndex === idx) __companyMenu.editIndex = -1;
+  await saveCompanyState(null);
+  renderCompanyMenu();
+  requestAnimationFrame(() => { try { companyMenuAutoFit(); } catch {} });
 }
 
 /* ---- QR okutma + sipariş (company) ---- */
@@ -6697,6 +6894,8 @@ async function handleScanToken(token) {
 
 function openOrderResult(data, token) {
   __companyScan.token = token; __companyScan.result = data;
+  // Ürün seçiminde YALNIZCA indirimli (on discount) ürünler gösterilsin
+  __companyScan.menu = ((data && data.menu) || []).filter(m => m && m.discounted);
   const ov = qs('#company-order-overlay'); if (!ov) return;
   const verdict = qs('#company-order-verdict'), userEl = qs('#company-order-user'), body = qs('#company-order-body');
   if (!data.eligible) {
@@ -6724,7 +6923,7 @@ function openOrderResult(data, token) {
 function addOrderProductRow() {
   const wrap = qs('#co-products'); if (!wrap) return;
   if (wrap.querySelectorAll('.co-prod-row').length >= 3) return;
-  const menu = (__companyScan.result && __companyScan.result.menu) || [];
+  const menu = __companyScan.menu || [];
   const row = document.createElement('div'); row.className = 'co-prod-row';
   const sel = document.createElement('select'); sel.className = 'company-input co-prod-sel';
   const ph = document.createElement('option'); ph.value = ''; ph.textContent = t('selectProduct'); sel.appendChild(ph);
@@ -6740,7 +6939,7 @@ function updateOrderAddBtn() {
   addBtn.disabled = wrap.querySelectorAll('.co-prod-row').length >= 3;
 }
 function _selectedOrderItems() {
-  const menu = (__companyScan.result && __companyScan.result.menu) || [];
+  const menu = __companyScan.menu || [];
   const items = [];
   qsa('#co-products .co-prod-sel').forEach(sel => { const v = sel.value; if (v !== '') { const m = menu[+v]; if (m) items.push({ name: m.name, price: (m.price != null ? Number(m.price) : 0) }); } });
   return items;
@@ -6779,12 +6978,23 @@ function closeOrderResult(skipConfirm) {
 function initCompanyPanelUI() {
   if (__companyPanel.wired) return;
   __companyPanel.wired = true;
-  const addRow = qs('#company-menu-add'); if (addRow) addRow.onclick = () => { const w = qs('#company-menu-rows'); if (w) w.appendChild(buildCompanyMenuRow({})); };
-  const save = qs('#company-save-btn'); if (save) save.onclick = saveCompanyConfig;
+  const addItem = qs('#company-menu-add'); if (addItem) addItem.onclick = addMenuItem;
+  const discSave = qs('#company-disc-save'); if (discSave) discSave.onclick = saveDiscount;
+  const discUpd = qs('#company-disc-update'); if (discUpd) discUpd.onclick = editDiscount;
+  document.querySelectorAll('.company-subtab').forEach(b => b.onclick = () => switchCompanySubtab(b.getAttribute('data-cst')));
   const scanBtn = qs('#company-scan-btn'); if (scanBtn) scanBtn.onclick = openCompanyScan;
   const scanClose = qs('#company-scan-close'); if (scanClose) scanClose.onclick = closeCompanyScan;
   const scanVerify = qs('#company-scan-verify'); if (scanVerify) scanVerify.onclick = () => { const v = qs('#company-scan-token'); handleScanToken(v ? v.value : ''); };
   const orderClose = qs('#company-order-close'); if (orderClose) orderClose.onclick = () => closeOrderResult(false);
+  window.addEventListener('resize', () => {
+    clearTimeout(__companyMenu._rz);
+    __companyMenu._rz = setTimeout(() => {
+      const card = qs('#company-card'); if (!card || card.classList.contains('hidden')) return;
+      _setCompanyTop();
+      const ordersActive = qs('#company-view-orders') && qs('#company-view-orders').classList.contains('active');
+      if (ordersActive) companyOrdersAutoFit(); else companyMenuAutoFit();
+    }, 160);
+  });
 }
 
 function initTabs() {
@@ -9489,7 +9699,7 @@ function reflectAuth(){
   const adminCard = qs('#admin-card');
   const olayCard  = qs('#olay-card');
 
-  body.classList.remove('role-admin', 'role-supervisor', 'role-user');
+  body.classList.remove('role-admin', 'role-supervisor', 'role-user', 'role-company');
   if (currentUser){
     body.classList.add(`role-${currentUser.role}`);
   }
@@ -9942,6 +10152,10 @@ async function logout(){
   try { drawBoundaryLayer(); } catch {}
   resetEdit();
   detachMapClickForLoggedOut();
+  // Company oturumunda #map (ve harita kartı) display:none idi; logout'ta yeniden
+  // görünür olunca Leaflet'in boyutunu yeniden hesaplaması gerekir, aksi halde beyaz
+  // ekran kalır. Reflow'un oturması için küçük bir gecikmeyle invalidateSize çağırıyoruz.
+  try { setTimeout(() => { try { if (map) { map.invalidateSize(); } } catch {} }, 120); } catch {}
   
   const currentLang = window.getLanguage();
   
@@ -11586,6 +11800,13 @@ async function openProfileOverlay(){
   document.body.style.overflow = 'hidden';
   pfShowPage(0);
   pfCloseMap(); // harita kapalı başlasın
+  // QR'ı açılışta temiz başlat (poll re-render'ları artık gizlemiyor)
+  try {
+    const qrBox = pfEl('profile-qr-box'); if (qrBox) qrBox.classList.add('hidden');
+    const holder = pfEl('profile-qr-img'); if (holder) holder.innerHTML = '';
+    const qtxt = pfEl('profile-qr-text'); if (qtxt) qtxt.value = '';
+    const cbtn = pfEl('profile-qr-copy-btn'); if (cbtn && !cbtn.__wired) { cbtn.__wired = true; cbtn.onclick = pfCopyQr; }
+  } catch {}
 
   // Avatar + başlık
   const av = pfEl('profile-avatar');
@@ -11666,10 +11887,50 @@ function pfRenderProfile(stats){
   }
   if (score) {
     // Olay ekleyen: hesaplanan puan; Solver: kapattığı olay sayısını puan olarak gösterelim
-    const val = __pf.solver ? (stats.closed_count != null ? stats.closed_count : 0)
-                            : (stats.posts_point != null ? stats.posts_point : 0);
+    // İndirim para birimi = harcanabilir puan (effective posts_point = posts_point − Σ points_spent).
+    // Sipariş verildikçe bu puan eşik kadar düşer; hem opener hem solver için burada gösterilir.
+    const val = (stats.posts_point != null ? stats.posts_point : 0);
     score.textContent = String(val);
   }
+
+  // İndirim QR'ı yalnızca 'user' (opener/solver) rolünde. Görünürlüğü BURADA gizleme
+  // (profil canlı-poll ile pfRenderProfile'ı tekrar çağırdığından QR kaybolurdu); reset açılışta yapılır.
+  const qrWrap = pfEl('profile-qr');
+  const qrBtn = pfEl('profile-qr-btn');
+  const isUser = !!(currentUser && currentUser.role === 'user');
+  if (qrWrap) qrWrap.style.display = isUser ? '' : 'none';
+  if (qrBtn && !qrBtn.__wired) { qrBtn.__wired = true; qrBtn.onclick = pfGenerateQr; }
+}
+
+async function pfGenerateQr() {
+  const btn = pfEl('profile-qr-btn'); if (btn) btn.disabled = true;
+  try {
+    const r = await fetch('/api/qr/generate', { method: 'POST' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); return; }
+    const box = pfEl('profile-qr-box');
+    const holder = pfEl('profile-qr-img');
+    const txt = pfEl('profile-qr-text');
+    if (holder) {
+      holder.innerHTML = '';
+      if (typeof QRCode !== 'undefined') {
+        try { new QRCode(holder, { text: d.token, width: 240, height: 240, correctLevel: (QRCode.CorrectLevel ? QRCode.CorrectLevel.M : undefined) }); }
+        catch (e) { holder.textContent = d.token; }
+      } else { holder.textContent = d.token; }
+    }
+    if (txt) txt.value = d.token;
+    if (box) box.classList.remove('hidden');
+  } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); }
+  finally { if (btn) btn.disabled = false; }
+}
+
+async function pfCopyQr() {
+  const txt = pfEl('profile-qr-text'); if (!txt || !txt.value) return;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(txt.value);
+    else { txt.removeAttribute('readonly'); txt.select(); document.execCommand('copy'); txt.setAttribute('readonly', 'readonly'); }
+    toast(t('copied'), 'success');
+  } catch (e) { try { txt.select(); } catch {} }
 }
 
 function pfTotalPages(){
@@ -11803,7 +12064,38 @@ function pfEnsureMap(){
   // Kullanıcı girişindeki gibi clustering katmanı
   __pf.markersLayer = makeMarkersLayer().addTo(__pf.map);
   __pf.map.setView([39.0, 35.0], 5);
+  try { pfApplyBoundary(__pf.map); } catch (e) { console.warn('pfApplyBoundary', e); }
   return __pf.map;
+}
+
+// Profil haritasını ana giriş haritasıyla AYNI göster: sınıra fit + maske + sınır çizgisi
+// (ZOOM_LEVEL_BOUNDARY=yes ve sınır verisi varsa). Tile clip zaten global override ile uygulanır.
+function pfApplyBoundary(m){
+  if (!m || typeof L === 'undefined') return;
+  if (typeof _wantBoundaryClip === 'function' && !_wantBoundaryClip()) return;
+  if (!__boundary || !__boundary.enabled || !__boundary.geojson) return;
+  const bb = (typeof _boundaryBounds === 'function') ? _boundaryBounds() : null;
+  if (!bb) return;
+  try {
+    const fz = m.getBoundsZoom(bb, false);
+    if (Number.isFinite(fz)) m.setMinZoom(fz);
+    m.setMaxBounds(bb); m.options.maxBoundsViscosity = 1.0;
+    m.fitBounds(bb, { animate: false });
+  } catch {}
+  try {
+    const rings = _collectBoundaryRings();
+    if (rings && rings.length) {
+      const world = [[85, -180], [85, 180], [-85, 180], [-85, -180]];
+      if (__pf._mask) { try { m.removeLayer(__pf._mask); } catch {} }
+      __pf._mask = L.polygon([world, ...rings], { stroke: false, fill: true, fillColor: _maskFill(), fillOpacity: 1, interactive: false }).addTo(m);
+      try { __pf._mask.bringToBack(); } catch {}
+    }
+  } catch {}
+  try {
+    if (__pf._outline) { try { m.removeLayer(__pf._outline); } catch {} }
+    __pf._outline = L.geoJSON(__boundary.geojson, { style: () => _boundaryStyle(), interactive: false }).addTo(m);
+    try { __pf._outline.bringToFront(); } catch {}
+  } catch {}
 }
 
 // Profil haritası pop-up'ı açılınca: normal giriş haritasındaki içeriğin AYNISINI kur
@@ -12131,7 +12423,7 @@ function wireProfileBadgeClick(){
   }
 }
 
-// DOM hazır olduğunda başlat
+
 if (document.readyState === 'loading'){
   document.addEventListener('DOMContentLoaded', () => { try { initProfileOverlay(); startSupervisorPolling(); } catch(e){ console.warn('initProfileOverlay', e); } });
 } else {
