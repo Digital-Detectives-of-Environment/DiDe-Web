@@ -3702,6 +3702,14 @@ th:has(#btn-add-type){
 .company-logo-status{ font-size:13px; color:var(--muted, #6b7280); }
 .company-note{ font-size:clamp(11px,3vw,13px); color:var(--muted, #6b7280); }
 .company-coords-row .company-input{ flex:1 1 120px; }
+.cd-user-base32-row .company-input{ flex:1 1 160px; }
+.cd-user-base32-gen{
+  background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb); color:var(--primary,#2563eb);
+  border-radius:10px; padding:8px 14px; font-weight:600; font-size:13px; cursor:pointer; white-space:nowrap;
+  flex:0 0 auto; transition:background .12s ease;
+}
+.cd-user-base32-gen:hover{ background:var(--border-soft,#eef2f7); }
+.cd-user-base32-gen:disabled{ opacity:.6; cursor:not-allowed; }
 .company-map-btn{ flex:0 0 auto; font-size:20px; line-height:1; padding:8px 10px; border-radius:10px; border:1px solid var(--border,#cbd5e1); background:var(--surface,#fff); cursor:pointer; }
 .company-map-btn:hover{ border-color:var(--primary,#2563eb); }
 .company-add-btn{
@@ -3723,6 +3731,19 @@ th:has(#btn-add-type){
 .company-cell{ display:flex; align-items:center; gap:12px; padding:10px 12px; border-top:1px solid var(--border-soft, #eef2f7); }
 .company-cell-logo{ width:36px; height:36px; border-radius:8px; object-fit:contain; background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb); flex:0 0 auto; }
 .company-cell-name{ font-weight:600; color:var(--text,#111); font-size:clamp(14px,3.8vw,16px); word-break:break-word; }
+.company-actions-th{ width:1%; white-space:nowrap; }
+.company-actions-cell{ padding:10px 12px; border-top:1px solid var(--border-soft, #eef2f7); white-space:nowrap; text-align:right; }
+.company-action-btn{
+  border:1px solid var(--border,#e5e7eb); background:var(--surface,#fff); border-radius:8px;
+  padding:6px 12px; font-size:13px; font-weight:600; cursor:pointer; margin-left:6px;
+  color:var(--text,#111); transition:background .12s ease, border-color .12s ease;
+}
+.company-action-btn:hover{ background:var(--border-soft,#eef2f7); }
+.company-action-btn.danger{ color:#dc2626; border-color:#fca5a5; }
+.company-action-btn.danger:hover{ background:#fef2f2; }
+.company-update-card{ width:min(440px, 92vw); height:auto; max-height:92vh; overflow:auto; }
+.company-update-card .company-form{ padding:16px; margin:0; }
+.company-update-card .company-logo-preview{ width:52px; height:52px; border-radius:10px; object-fit:contain; background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb); }
 .company-empty{ padding:18px 12px; text-align:center; color:var(--muted,#6b7280); }
 
 /* Company map picker overlay */
@@ -3795,17 +3816,21 @@ th:has(#btn-add-type){
 .cd-user-em{ color:var(--muted,#6b7280); font-size:13px; margin-left:auto; word-break:break-all; }
 .cd-empty{ padding:16px; text-align:center; color:var(--muted,#6b7280); }
 
-.cd-orders{ display:flex; flex-direction:column; gap:10px; }
-.cd-order-card{ border:1px solid var(--border-soft,#eef2f7); border-radius:12px; padding:10px 12px; background:var(--bg,#fff); }
-.cd-order-line{ display:flex; justify-content:space-between; gap:12px; padding:4px 0; border-bottom:1px dashed var(--border-soft,#eef2f7); }
-.cd-order-line:last-child{ border-bottom:none; }
-.cd-order-line span{ color:var(--muted,#6b7280); font-size:13px; }
-.cd-order-line b{ color:var(--text,#111); text-align:right; word-break:break-word; }
+.cd-orders-table-wrap{ overflow:auto; max-height:min(50vh, 480px); border:1px solid var(--border-soft,#eef2f7); border-radius:12px; }
+.cd-orders-table{ width:100%; border-collapse:collapse; font-size:13.5px; }
+.cd-orders-table thead th{
+  text-align:left; padding:10px 12px; font-size:12.5px; font-weight:700; color:var(--muted,#6b7280);
+  position:sticky; top:0; background:var(--surface,#fff); border-bottom:1px solid var(--border-soft,#eef2f7);
+  white-space:nowrap;
+}
+.cd-orders-table tbody td{ padding:9px 12px; border-top:1px solid var(--border-soft,#eef2f7); color:var(--text,#111); white-space:nowrap; }
+.cd-orders-table tbody tr:hover{ background:color-mix(in srgb, var(--primary,#2563eb) 6%, transparent); }
+.cd-orders-td-person{ font-weight:600; }
 
 @media (max-width:640px){
   .cd-user-em{ margin-left:0; width:100%; }
-  .cd-order-line{ flex-direction:column; gap:2px; }
-  .cd-order-line b{ text-align:left; }
+  .cd-orders-table{ font-size:12.5px; }
+  .cd-orders-table thead th, .cd-orders-table tbody td{ padding:8px; }
 }
 
 /* ===================== Company panel (company role) ===================== */

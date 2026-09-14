@@ -6278,6 +6278,13 @@ function initCompaniesUI() {
   const addBtn = qs('#company-add-btn'); if (addBtn) addBtn.onclick = submitCompany;
   const dClose = qs('#company-detail-close'); if (dClose) dClose.onclick = closeCompanyDetail;
   document.querySelectorAll('.company-detail-tab').forEach(tb => tb.onclick = () => switchCompanyDetailTab(tb.getAttribute('data-cdt')));
+  const upLogoBtn = qs('#company-update-logo-btn'), upLogoFile = qs('#company-update-logo-file');
+  if (upLogoBtn && upLogoFile) {
+    upLogoBtn.onclick = () => upLogoFile.click();
+    upLogoFile.onchange = () => handleCompanyUpdateLogoSelect(upLogoFile.files && upLogoFile.files[0]);
+  }
+  const upClose = qs('#company-update-close'); if (upClose) upClose.onclick = closeCompanyUpdate;
+  const upSave = qs('#company-update-save'); if (upSave) upSave.onclick = submitCompanyUpdate;
   window.addEventListener('resize', () => {
     clearTimeout(__companies._rz);
     __companies._rz = setTimeout(() => { if (qs('#companies-tab') && qs('#companies-tab').classList.contains('active')) renderCompaniesTable(); }, 150);
@@ -6373,6 +6380,79 @@ async function submitCompany() {
   finally { if (btn) btn.disabled = false; }
 }
 
+// ---- Şirket güncelleme (isim / logo) ----
+const __companyUpdate = { id: null, logoUrl: '' };
+
+function openCompanyUpdate(c) {
+  __companyUpdate.id = c.company_id;
+  __companyUpdate.logoUrl = ''; // boş kalırsa mevcut logo korunur
+  const nameI = qs('#company-update-name'); if (nameI) nameI.value = c.company_name || '';
+  const prev = qs('#company-update-logo-preview'); if (prev) prev.src = c.logo_url || '';
+  const st = qs('#company-update-logo-status'); if (st) st.textContent = '';
+  const f = qs('#company-update-logo-file'); if (f) f.value = '';
+  const ov = qs('#company-update-overlay'); if (ov) { ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false'); }
+}
+function closeCompanyUpdate() { const ov = qs('#company-update-overlay'); if (ov) { ov.classList.add('hidden'); ov.setAttribute('aria-hidden', 'true'); } }
+
+function handleCompanyUpdateLogoSelect(file) {
+  if (!file) return;
+  const name = (file.name || '').toLowerCase();
+  const ext = name.split('.').pop();
+  const okExt = COMPANY_LOGO_EXT.includes(ext);
+  const okMime = !file.type || COMPANY_LOGO_MIME.includes(file.type);
+  const st = qs('#company-update-logo-status');
+  if (!okExt || !okMime) {
+    toast(t('invalidLogoFormat'), 'error', 4000);
+    const f = qs('#company-update-logo-file'); if (f) f.value = '';
+    return;
+  }
+  if (st) st.textContent = '…';
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const url = await uploadDataUrl('/api/upload/photo', reader.result);
+      __companyUpdate.logoUrl = url;
+      const prev = qs('#company-update-logo-preview'); if (prev) prev.src = url;
+      if (st) st.textContent = t('logoSelected');
+    } catch (e) { if (st) st.textContent = ''; toast(t('unknownError') + ': ' + (e.message || ''), 'error'); }
+  };
+  reader.readAsDataURL(file);
+}
+
+async function submitCompanyUpdate() {
+  const id = __companyUpdate.id; if (!id) return;
+  const name = (qs('#company-update-name') && qs('#company-update-name').value || '').trim();
+  if (!name) { toast(t('company_name_required'), 'error', 4000); return; }
+  const body = { company_name: name };
+  if (__companyUpdate.logoUrl) body.logo_url = __companyUpdate.logoUrl;
+  const btn = qs('#company-update-save'); if (btn) btn.disabled = true;
+  try {
+    const r = await fetch(`/api/admin/companies/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); return; }
+    toast(t('companyUpdated'), 'success');
+    closeCompanyUpdate();
+    await loadCompanies();
+    try { if (typeof refreshCompanyMarkers === 'function') refreshCompanyMarkers(); } catch {}
+  } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); }
+  finally { if (btn) btn.disabled = false; }
+}
+
+async function deleteCompany(c) {
+  if (!confirm(t('confirmDeleteCompanyMsg'))) return;
+  try {
+    const r = await fetch(`/api/admin/companies/${c.company_id}`, { method: 'DELETE' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); return; }
+    toast(t('companyDeleted'), 'success');
+    await loadCompanies();
+    try { if (typeof refreshCompanyMarkers === 'function') refreshCompanyMarkers(); } catch {}
+  } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); }
+}
+
 async function loadCompanies() {
   try {
     const r = await fetch('/api/admin/companies');
@@ -6404,7 +6484,7 @@ function renderCompaniesTable() {
   tb.innerHTML = '';
   if (!total) {
     const tr = document.createElement('tr');
-    const td = document.createElement('td'); td.className = 'company-empty'; td.textContent = t('noCompaniesYet');
+    const td = document.createElement('td'); td.className = 'company-empty'; td.colSpan = 2; td.textContent = t('noCompaniesYet');
     tr.appendChild(td); tb.appendChild(tr);
   } else {
     pageData.forEach(c => {
@@ -6415,6 +6495,17 @@ function renderCompaniesTable() {
       td.appendChild(img); td.appendChild(span); tr.appendChild(td);
       tr.onclick = () => openCompanyDetail(c);
       tr.onkeydown = (e) => { if (e.key === 'Enter') openCompanyDetail(c); };
+
+      const tdActions = document.createElement('td'); tdActions.className = 'company-actions-cell';
+      const upBtn = document.createElement('button'); upBtn.type = 'button'; upBtn.className = 'company-action-btn';
+      upBtn.textContent = t('updateCompany');
+      upBtn.onclick = (e) => { e.stopPropagation(); openCompanyUpdate(c); };
+      const delBtn = document.createElement('button'); delBtn.type = 'button'; delBtn.className = 'company-action-btn danger';
+      delBtn.textContent = t('deleteCompany');
+      delBtn.onclick = (e) => { e.stopPropagation(); deleteCompany(c); };
+      tdActions.appendChild(upBtn); tdActions.appendChild(delBtn);
+      tr.appendChild(tdActions);
+
       tb.appendChild(tr);
     });
   }
@@ -6460,7 +6551,20 @@ async function loadCompanyUsers(companyId) {
   const em = mk('cd-user-email', t('emailPlaceholder'), 'email');
   const pw = mk('cd-user-password', t('passwordPlaceholder'), 'password');
   const b32 = mk('cd-user-base32', t('base32Placeholder'));
-  [uname, nm, sn, em, pw, b32].forEach(el => { const row = document.createElement('div'); row.className = 'company-form-row'; row.appendChild(el); form.appendChild(row); });
+  [uname, nm, sn, em, pw].forEach(el => { const row = document.createElement('div'); row.className = 'company-form-row'; row.appendChild(el); form.appendChild(row); });
+  const b32Row = document.createElement('div'); b32Row.className = 'company-form-row cd-user-base32-row';
+  const b32GenBtn = document.createElement('button'); b32GenBtn.type = 'button'; b32GenBtn.className = 'btn cd-user-base32-gen'; b32GenBtn.textContent = t('generateBase32');
+  b32GenBtn.onclick = async () => {
+    b32GenBtn.disabled = true;
+    try {
+      const r = await fetch('/api/admin/base32/new');
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok && d.base32) { b32.value = d.base32; toast(t('base32Generated'), 'success'); }
+      else toast(d.message || d.error || t('unknownError'), 'error', 4000);
+    } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); }
+    finally { b32GenBtn.disabled = false; }
+  };
+  b32Row.appendChild(b32); b32Row.appendChild(b32GenBtn); form.appendChild(b32Row);
   const addBtn = document.createElement('button'); addBtn.type = 'button'; addBtn.className = 'btn cd-user-add'; addBtn.textContent = t('addCompanyUser');
   const btnRow = document.createElement('div'); btnRow.className = 'company-form-row'; btnRow.appendChild(addBtn); form.appendChild(btnRow);
   addBtn.onclick = () => submitCompanyUser(companyId, { uname, nm, sn, em, pw, b32, addBtn });
@@ -6515,22 +6619,29 @@ async function loadCompanyOrders(companyId) {
   try { const r = await fetch(`/api/admin/companies/${companyId}/orders`); if (r.ok) list = await r.json(); } catch {}
   if (!Array.isArray(list)) list = [];
   if (!list.length) { const d = document.createElement('div'); d.className = 'cd-empty'; d.textContent = t('noOrdersYet'); pane.appendChild(d); return; }
-  const box = document.createElement('div'); box.className = 'cd-orders';
+  const wrap = document.createElement('div'); wrap.className = 'cd-orders-table-wrap';
+  const table = document.createElement('table'); table.className = 'cd-orders-table';
+  table.innerHTML = `<thead><tr>
+      <th>${escapeHtml(t('placedBy'))}</th>
+      <th>${escapeHtml(t('amountBefore'))}</th>
+      <th>${escapeHtml(t('amountAfter'))}</th>
+      <th>${escapeHtml(t('discountPct'))}</th>
+      <th>${escapeHtml(t('orderDateCol'))}</th>
+    </tr></thead>`;
+  const tbody = document.createElement('tbody');
   list.forEach(o => {
-    let items = '';
-    try { items = Array.isArray(o.items) ? o.items.map(it => (it && (it.name || it.product || it.title)) || (typeof it === 'string' ? it : '')).filter(Boolean).join(', ') : ''; } catch {}
-    const card = document.createElement('div'); card.className = 'cd-order-card';
-    const line = (label, val) => `<div class="cd-order-line"><span>${escapeHtml(label)}</span><b>${escapeHtml(val)}</b></div>`;
-    card.innerHTML =
-      line(t('placedBy'), o.person_placing_order || '-') +
-      line(t('amountBefore'), _cdFmtMoney(o.order_amount_before_discount)) +
-      line(t('amountAfter'), _cdFmtMoney(o.order_amount_after_discount)) +
-      line(t('discountPct'), (o.discount_percentage != null ? o.discount_percentage + '%' : '-')) +
-      line(t('orderItems'), items || '-') +
-      line(t('orderDateCol'), _cdFmtDate(o.order_date));
-    box.appendChild(card);
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td class="cd-orders-td-person">${escapeHtml(o.person_placing_order || '-')}</td>` +
+      `<td>${escapeHtml(_cdFmtMoney(o.order_amount_before_discount))}</td>` +
+      `<td>${escapeHtml(_cdFmtMoney(o.order_amount_after_discount))}</td>` +
+      `<td>${escapeHtml(o.discount_percentage != null ? o.discount_percentage + '%' : '-')}</td>` +
+      `<td>${escapeHtml(_cdFmtDate(o.order_date))}</td>`;
+    tbody.appendChild(tr);
   });
-  pane.appendChild(box);
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  pane.appendChild(wrap);
 }
 
 function closeCompanyDetail() { const ov = qs('#company-detail-overlay'); if (ov) { ov.classList.add('hidden'); ov.setAttribute('aria-hidden', 'true'); } }
@@ -10121,6 +10232,9 @@ async function register(){
 
   if (!username || !email || !password) 
     return setError(qs('#register-error'), t('usernameEmailPasswordRequired'));
+  // İsim ve soyisim zorunlu (başkalarıyla aynı olabilir, sadece boş bırakılamaz)
+  if (!name || !surname)
+    return setError(qs('#register-error'), t('name_surname_required'));
   if (!isStrongPassword(password)) 
     return setError(qs('#register-error'), t('weakPassword'));
 

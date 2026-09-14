@@ -390,8 +390,8 @@
           <button type="button" class="eye-btn" data-eye="reg-pass" title="Show/Hide">👁</button>
         </div>
         <div class="row">
-          <div><label for="reg-name" data-i18n="firstName">First Name</label><input id="reg-name" type="text" autocomplete="off" data-i18n-placeholder="firstNamePlaceholder" /></div>
-          <div><label for="reg-surname" data-i18n="lastName">Last Name</label><input id="reg-surname" type="text" autocomplete="off" data-i18n-placeholder="lastNamePlaceholder" /></div>
+          <div><label for="reg-name" data-i18n="firstName">First Name</label><input id="reg-name" type="text" autocomplete="off" required data-i18n-placeholder="firstNamePlaceholder" /></div>
+          <div><label for="reg-surname" data-i18n="lastName">Last Name</label><input id="reg-surname" type="text" autocomplete="off" required data-i18n-placeholder="lastNamePlaceholder" /></div>
         </div>
         <button id="btn-register" class="btn primary" style="margin-top:10px;" data-i18n="signUp">Sign Up</button>
         <div class="muted" style="margin-top:8px;"><a href="#" id="toggle-login"><span data-i18n="alreadyHaveAccount">Already have an account?</span> <span data-i18n="login">Login</span></a></div>
@@ -693,7 +693,7 @@
             <div class="table-wrap company-table-wrap">
               <table id="companies-table" class="company-table">
                 <thead>
-                  <tr><th data-i18n="company">Company</th></tr>
+                  <tr><th data-i18n="company">Company</th><th class="company-actions-th"></th></tr>
                 </thead>
                 <tbody id="companies-tbody"></tbody>
               </table>
@@ -1332,6 +1332,31 @@
       </div>
       <div id="company-detail-users" class="company-detail-pane active"></div>
       <div id="company-detail-orders" class="company-detail-pane"></div>
+    </div>
+  </div>
+
+  <!-- Company update overlay -->
+  <div id="company-update-overlay" class="company-map-overlay hidden" aria-hidden="true">
+    <div class="company-map-card company-update-card">
+      <div class="company-map-head">
+        <span data-i18n="updateCompanyTitle">Update company</span>
+        <button type="button" id="company-update-close" class="company-map-close" aria-label="Close" data-i18n-title="close">&#10005;</button>
+      </div>
+      <div class="company-form">
+        <div class="company-form-row">
+          <input id="company-update-name" type="text" class="company-input" data-i18n-placeholder="companyNamePlaceholder" />
+        </div>
+        <div class="company-form-row company-logo-row">
+          <img id="company-update-logo-preview" class="company-logo-preview" alt="" />
+          <button type="button" id="company-update-logo-btn" class="btn company-logo-btn" data-i18n="uploadLogo">Upload logo</button>
+          <input id="company-update-logo-file" type="file" accept=".svg,.png,.jpg,.jpeg,.webp,.gif,image/svg+xml,image/png,image/jpeg,image/webp,image/gif" hidden />
+          <span id="company-update-logo-status" class="company-logo-status"></span>
+        </div>
+        <div class="company-note" data-i18n="newLogoOptional">New logo (optional — leave empty to keep the current one)</div>
+        <div class="company-form-row">
+          <button type="button" id="company-update-save" class="btn cd-user-add" data-i18n="saveChanges">Save changes</button>
+        </div>
+      </div>
     </div>
   </div>
 </body>

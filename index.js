@@ -2576,12 +2576,15 @@ async function failIfAnyDuplicate(usernameRaw, emailRaw) {
 app.post('/api/auth/register', async (req, res) => {
   const username = norm(req.body?.username);
   const password = req.body?.password;
-  const name = req.body?.name || null;
-  const surname = req.body?.surname || null;
+  const name = (req.body?.name || '').toString().trim() || null;
+  const surname = (req.body?.surname || '').toString().trim() || null;
   const email = norm(req.body?.email);
 
   if (!username || !password || !email)
     return res.status(400).json({ error: 'eksik_bilgi', message: getErrorMessage(req, 'eksik_bilgi') });
+  // İsim/soyisim zorunlu (başka kullanıcılarla aynı olabilir, sadece boş bırakılamaz)
+  if (!name || !surname)
+    return res.status(400).json({ error: 'name_surname_required', message: getErrorMessage(req, 'name_surname_required') });
   if (!isStrongPassword(password))
     return res.status(400).json({ error: 'zayif_sifre', message: getErrorMessage(req, 'zayif_sifre') });
   if (!isEmailAllowed(email)) {
@@ -4599,6 +4602,68 @@ app.post('/api/admin/companies', requireAuth, requireAnyRole(['supervisor', 'adm
     res.json({ ok: true, company: r.rows[0] });
   } catch (e) {
     console.error('POST /api/admin/companies error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+// Rastgele Base32 (TOTP) anahtarı üretir (supervisor/admin) — şirket kullanıcısı eklerken "otomatik oluştur" için
+app.get('/api/admin/base32/new', requireAuth, requireAnyRole(['supervisor', 'admin']), async (req, res) => {
+  try {
+    const secret = speakeasy.generateSecret({ length: 20 });
+    res.json({ ok: true, base32: secret.base32 });
+  } catch (e) {
+    console.error('GET /api/admin/base32/new error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+// Şirket güncelle: isim ve/veya logo (supervisor/admin)
+app.patch('/api/admin/companies/:id', requireAuth, requireAnyRole(['supervisor', 'admin']), async (req, res) => {
+  try {
+    const id = +req.params.id;
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
+    if (!(await companiesTableExists())) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+
+    const sets = []; const vals = []; let i = 1;
+    if (req.body?.company_name != null) {
+      const name = String(req.body.company_name).trim();
+      if (!name) return res.status(400).json({ error: 'company_name_required', message: getErrorMessage(req, 'company_name_required') });
+      sets.push(`company_name=$${i++}`); vals.push(name);
+    }
+    if (req.body?.logo_url != null) {
+      const logo = String(req.body.logo_url).trim();
+      if (!logo) return res.status(400).json({ error: 'company_logo_required', message: getErrorMessage(req, 'company_logo_required') });
+      sets.push(`logo_url=$${i++}`); vals.push(logo);
+    }
+    if (!sets.length) return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
+    vals.push(id);
+    const r = await pool.query(
+      `UPDATE public.companies SET ${sets.join(', ')} WHERE company_id=$${i}
+       RETURNING company_id, company_name, logo_url, latitude, longitude, COALESCE(active,true) AS active, created_at, created_by_name`,
+      vals
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    res.json({ ok: true, company: r.rows[0] });
+  } catch (e) {
+    console.error('PATCH /api/admin/companies/:id error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+// Şirket sil (soft delete — supervisor/admin)
+app.delete('/api/admin/companies/:id', requireAuth, requireAnyRole(['supervisor', 'admin']), async (req, res) => {
+  try {
+    const id = +req.params.id;
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
+    if (!(await companiesTableExists())) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    const r = await pool.query(
+      `UPDATE public.companies SET active=false WHERE company_id=$1 AND COALESCE(active,true)=true RETURNING company_id`,
+      [id]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('DELETE /api/admin/companies/:id error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 });
