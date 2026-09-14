@@ -6662,14 +6662,43 @@ async function saveDiscount() {
   if (ok) renderDiscountView();
 }
 
-function _cmpPagination(container, cur, pages, onGo) {
+// Dinamik, kısaltılmış sayfa numaralandırma penceresi hesaplar.
+// Ör: 10 sayfa, sayfa 1 -> [1,2,3,'…',10] ; sayfa 6 -> [1,'…',5,6,7,'…',10] ; sayfa 9 -> [1,'…',8,9,10]
+function _pageWindow(cur, total) {
+  if (total <= 5) { const a = []; for (let i = 1; i <= total; i++) a.push(i); return a; }
+  if (cur <= 3) return [1, 2, 3, '…', total];
+  if (cur >= total - 2) return [1, '…', total - 2, total - 1, total];
+  return [1, '…', cur - 1, cur, cur + 1, '…', total];
+}
+// Gerçekçi/şık görünümlü, dinamik kısaltılmış sayfalama render eder (nav ok + numara + '…')
+function _renderSmartPagination(container, cur, pages, onGo) {
   if (!container) return;
   container.innerHTML = '';
+  container.classList.add('pf-pagination');
   if (pages <= 1) return;
-  const mk = (label, pg, dis, active) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'pf-page-btn' + (active ? ' active' : ''); b.textContent = label; b.disabled = !!dis; if (!dis && !active) b.onclick = () => onGo(pg); return b; };
-  container.appendChild(mk('‹', cur - 1, cur <= 1, false));
-  for (let i = 1; i <= pages; i++) container.appendChild(mk(String(i), i, false, i === cur));
-  container.appendChild(mk('›', cur + 1, cur >= pages, false));
+  const mkNav = (html, pg, dis, cls) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'pf-page-nav ' + cls;
+    b.innerHTML = html; b.disabled = !!dis; if (!dis) b.onclick = () => onGo(pg);
+    return b;
+  };
+  container.appendChild(mkNav('&#8249;', cur - 1, cur <= 1, 'pf-page-prev'));
+  _pageWindow(cur, pages).forEach(item => {
+    if (item === '…') {
+      const dots = document.createElement('span'); dots.className = 'pf-page-dots'; dots.textContent = '…';
+      container.appendChild(dots);
+    } else {
+      const active = item === cur;
+      const b = document.createElement('button'); b.type = 'button';
+      b.className = 'pf-page-num' + (active ? ' active' : ''); b.textContent = String(item);
+      b.disabled = active; if (!active) b.onclick = () => onGo(item);
+      container.appendChild(b);
+    }
+  });
+  container.appendChild(mkNav('&#8250;', cur + 1, cur >= pages, 'pf-page-next'));
+}
+
+function _cmpPagination(container, cur, pages, onGo) {
+  _renderSmartPagination(container, cur, pages, onGo);
 }
 
 function switchCompanySubtab(which) {
@@ -6906,8 +6935,8 @@ function openOrderResult(data, token) {
     return;
   }
   if (verdict) { verdict.className = 'company-order-verdict good'; verdict.textContent = '✓'; }
-  const nm = [data.name, data.surname].filter(Boolean).join(' ');
-  if (userEl) userEl.innerHTML = `<div class="co-title">${escapeHtml(t('eligibleTitle'))}</div>${nm ? `<div class="co-fn">${escapeHtml(nm)}</div>` : ''}<div class="co-un">@${escapeHtml(data.username || '')}</div>`;
+  const nm = _maskFullName(data.name, data.surname);
+  if (userEl) userEl.innerHTML = `<div class="co-title">${escapeHtml(t('eligibleTitle'))}</div><div class="co-un">@${escapeHtml(data.username || '')}</div>${nm ? `<div class="co-fn">${escapeHtml(nm)}</div>` : ''}`;
   if (body) {
     body.innerHTML = '';
     const prods = document.createElement('div'); prods.className = 'co-products'; prods.id = 'co-products'; body.appendChild(prods);
@@ -11869,6 +11898,16 @@ function pfStopLivePolling(){
   if (__pf.statsTimer){ clearInterval(__pf.statsTimer); __pf.statsTimer = null; }
 }
 
+// İsim/soyisim gizleme: "ibrahim" -> "ib***", "toprak" -> "to***"
+function _maskNamePart(s) {
+  s = (s == null ? '' : String(s)).trim();
+  if (!s) return '';
+  return s.slice(0, Math.min(2, s.length)) + '***';
+}
+function _maskFullName(name, surname) {
+  return [_maskNamePart(name), _maskNamePart(surname)].filter(Boolean).join(' ');
+}
+
 function pfRenderProfile(stats){
   const uname = pfEl('profile-username');
   const fullname = pfEl('profile-fullname');
@@ -11876,7 +11915,7 @@ function pfRenderProfile(stats){
   const score = pfEl('profile-score-value');
   if (uname) uname.textContent = (stats && stats.username) ? stats.username : (currentUser ? currentUser.username : '');
   if (fullname) {
-    const fn = [ (stats && stats.name) ? stats.name : '', (stats && stats.surname) ? stats.surname : '' ].filter(Boolean).join(' ').trim();
+    const fn = _maskFullName((stats && stats.name) ? stats.name : '', (stats && stats.surname) ? stats.surname : '');
     fullname.textContent = fn;
     fullname.style.display = fn ? '' : 'none';
   }
@@ -12030,25 +12069,8 @@ function pfRenderPostsTable(){
 function pfRenderPagination(){
   const pag = pfEl('profile-pagination');
   if (!pag) return;
-  pag.innerHTML = '';
   const total = pfTotalPages();
-  if (total <= 1) return;
-
-  const mkBtn = (label, page, disabled, active) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'pf-page-btn' + (active ? ' active' : '');
-    b.textContent = label;
-    b.disabled = !!disabled;
-    if (!disabled && !active) b.onclick = () => { __pf.page = page; __pf.highlightId = null; pfRenderPostsTable(); };
-    return b;
-  };
-
-  pag.appendChild(mkBtn('‹', __pf.page - 1, __pf.page <= 1, false));
-  for (let i = 1; i <= total; i++){
-    pag.appendChild(mkBtn(String(i), i, false, i === __pf.page));
-  }
-  pag.appendChild(mkBtn('›', __pf.page + 1, __pf.page >= total, false));
+  _renderSmartPagination(pag, __pf.page, total, (pg) => { __pf.page = pg; __pf.highlightId = null; pfRenderPostsTable(); });
 }
 
 /* ---- Harita görünümü ---- */

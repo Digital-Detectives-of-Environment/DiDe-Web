@@ -3269,11 +3269,6 @@ th:has(#btn-add-type){
   display:flex;
   align-items:baseline;
   gap:10px;
-  background:#fff;
-  border:1.5px solid var(--border, #e5e7eb);
-  border-radius:16px;
-  padding:14px 24px;
-  box-shadow:0 2px 10px rgba(0,0,0,.06);
 }
 .profile-score-label{ font-size:clamp(14px, 4vw, 17px); color:var(--muted, #6b7280); font-weight:600; }
 .profile-score-value{ font-size:clamp(28px, 8vw, 42px); font-weight:900; color:var(--primary, #2563eb); }
@@ -3422,6 +3417,73 @@ th:has(#btn-add-type){
 }
 .pf-page-btn.active{ background:var(--primary, #2563eb); color:#fff; border-color:var(--primary, #2563eb); }
 .pf-page-btn:disabled{ opacity:.45; cursor:not-allowed; }
+
+/* Gerçekçi / şık sayfalama tasarımı (dinamik kısaltılmış numaralandırma: 1 2 3 … N) */
+.pf-pagination{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:4px;
+  flex-wrap:wrap;
+}
+.pf-page-num{
+  min-width:34px;
+  height:34px;
+  padding:0 6px;
+  border:1px solid transparent;
+  border-radius:10px;
+  background:transparent;
+  color:var(--muted, #6b7280);
+  cursor:pointer;
+  font-weight:600;
+  font-size:14px;
+  font-variant-numeric:tabular-nums;
+  transition:background .15s ease, color .15s ease, box-shadow .15s ease, transform .1s ease;
+}
+.pf-page-num:hover:not(.active):not(:disabled){
+  background:var(--border-soft, #eef2f7);
+  color:var(--text, #111);
+}
+.pf-page-num:active:not(.active):not(:disabled){ transform:scale(.94); }
+.pf-page-num.active{
+  background:var(--primary, #2563eb);
+  color:#fff;
+  box-shadow:0 2px 8px rgba(37,99,235,.35);
+  cursor:default;
+}
+.pf-page-dots{
+  min-width:20px;
+  height:34px;
+  display:inline-flex;
+  align-items:flex-end;
+  justify-content:center;
+  padding-bottom:8px;
+  color:var(--muted, #9ca3af);
+  font-weight:700;
+  letter-spacing:1px;
+  user-select:none;
+}
+.pf-page-nav{
+  width:32px;
+  height:32px;
+  border-radius:50%;
+  border:1px solid var(--border, #e5e7eb);
+  background:var(--surface, #fff);
+  color:var(--text, #111);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  font-size:16px;
+  line-height:1;
+  transition:background .15s ease, transform .1s ease, opacity .15s ease;
+}
+.pf-page-nav:hover:not(:disabled){ background:var(--border-soft, #eef2f7); }
+.pf-page-nav:active:not(:disabled){ transform:scale(.92); }
+.pf-page-nav:disabled{ opacity:.35; cursor:not-allowed; }
+:root.theme-dark .pf-page-num:hover:not(.active):not(:disabled){ background:rgba(255,255,255,.08); color:#fff; }
+:root.theme-dark .pf-page-nav{ background:var(--surface,#1f2937); border-color:var(--border,#374151); color:#e5e7eb; }
+:root.theme-dark .pf-page-nav:hover:not(:disabled){ background:rgba(255,255,255,.08); }
 
 /* Sayfa noktaları */
 .profile-dots{
@@ -3801,8 +3863,8 @@ body.role-company #map { display:none !important; }
 .company-order-verdict.bad{ color:var(--danger,#b91c1c); }
 .company-order-user{ text-align:center; margin-bottom:12px; }
 .co-title{ font-weight:700; }
-.co-fn{ font-size:clamp(15px,4.5vw,18px); font-weight:700; color:var(--text,#111); }
-.co-un{ color:var(--muted,#6b7280); font-size:13px; }
+.co-un{ font-size:clamp(15px,4.5vw,18px); font-weight:700; color:var(--text,#111); }
+.co-fn{ color:var(--muted,#6b7280); font-size:13px; }
 .co-products{ display:flex; flex-direction:column; gap:8px; }
 .co-prod-row{ display:flex; gap:8px; align-items:center; }
 .co-prod-sel{ flex:1 1 auto; }
@@ -3839,15 +3901,15 @@ body.role-company .company-card{ max-width:640px; }
 .company-disc-save:hover{ filter:brightness(1.06); }
 .company-disc-save:disabled{ opacity:.6; cursor:not-allowed; }
 
-.company-menu-add-form{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; padding:10px; border:1px dashed var(--border,#cbd5e1); border-radius:12px; }
+.company-menu-add-form{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px; padding:10px; border:1px dashed var(--border,#cbd5e1); border-radius:12px; }
 .company-menu-add-form .cm-name{ flex:2 1 140px; }
 .company-menu-add-form .cm-price{ flex:1 1 90px; }
 .company-menu-add{ flex:0 0 auto; background:var(--primary,#2563eb); color:#fff; border:none; padding:9px 14px; border-radius:10px; font-weight:700; cursor:pointer; }
 .company-menu-add:hover{ filter:brightness(1.06); }
 .company-menu-add:disabled{ opacity:.6; cursor:not-allowed; }
 
-.company-menu-rows{ display:flex; flex-direction:column; gap:8px; }
-.company-menu-row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 10px; border:1px solid var(--border-soft,#eef2f7); border-radius:10px; background:var(--bg,#fff); }
+.company-menu-rows{ display:flex; flex-direction:column; gap:6px; }
+.company-menu-row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:6px 10px; border:1px solid var(--border-soft,#eef2f7); border-radius:10px; background:var(--bg,#fff); }
 .cm-name-txt{ flex:2 1 120px; font-weight:600; color:var(--text,#111); word-break:break-word; }
 .cm-price-txt{ flex:0 1 70px; color:var(--text,#111); }
 .company-menu-row .cm-name{ flex:2 1 120px; }
@@ -3974,9 +4036,11 @@ body.role-company #company-view-settings > .company-panel-section:first-child{ m
 body.role-company .company-view{ min-height:0; }
 body.role-company .company-view.active{ overflow:hidden !important; display:flex; flex-direction:column; }
 body.role-company .company-menu-section{ flex:1 1 auto; display:flex; flex-direction:column; min-height:0; }
-body.role-company .company-menu-rows{ flex:1 1 auto; min-height:0; overflow:hidden; }
+/* Satırlar İÇERİĞİ KADAR yer kaplasın (flex-grow YOK): böylece az sayıda ürün varken
+   satırlarla sayfalama arasında boş alan oluşmaz, sayfalama içeriğin hemen altında durur. */
+body.role-company .company-menu-rows{ flex:0 1 auto; min-height:0; overflow:visible; }
 body.role-company #company-menu-pagination{ flex:0 0 auto; padding-top:6px; }
-body.role-company #company-view-orders .company-table-wrap{ flex:1 1 auto; min-height:0; }
+body.role-company #company-view-orders .company-table-wrap{ flex:0 1 auto; min-height:0; }
 body.role-company #company-orders-pagination{ flex:0 0 auto; padding-top:6px; }
 
 /* ===================== Company panel — Grup 2 v6 (kart SABİT yükseklik → autofit + sayfalama çalışır) ===================== */
@@ -3996,7 +4060,7 @@ body.role-company #company-card{
   background:none !important; border:none !important; box-shadow:none !important; padding:2px;
   display:inline-flex; align-items:center; justify-content:center; cursor:pointer;
   color:var(--primary,#2563eb); transition:transform .1s ease, color .15s ease;
-  flex:1 1 100%; margin-top:6px;   /* on discount'un ALT satırı, sayfada ORTALI */
+  flex:1 1 100%; margin-top:2px;   /* on discount'un ALT satırı, sayfada ORTALI, hemen bitişik */
 }
 .company-menu-add-icon:hover{ transform:scale(1.1); color:#1d4ed8; }
 .company-menu-add-icon:active{ transform:scale(.94); }
@@ -4010,4 +4074,4 @@ body.role-company #company-card{
 /* Menü ekleme: artı ikonu on-discount'un ALT satırında, ortalı */
 .company-menu-add-form{ flex-wrap:wrap; }
 .company-menu-add-form .cm-dis{ flex:1 1 100%; }
-.company-menu-add-form .company-menu-add-icon{ flex:1 1 100%; justify-content:center; margin-top:4px; }
+.company-menu-add-form .company-menu-add-icon{ flex:1 1 100%; justify-content:center; margin-top:2px; }
