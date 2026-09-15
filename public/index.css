@@ -3817,21 +3817,28 @@ th:has(#btn-add-type){
 .cd-empty{ padding:16px; text-align:center; color:var(--muted,#6b7280); }
 .cd-empty.cd-error{ color:#dc2626; font-weight:600; }
 
-.cd-orders-table-wrap{ overflow:auto; max-height:min(50vh, 480px); border:1px solid var(--border-soft,#eef2f7); border-radius:12px; }
-.cd-orders-table{ width:100%; border-collapse:collapse; font-size:13.5px; }
+.cd-orders-table-wrap{ overflow:visible; border:1px solid var(--border-soft,#eef2f7); border-radius:12px; }
+.cd-orders-table{ width:100%; border-collapse:collapse; font-size:13.5px; table-layout:fixed; }
 .cd-orders-table thead th{
   text-align:left; padding:10px 12px; font-size:12.5px; font-weight:700; color:var(--muted,#6b7280);
-  position:sticky; top:0; background:var(--surface,#fff); border-bottom:1px solid var(--border-soft,#eef2f7);
-  white-space:nowrap;
+  background:var(--surface,#fff); border-bottom:1px solid var(--border-soft,#eef2f7);
+  white-space:normal; overflow-wrap:anywhere; word-break:break-word;
 }
-.cd-orders-table tbody td{ padding:9px 12px; border-top:1px solid var(--border-soft,#eef2f7); color:var(--text,#111); white-space:nowrap; }
+.cd-orders-table tbody td{ padding:9px 12px; border-top:1px solid var(--border-soft,#eef2f7); color:var(--text,#111); white-space:normal; overflow-wrap:anywhere; word-break:break-word; vertical-align:middle; }
 .cd-orders-table tbody tr:hover{ background:color-mix(in srgb, var(--primary,#2563eb) 6%, transparent); }
 .cd-orders-td-person{ font-weight:600; }
+.cd-orders-table th:nth-child(1), .cd-orders-table td:nth-child(1){ width:22%; }
+.cd-orders-table th:nth-child(2), .cd-orders-table td:nth-child(2){ width:15%; }
+.cd-orders-table th:nth-child(3), .cd-orders-table td:nth-child(3){ width:15%; }
+.cd-orders-table th:nth-child(4), .cd-orders-table td:nth-child(4){ width:14%; text-align:center; }
+.cd-orders-table th:nth-child(5), .cd-orders-table td:nth-child(5){ width:12%; text-align:center; }
+.cd-orders-table th:nth-child(6), .cd-orders-table td:nth-child(6){ width:22%; }
+.cd-orders-pagination{ display:flex; justify-content:center; gap:6px; flex-wrap:wrap; margin-top:10px; }
 
 @media (max-width:640px){
   .cd-user-em{ margin-left:0; width:100%; }
-  .cd-orders-table{ font-size:12.5px; }
-  .cd-orders-table thead th, .cd-orders-table tbody td{ padding:8px; }
+  .cd-orders-table{ font-size:11.5px; }
+  .cd-orders-table thead th, .cd-orders-table tbody td{ padding:6px 5px; }
 }
 
 /* ===================== Company panel (company role) ===================== */

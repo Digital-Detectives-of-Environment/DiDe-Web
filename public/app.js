@@ -6289,6 +6289,14 @@ function initCompaniesUI() {
     clearTimeout(__companies._rz);
     __companies._rz = setTimeout(() => { if (qs('#companies-tab') && qs('#companies-tab').classList.contains('active')) renderCompaniesTable(); }, 150);
   });
+  window.addEventListener('resize', () => {
+    clearTimeout(__cdOrders._rz);
+    __cdOrders._rz = setTimeout(() => {
+      const ov = qs('#company-detail-overlay'); if (!ov || ov.classList.contains('hidden')) return;
+      const o = qs('#company-detail-orders'); if (!o || !o.classList.contains('active')) return;
+      cdOrdersAutoFit();
+    }, 160);
+  });
 }
 
 function handleCompanyLogoSelect(file) {
@@ -6612,9 +6620,14 @@ async function submitCompanyUser(companyId, els) {
   finally { els.addBtn.disabled = false; }
 }
 
+// Süpervizör/admin panelindeki "Siparişler" tablosu: şirket kullanıcısının
+// kendi Siparişler sekmesinde (companyOrdersAutoFit / renderCompanyOrders) ve
+// profil geçmişi tablosunda (pfAutoFit) kullanılan AYNI mantık — gerçek ölçümle
+// ekrana kaç satır sığdığını bulup sayfalar; hiçbir zaman yatay/dikey scroll
+// oluşturmaz.
+const __cdOrders = { data: [], page: 1, perPage: 6, fetchFailed: false, _rz: null };
+
 async function loadCompanyOrdersAdmin(companyId) {
-  const pane = qs('#company-detail-orders'); if (!pane) return;
-  pane.innerHTML = '';
   let list = [];
   let fetchFailed = false;
   try {
@@ -6631,7 +6644,17 @@ async function loadCompanyOrdersAdmin(companyId) {
     console.error('loadCompanyOrdersAdmin: network/parse error', e);
   }
   if (!Array.isArray(list)) list = [];
-  if (fetchFailed) {
+  __cdOrders.data = list;
+  __cdOrders.fetchFailed = fetchFailed;
+  __cdOrders.page = 1;
+  renderCompanyOrdersAdmin();
+  requestAnimationFrame(() => { try { cdOrdersAutoFit(); } catch {} });
+}
+
+function renderCompanyOrdersAdmin() {
+  const pane = qs('#company-detail-orders'); if (!pane) return;
+  pane.innerHTML = '';
+  if (__cdOrders.fetchFailed) {
     // Gerçek bir hata olduğunda bunu "henüz sipariş yok" ile karıştırmayalım —
     // aksi halde arka planda hata olsa da kullanıcı boş liste görür ve
     // sorunun ne olduğunu asla anlayamaz.
@@ -6640,20 +6663,29 @@ async function loadCompanyOrdersAdmin(companyId) {
     pane.appendChild(d);
     return;
   }
-  if (!list.length) { const d = document.createElement('div'); d.className = 'cd-empty'; d.textContent = t('noOrdersYet'); pane.appendChild(d); return; }
+  const data = __cdOrders.data;
+  if (!data.length) { const d = document.createElement('div'); d.className = 'cd-empty'; d.textContent = t('noOrdersYet'); pane.appendChild(d); return; }
+
+  const per = __cdOrders.perPage || 6;
+  const pages = Math.max(1, Math.ceil(data.length / per));
+  if (__cdOrders.page > pages) __cdOrders.page = pages;
+  if (__cdOrders.page < 1) __cdOrders.page = 1;
+  const start = (__cdOrders.page - 1) * per;
+  const pageData = data.slice(start, start + per);
+
   const wrap = document.createElement('div'); wrap.className = 'cd-orders-table-wrap';
   const table = document.createElement('table'); table.className = 'cd-orders-table';
   table.innerHTML = `<thead><tr>
-      <th>${escapeHtml(t('placedBy'))}</th>
-      <th>${escapeHtml(t('amountBefore'))}</th>
-      <th>${escapeHtml(t('amountAfter'))}</th>
-      <th>${escapeHtml(t('discountPct'))}</th>
+      <th>${escapeHtml(t('ordPerson'))}</th>
+      <th>${escapeHtml(t('ordTotal'))}</th>
+      <th>${escapeHtml(t('ordFinal'))}</th>
+      <th>${escapeHtml(t('ordDiscount'))}</th>
       <th>${escapeHtml(t('pointsSpentCol'))}</th>
       <th>${escapeHtml(t('orderDateCol'))}</th>
     </tr></thead>`;
   const tbody = document.createElement('tbody');
-  list.forEach(o => {
-    const tr = document.createElement('tr');
+  pageData.forEach(o => {
+    const tr = document.createElement('tr'); tr.className = 'cd-order-row';
     tr.innerHTML =
       `<td class="cd-orders-td-person">${escapeHtml(o.person_placing_order || '-')}</td>` +
       `<td>${escapeHtml(_cdFmtMoney(o.order_amount_before_discount))}</td>` +
@@ -6666,6 +6698,40 @@ async function loadCompanyOrdersAdmin(companyId) {
   table.appendChild(tbody);
   wrap.appendChild(table);
   pane.appendChild(wrap);
+  const pag = document.createElement('div'); pag.id = 'cd-orders-pagination'; pag.className = 'cd-orders-pagination';
+  pane.appendChild(pag);
+  _cmpPagination(pag, __cdOrders.page, pages, (pg) => { __cdOrders.page = pg; renderCompanyOrdersAdmin(); });
+}
+
+// Ekrana (modal kartına) sığacak satır sayısını GERÇEK ölçümle bulur —
+// companyOrdersAutoFit / pfAutoFit ile birebir aynı yaklaşım: önce bol satır
+// render edip ölçer, sonra sığan sayıya göre yeniden render eder.
+function cdOrdersAutoFit() {
+  const pane = qs('#company-detail-orders'); if (!pane || !pane.classList.contains('active')) return;
+  const card = qs('.company-detail-card'); if (!card) return;
+  if (__cdOrders.fetchFailed || !__cdOrders.data.length) { renderCompanyOrdersAdmin(); return; }
+
+  // Ölçüm sırasında kayma olmasın (pfAutoFit / companyOrdersAutoFit ile aynı önlem).
+  try { card.scrollTop = 0; } catch {}
+
+  const saved = __cdOrders.page || 1;
+  __cdOrders.page = 1; __cdOrders.perPage = Math.min(__cdOrders.data.length, 60);
+  renderCompanyOrdersAdmin();
+
+  const cs = getComputedStyle(card); const padB = parseFloat(cs.paddingBottom) || 0;
+  const cardBottom = card.getBoundingClientRect().bottom - padB;
+  const pag = qs('#cd-orders-pagination'); const pagH = (pag && pag.getBoundingClientRect().height) || 0;
+  const limit = cardBottom - (pagH + 16);
+
+  const rows = pane.querySelectorAll('tr.cd-order-row');
+  let fit = 0;
+  for (let i = 0; i < rows.length; i++) { if (rows[i].getBoundingClientRect().bottom <= limit) fit++; else break; }
+  if (fit < 1) fit = 1;
+
+  __cdOrders.perPage = fit;
+  const pages = Math.max(1, Math.ceil(__cdOrders.data.length / fit));
+  __cdOrders.page = Math.min(saved, pages);
+  renderCompanyOrdersAdmin();
 }
 
 function closeCompanyDetail() { const ov = qs('#company-detail-overlay'); if (ov) { ov.classList.add('hidden'); ov.setAttribute('aria-hidden', 'true'); } }
@@ -6674,6 +6740,10 @@ function switchCompanyDetailTab(which) {
   const u = qs('#company-detail-users'), o = qs('#company-detail-orders');
   if (u) u.classList.toggle('active', which === 'users');
   if (o) o.classList.toggle('active', which === 'orders');
+  // Siparişler sekmesi az önce görünür oldu — pane 'display:none' iken alınan
+  // ölçümler 0 döner, bu yüzden gerçek sığdırma hesaplamasını burada tetikleriz
+  // (companySubtab geçişlerinde companyOrdersAutoFit/companyMenuAutoFit ile aynı yaklaşım).
+  if (which === 'orders') { requestAnimationFrame(() => { try { cdOrdersAutoFit(); } catch {} }); }
 }
 
 // Tüm haritalarda (public/user/supervisor) logolu şirket işaretleri — cluster yok
