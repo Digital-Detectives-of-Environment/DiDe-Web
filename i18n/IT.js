@@ -211,6 +211,7 @@ window.i18nLangs.it = {
     amountAfter: 'Importo pagato',
     discountPct: 'Sconto (%)',
     orderItems: 'Prodotti',
+    pointsSpentCol: 'Punti',
     orderDateCol: 'Data',
     noOrdersYet: 'Nessun ordine.',
     noCompaniesYet: 'Nessuna azienda aggiunta.',

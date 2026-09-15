@@ -216,6 +216,7 @@ window.i18nLangs.en = {
     amountAfter: 'Amount paid',
     discountPct: 'Discount (%)',
     orderItems: 'Items',
+    pointsSpentCol: 'Points',
     orderDateCol: 'Date',
     noOrdersYet: 'No orders yet.',
     noCompaniesYet: 'No companies added yet.',

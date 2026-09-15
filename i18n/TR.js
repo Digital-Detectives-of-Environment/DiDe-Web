@@ -216,6 +216,7 @@ window.i18nLangs.tr = {
     amountAfter: 'Ödenen tutar',
     discountPct: 'İndirim (%)',
     orderItems: 'Ürünler',
+    pointsSpentCol: 'Puan',
     orderDateCol: 'Tarih',
     noOrdersYet: 'Henüz sipariş yok.',
     noCompaniesYet: 'Henüz şirket eklenmedi.',

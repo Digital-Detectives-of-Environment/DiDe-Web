@@ -4811,7 +4811,7 @@ app.get('/api/admin/companies/:id/orders', adminOnly, async (req, res) => {
     await ensureOrdersSchema();
     const r = await pool.query(
       `SELECT order_id, person_placing_order, order_amount_before_discount, order_amount_after_discount,
-              discount_percentage, items, order_date
+              discount_percentage, items, points_spent, order_date
          FROM public.orders WHERE company_id=$1 ORDER BY order_date DESC`,
       [req.params.id]
     );

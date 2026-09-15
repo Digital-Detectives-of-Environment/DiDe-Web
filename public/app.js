@@ -6534,7 +6534,7 @@ function openCompanyDetail(c) {
   switchCompanyDetailTab('users');
   ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false');
   try { loadCompanyUsers(c.company_id); } catch (e) { console.warn('loadCompanyUsers', e); }
-  try { loadCompanyOrders(c.company_id); } catch (e) { console.warn('loadCompanyOrders', e); }
+  try { loadCompanyOrdersAdmin(c.company_id); } catch (e) { console.warn('loadCompanyOrdersAdmin', e); }
 }
 
 function _cdFmtDate(d) { try { return d ? new Date(d).toLocaleString() : ''; } catch { return d || ''; } }
@@ -6612,7 +6612,7 @@ async function submitCompanyUser(companyId, els) {
   finally { els.addBtn.disabled = false; }
 }
 
-async function loadCompanyOrders(companyId) {
+async function loadCompanyOrdersAdmin(companyId) {
   const pane = qs('#company-detail-orders'); if (!pane) return;
   pane.innerHTML = '';
   let list = [];
@@ -6624,11 +6624,11 @@ async function loadCompanyOrders(companyId) {
     } else {
       fetchFailed = true;
       const d = await r.json().catch(() => ({}));
-      console.error('loadCompanyOrders: request failed', r.status, d);
+      console.error('loadCompanyOrdersAdmin: request failed', r.status, d);
     }
   } catch (e) {
     fetchFailed = true;
-    console.error('loadCompanyOrders: network/parse error', e);
+    console.error('loadCompanyOrdersAdmin: network/parse error', e);
   }
   if (!Array.isArray(list)) list = [];
   if (fetchFailed) {
@@ -6648,6 +6648,7 @@ async function loadCompanyOrders(companyId) {
       <th>${escapeHtml(t('amountBefore'))}</th>
       <th>${escapeHtml(t('amountAfter'))}</th>
       <th>${escapeHtml(t('discountPct'))}</th>
+      <th>${escapeHtml(t('pointsSpentCol'))}</th>
       <th>${escapeHtml(t('orderDateCol'))}</th>
     </tr></thead>`;
   const tbody = document.createElement('tbody');
@@ -6658,6 +6659,7 @@ async function loadCompanyOrders(companyId) {
       `<td>${escapeHtml(_cdFmtMoney(o.order_amount_before_discount))}</td>` +
       `<td>${escapeHtml(_cdFmtMoney(o.order_amount_after_discount))}</td>` +
       `<td>${escapeHtml(o.discount_percentage != null ? o.discount_percentage + '%' : '-')}</td>` +
+      `<td>${escapeHtml(o.points_spent != null ? String(o.points_spent) : '-')}</td>` +
       `<td>${escapeHtml(_cdFmtDate(o.order_date))}</td>`;
     tbody.appendChild(tr);
   });
@@ -11231,6 +11233,14 @@ function importWizardBack() {
   if (FORCE_DEFAULT_LOGIN_ON_LOAD) {
     saveToken(null);
     currentUser = null;
+    // checkMe() burada bilerek çağrılmıyor (her açılışta login ekranına
+    // zorlanmak için /api/me kontrolü atlanıyor). Fakat reflectAuth() ve
+    // canlı konum isteği normalde SADECE checkMe() içinde tetiklendiği için,
+    // bu dal yüzünden ilk açılışta header'daki canlı konum butonu hiç
+    // görünmüyor ve konum izni hiç istenmiyordu. currentUser zaten null
+    // olduğuna göre anonim UI durumunu burada da elle uygularız.
+    try { reflectAuth(); } catch (e) { console.warn('reflectAuth (force login)', e); }
+    try { startStandaloneLive(); } catch (e) { console.warn('startStandaloneLive (force login)', e); }
   } else {
     await checkMe();
   }
@@ -11718,7 +11728,7 @@ async function updateUIWithNewLanguage() {
     const cdOverlay = qs('#company-detail-overlay');
     if (cdOverlay && !cdOverlay.classList.contains('hidden') && __companies.detailId != null) {
       if (typeof loadCompanyUsers === 'function') loadCompanyUsers(__companies.detailId);
-      if (typeof loadCompanyOrders === 'function') loadCompanyOrders(__companies.detailId);
+      if (typeof loadCompanyOrdersAdmin === 'function') loadCompanyOrdersAdmin(__companies.detailId);
     }
   } catch (e) { console.warn('[updateUIWithNewLanguage] company detail i18n refresh error:', e); }
 
