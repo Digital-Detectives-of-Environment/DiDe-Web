@@ -4108,3 +4108,44 @@ body.role-company #company-card{
 .company-menu-add-form{ flex-wrap:wrap; }
 .company-menu-add-form .cm-dis{ flex:1 1 100%; }
 .company-menu-add-form .company-menu-add-icon{ flex:1 1 100%; justify-content:center; margin-top:2px; }
+
+/* ===================== Company detail (supervisor) — orders table scroll fix =====================
+   .cd-orders-table de tıpkı .profile-posts-table ve .company-orders-table gibi:
+   - global table{min-width:980px} kuralından,
+   - @media(max-width:1200px){ table{display:block;overflow-x:auto} } mobil hilesinden
+   MUAF tutulur → tablo her zaman kartın genişliğine tam sığar; yatay/dikey kaydırma oluşmaz
+   (dikey sığdırma zaten cdOrdersAutoFit() ile satır bazında ölçülüp sayfalanıyor). */
+.cd-orders-table-wrap{
+  overflow:hidden !important;
+  width:100%;
+  max-width:100%;
+}
+.cd-orders-table{
+  min-width:0 !important;   /* global table{min-width:980px} kuralını ez */
+  width:100%;
+  table-layout:fixed;
+  display:table !important;      /* mobil table{display:block} hilesini ez */
+  overflow:visible !important;
+}
+.cd-orders-table thead{ display:table-header-group !important; }
+.cd-orders-table tbody{ display:table-row-group !important; }
+.cd-orders-table tr{ display:table-row !important; }
+.cd-orders-table th,
+.cd-orders-table td{
+  display:table-cell !important;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+/* Sipariş tarihi sütunu (6.) profil tablosundaki iki tarih sütunu gibi tek satıra sığsın,
+   "gg.aa.yyyy ss:dd" alt satıra bölünmesin. */
+.cd-orders-table th:nth-child(6),
+.cd-orders-table td:nth-child(6){
+  white-space:nowrap;
+  word-break:normal;
+  overflow-wrap:normal;
+}
+@media (max-width:640px){
+  .cd-orders-table th:nth-child(6),
+  .cd-orders-table td:nth-child(6){ white-space:normal; }
+}

@@ -6545,7 +6545,7 @@ function openCompanyDetail(c) {
   try { loadCompanyOrdersAdmin(c.company_id); } catch (e) { console.warn('loadCompanyOrdersAdmin', e); }
 }
 
-function _cdFmtDate(d) { try { return d ? new Date(d).toLocaleString() : ''; } catch { return d || ''; } }
+function _cdFmtDate(d) { return d ? formatDate(d) : ''; }
 function _cdFmtMoney(v) { return (v == null || v === '') ? '-' : String(v); }
 
 async function loadCompanyUsers(companyId) {
