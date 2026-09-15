@@ -8260,6 +8260,15 @@ function boundaryBlocks(lng, lat, kind){
   return true;
 }
 
+// Canlı konum (header live butonu) için sınır kontrolü: SADECE .env'deki
+// ZOOM_LEVEL_BOUNDARY=yes ise devreye girer. 'no' (veya boş) ise sınır verisiyle
+// hiç ilgilenilmez; kullanıcı her koşulda kendi konumunu görebilir.
+function _liveLocationOutsideBoundary(lng, lat){
+  if (!_wantBoundaryClip()) return false;
+  if (!__boundary.enabled || !__boundary.geojson) return false;
+  return !pointInBoundary(lng, lat);
+}
+
 function allowBlackMarker() {
   if (window.SUPERVISOR_NO_ADD) return false;
   // Solver kullanıcılar olay ekleyemez (siyah pin bırakamaz).
@@ -9196,6 +9205,13 @@ function startStandaloneLive(){
   __slWatch = navigator.geolocation.watchPosition(
     (position) => {
       const { latitude, longitude, accuracy } = position.coords;
+      // ZOOM_LEVEL_BOUNDARY=yes ve konum sınır verisinin dışındaysa: canlı konum
+      // butonunu kapat, kullanıcı konumunu göremesin ve üstten uyarı ver.
+      if (_liveLocationOutsideBoundary(longitude, latitude)) {
+        stopStandaloneLive();
+        showGridWarning(t('liveLocationOutsideBoundary'));
+        return;
+      }
       const ll = L.latLng(latitude, longitude);
       if (__slMarker) __slMarker.setLatLng(ll);
       else __slMarker = L.marker(ll, { icon: blueDotIcon(), interactive:false, zIndexOffset: 500 }).addTo(map);
@@ -9857,10 +9873,12 @@ function reflectAuth(){
     if (!shouldShow2) headerLocBtn2.classList.add('hidden');
   }
 
-  // Canlı konum butonu: opener + solver (role 'user') için görünür.
+  // Canlı konum butonu: opener + solver (role 'user') VE giriş yapılmamış
+  // (giriş ekranı / herkese açık görünüm) durumunda görünür. Admin/supervisor/
+  // company girişinde gizli kalır.
   const liveBtn = qs('#btn-live-location');
   if (liveBtn) {
-    const showLive = !!(currentUser && currentUser.role === 'user');
+    const showLive = !currentUser || currentUser.role === 'user';
     liveBtn.classList.toggle('hidden', !showLive);
     if (!showLive) { try { stopStandaloneLive(); } catch {} }
     try { updateLiveLocBtn(); } catch {}
@@ -10141,6 +10159,9 @@ async function checkMe(){
     
     try { ensureMapLegend(map); } catch {}
     try { drawBoundaryLayer(); } catch {}
+    // Giriş ekranında (henüz oturum açılmamışken) da konum izni istensin;
+    // izin verilirse canlı mavi nokta + header'daki canlı konum butonu aktif olur.
+    try { startStandaloneLive(); } catch {}
   }
 }
 
@@ -11666,6 +11687,19 @@ async function updateUIWithNewLanguage() {
     });
   }
   
+  // Companies (supervisor/admin) tab: row action buttons ("Güncelle"/"Sil" vb.)
+  // are built with textContent = t(...) at render time, so they don't pick up
+  // data-i18n rescans above — re-render the table (and the open detail panel,
+  // if any) explicitly so they follow the newly selected language.
+  try { if (typeof renderCompaniesTable === 'function') renderCompaniesTable(); } catch (e) { console.warn('[updateUIWithNewLanguage] companies table i18n refresh error:', e); }
+  try {
+    const cdOverlay = qs('#company-detail-overlay');
+    if (cdOverlay && !cdOverlay.classList.contains('hidden') && __companies.detailId != null) {
+      if (typeof loadCompanyUsers === 'function') loadCompanyUsers(__companies.detailId);
+      if (typeof loadCompanyOrders === 'function') loadCompanyOrders(__companies.detailId);
+    }
+  } catch (e) { console.warn('[updateUIWithNewLanguage] company detail i18n refresh error:', e); }
+
   // Language change: no need to re-fetch data from API — data hasn't changed.
   // Tables are already re-rendered above (line 8737), event map markers are
   // re-synced by wrappedSetLanguage's 80ms timeout + changeLanguage safety net,

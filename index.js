@@ -4565,6 +4565,14 @@ async function ensureOrdersSchema() {
   `);
   try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS company_id integer`); } catch (e) {}
   try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS points_spent integer NOT NULL DEFAULT 0`); } catch (e) {}
+  // Siparişler panelinde (Companies > Siparişler) gösterilen sütunlar: tablo daha önce
+  // eksik/eski bir yapıyla oluşmuş olsa bile eksik kolonları tamamla, boş dönmesin.
+  try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS person_placing_order text`); } catch (e) {}
+  try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS order_amount_before_discount numeric(12,2)`); } catch (e) {}
+  try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS order_amount_after_discount numeric(12,2)`); } catch (e) {}
+  try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS discount_percentage integer`); } catch (e) {}
+  try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS items jsonb NOT NULL DEFAULT '[]'::jsonb`); } catch (e) {}
+  try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS order_date timestamptz NOT NULL DEFAULT now()`); } catch (e) {}
   try {
     await pool.query(`ALTER TABLE public.orders ADD CONSTRAINT orders_company_fk
       FOREIGN KEY (company_id) REFERENCES public.companies(company_id) ON DELETE SET NULL`);
@@ -4800,8 +4808,7 @@ app.post('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
 // Bir şirketin siparişleri
 app.get('/api/admin/companies/:id/orders', adminOnly, async (req, res) => {
   try {
-    const t = await pool.query(`SELECT to_regclass('public.orders') AS t`);
-    if (!t.rows[0].t) return res.json([]);
+    await ensureOrdersSchema();
     const r = await pool.query(
       `SELECT order_id, person_placing_order, order_amount_before_discount, order_amount_after_discount,
               discount_percentage, items, order_date
@@ -4838,8 +4845,7 @@ app.get('/api/company/orders', requireAuth, requireAnyRole(['company']), async (
     const u = await pool.query(`SELECT dependent_company FROM users WHERE id=$1`, [req.user.id]);
     const cid = u.rows[0] && u.rows[0].dependent_company;
     if (!cid) return res.json([]);
-    const t = await pool.query(`SELECT to_regclass('public.orders') AS t`);
-    if (!t.rows[0].t) return res.json([]);
+    await ensureOrdersSchema();
     const r = await pool.query(
       `SELECT order_id, person_placing_order, order_amount_before_discount, order_amount_after_discount,
               discount_percentage, items, order_date
