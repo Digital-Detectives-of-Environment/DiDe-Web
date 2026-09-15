@@ -3815,6 +3815,7 @@ th:has(#btn-add-type){
 .cd-user-fn{ color:var(--text,#111); }
 .cd-user-em{ color:var(--muted,#6b7280); font-size:13px; margin-left:auto; word-break:break-all; }
 .cd-empty{ padding:16px; text-align:center; color:var(--muted,#6b7280); }
+.cd-empty.cd-error{ color:#dc2626; font-weight:600; }
 
 .cd-orders-table-wrap{ overflow:auto; max-height:min(50vh, 480px); border:1px solid var(--border-soft,#eef2f7); border-radius:12px; }
 .cd-orders-table{ width:100%; border-collapse:collapse; font-size:13.5px; }

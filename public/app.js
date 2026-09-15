@@ -6616,8 +6616,30 @@ async function loadCompanyOrders(companyId) {
   const pane = qs('#company-detail-orders'); if (!pane) return;
   pane.innerHTML = '';
   let list = [];
-  try { const r = await fetch(`/api/admin/companies/${companyId}/orders`); if (r.ok) list = await r.json(); } catch {}
+  let fetchFailed = false;
+  try {
+    const r = await fetch(`/api/admin/companies/${companyId}/orders`);
+    if (r.ok) {
+      list = await r.json();
+    } else {
+      fetchFailed = true;
+      const d = await r.json().catch(() => ({}));
+      console.error('loadCompanyOrders: request failed', r.status, d);
+    }
+  } catch (e) {
+    fetchFailed = true;
+    console.error('loadCompanyOrders: network/parse error', e);
+  }
   if (!Array.isArray(list)) list = [];
+  if (fetchFailed) {
+    // Gerçek bir hata olduğunda bunu "henüz sipariş yok" ile karıştırmayalım —
+    // aksi halde arka planda hata olsa da kullanıcı boş liste görür ve
+    // sorunun ne olduğunu asla anlayamaz.
+    const d = document.createElement('div'); d.className = 'cd-empty cd-error';
+    d.textContent = t('unknownError');
+    pane.appendChild(d);
+    return;
+  }
   if (!list.length) { const d = document.createElement('div'); d.className = 'cd-empty'; d.textContent = t('noOrdersYet'); pane.appendChild(d); return; }
   const wrap = document.createElement('div'); wrap.className = 'cd-orders-table-wrap';
   const table = document.createElement('table'); table.className = 'cd-orders-table';
