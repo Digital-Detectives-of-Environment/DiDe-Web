@@ -12053,6 +12053,7 @@ const __pf = {
   perPage: 8,
   solver: false,
   map: null,
+  tileLayer: null,
   markersLayer: null,
   markers: {},
   focusId: null,
@@ -12330,9 +12331,15 @@ function pfEnsureMap(){
   if (!el || typeof L === 'undefined') return null;
   // Harita üzerinde kendi +/- zoom kontrolü OLMAYACAK (zoomControl: false)
   __pf.map = L.map(el, { zoomControl: false, worldCopyJump: false });
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  __pf.tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors', noWrap: true
-  }).addTo(__pf.map);
+  });
+  // Ana giriş haritasındaki "block-all" mantığıyla AYNI: ZOOM_LEVEL_BOUNDARY=yes ise
+  // gerçek clip devreye girene kadar bu haritada da HİÇ tile isteği gitmesin.
+  if (typeof _wantBoundaryClip === 'function' && _wantBoundaryClip()) {
+    __pf.tileLayer._isValidTile = function(){ return false; };
+  }
+  __pf.tileLayer.addTo(__pf.map);
   // Kullanıcı girişindeki gibi clustering katmanı
   __pf.markersLayer = makeMarkersLayer().addTo(__pf.map);
   __pf.map.setView([39.0, 35.0], 5);
@@ -12340,12 +12347,139 @@ function pfEnsureMap(){
   return __pf.map;
 }
 
-// Profil haritasını ana giriş haritasıyla AYNI göster: sınıra fit + maske + sınır çizgisi
-// (ZOOM_LEVEL_BOUNDARY=yes ve sınır verisi varsa). Tile clip zaten global override ile uygulanır.
-function pfApplyBoundary(m){
+/* ---- Profil haritası tile clipping: ana giriş haritasındaki mekanizmanın (osmTileLayer,
+   _setTileClipOnLayer, _installBoundaryCanvasTiles, _projectedRingsForZoom) BİREBİR
+   aynı algoritmik eşdeğeri — ama kendi ayrı Leaflet map/tileLayer örneğine (__pf.map /
+   __pf.tileLayer) uygulanıyor. Ana haritanın kendi fonksiyonları burada HİÇ değiştirilmedi;
+   yalnızca paylaşılan, saf coğrafi (harita örneğinden bağımsız) yardımcılar
+   (_tileAllowedByBoundary, _collectBoundaryRings, _boundaryBounds, _tileClipValidTile)
+   yeniden kullanılıyor. Önceki sürümde profil haritasında yalnızca bir maske poligonu
+   (görsel üst katman) vardı; gerçek tile'lar hâlâ sınır dışını da indirip çiziyordu. Zoom
+   in/out sırasında maske ile tile çizimi arasındaki zamanlama farkı, sınır dışının bir an
+   görünüp sonra üstüne beyaz maskenin "binmesi" (çakışma) olarak ortaya çıkıyordu. Artık
+   sınır dışı tile'lar ana haritada olduğu gibi hiç indirilmiyor/hiç çizilmiyor. ---- */
+let __pfClipProjCache = { z: null, rings: null };
+function _pfInvalidateClipProjCache(){ __pfClipProjCache = { z: null, rings: null }; }
+function _pfProjectedRingsForZoom(z){
+  try {
+    if (__pfClipProjCache.z === z && __pfClipProjCache.rings) return __pfClipProjCache.rings;
+    const rings = __clipRings || [];
+    const m = __pf.map;
+    if (!m || !rings.length){ __pfClipProjCache = { z, rings: [] }; return []; }
+    const out = rings.map(r => r.map(pt => {
+      const p = m.project(L.latLng(pt[0], pt[1]), z);
+      return [p.x, p.y];
+    }));
+    __pfClipProjCache = { z, rings: out };
+    return out;
+  } catch { return []; }
+}
+function _pfInstallBoundaryCanvasTiles(){
+  const layer = __pf.tileLayer;
+  if (!layer || layer.__boundaryCanvasInstalled) return;
+  layer.__boundaryCanvasInstalled = true;
+
+  layer.createTile = function(coords, done){
+    try {
+      const bc = window.__boundaryClip;
+      const pending = window.__boundaryClipPending === true;
+      let block = false;
+      if (bc && bc.active && typeof bc.tileAllowed === 'function' && this._tileCoordsToBounds){
+        const tb = this._tileCoordsToBounds(coords);
+        if (!bc.tileAllowed(tb)) block = true;
+      } else if (pending){
+        block = true;
+      }
+      if (block){
+        const empty = document.createElement('img');
+        empty.alt = ''; empty.setAttribute('role','presentation');
+        if (done) setTimeout(function(){ done(null, empty); }, 0);
+        return empty;
+      }
+    } catch (e) {}
+
+    const size = this.getTileSize();
+    const canvas = document.createElement('canvas');
+    canvas.width = size.x; canvas.height = size.y;
+    const ctx = canvas.getContext('2d');
+    const z = coords.z;
+    const originX = coords.x * size.x, originY = coords.y * size.y;
+    const img = new Image();
+    img.onload = function(){
+      try {
+        const pr = _pfProjectedRingsForZoom(z);
+        if (pr && pr.length){
+          ctx.save();
+          ctx.beginPath();
+          for (const ring of pr){
+            for (let i = 0; i < ring.length; i++){
+              const x = ring[i][0] - originX, y = ring[i][1] - originY;
+              if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+          }
+          ctx.clip();
+          ctx.drawImage(img, 0, 0, size.x, size.y);
+          ctx.restore();
+        } else {
+          ctx.drawImage(img, 0, 0, size.x, size.y);
+        }
+      } catch (e) {
+        try { ctx.clearRect(0,0,size.x,size.y); ctx.drawImage(img, 0, 0, size.x, size.y); } catch {}
+      }
+      if (done) done(null, canvas);
+    };
+    img.onerror = function(e){ if (done) done(e, canvas); };
+    img.src = this.getTileUrl(coords);
+    return canvas;
+  };
+  try { layer.redraw(); } catch {}
+}
+function _pfSetTileClipOnLayer(){
+  const layer = __pf.tileLayer;
+  if (!layer) return false;
+  const bb = _boundaryBounds();
+  if (!bb) return false;
+  // __clipRings / __clipBounds ana haritayla PAYLAŞILIR: ikisi de aynı sınır poligonunun
+  // salt coğrafi (lat/lng) verisidir, hangi Leaflet map örneğine ait olduğuyla ilgisi yok.
+  // Zaten ana harita tarafından dolduruldularsa burada tekrar hesaplamaya gerek yok; ana
+  // haritanın state'ine hiçbir şekilde yazılmaz/bozulmaz, yalnızca okunur.
+  if (!__clipBounds || !__clipRings || !__clipRings.length){
+    __clipBounds = bb;
+    __clipRings = _collectBoundaryRings();
+  }
+  _pfInvalidateClipProjCache();
+  if (!window.__boundaryClip || !window.__boundaryClip.active){
+    const ringsRef = __clipRings, boundsRef = __clipBounds;
+    window.__boundaryClip = {
+      active: true,
+      tileAllowed: function(tb){ return _tileAllowedByBoundary(tb, boundsRef, ringsRef); }
+    };
+  }
+  layer.options.bounds = bb;
+  layer._isValidTile = (__clipRings && __clipRings.length)
+    ? _tileClipValidTile
+    : L.TileLayer.prototype._isValidTile;
+  if (__clipRings && __clipRings.length) { try { _pfInstallBoundaryCanvasTiles(); } catch(e){ console.warn('_pfInstallBoundaryCanvasTiles', e); } }
+  window.__boundaryClipPending = false;
+  return true;
+}
+function pfApplyTileClip(){
+  if (_pfSetTileClipOnLayer()) { try { __pf.tileLayer.redraw(); } catch {} }
+}
+
+// Profil haritasını ana giriş haritasıyla AYNI göster: sınıra fit + gerçek tile clip +
+// maske + sınır çizgisi (ZOOM_LEVEL_BOUNDARY=yes ve sınır verisi varsa).
+function pfApplyBoundary(m, attempt){
+  attempt = attempt || 0;
   if (!m || typeof L === 'undefined') return;
   if (typeof _wantBoundaryClip === 'function' && !_wantBoundaryClip()) return;
-  if (!__boundary || !__boundary.enabled || !__boundary.geojson) return;
+  if (!__boundary || !__boundary.enabled || !__boundary.geojson) {
+    // Sınır verisi henüz gelmemiş olabilir (ana haritadaki ensureBoundaryThenClip ile aynı
+    // yeniden-deneme mantığı): birkaç kez tekrar dene, sonra vazgeç.
+    if (attempt < 6) { setTimeout(() => pfApplyBoundary(m, attempt + 1), 700); }
+    return;
+  }
   const bb = (typeof _boundaryBounds === 'function') ? _boundaryBounds() : null;
   if (!bb) return;
   try {
@@ -12354,6 +12488,9 @@ function pfApplyBoundary(m){
     m.setMaxBounds(bb); m.options.maxBoundsViscosity = 1.0;
     m.fitBounds(bb, { animate: false });
   } catch {}
+  // Ana giriş haritasıyla AYNI gerçek tile clip: sınır dışı tile'lar hiç indirilmez,
+  // sınıra denk gelen tile'lar da canvas ile piksel bazlı kesilir.
+  try { pfApplyTileClip(); } catch (e) { console.warn('pfApplyTileClip', e); }
   try {
     const rings = _collectBoundaryRings();
     if (rings && rings.length) {
