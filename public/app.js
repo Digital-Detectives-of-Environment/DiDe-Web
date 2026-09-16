@@ -246,10 +246,11 @@ function createOrUpdateMapFromConfig() {
           clearTimeout(__rsTimer);
           __rsTimer = setTimeout(() => {
             try { map.invalidateSize({ pan: false }); } catch (e) {}
-            // Boyut gerçekten değiştiyse (ör. mobil toolbar açılıp kapandı) ve
-            // sınır clip'i aktifse, invalidateSize tek başına yetmeyebilir;
-            // görünüme giren yeni alan için tile'ları da tazeleyelim.
-            try { if (osmTileLayer && window.__bLock && window.__bLock.active) osmTileLayer.redraw(); } catch (e) {}
+            // invalidateSize() tek başına yetmez: Leaflet, merkez kayması 0 piksele
+            // yuvarlandığında hiçbir olay tetiklemez ve tile grid'i eski (küçük)
+            // boyutla kalır → görünümün sağ/alt kenarında beyaz bant. _syncTileLayer
+            // görünümdeki EKSİK hücreleri (yeniden indirme yapmadan) tamamlar.
+            try { if (osmTileLayer) _syncTileLayer(map, osmTileLayer); } catch (e) {}
           }, 80);
         });
         __ro.observe(__mapEl);
@@ -259,8 +260,11 @@ function createOrUpdateMapFromConfig() {
     // animasyonu vb. geç layout değişiklikleri) için ek güvenlik: kısa
     // gecikmelerle birkaç kez invalidateSize çağırıyoruz. ResizeObserver zaten
     // çoğu durumu yakalar, bu sadece ek bir güvenlik katmanıdır.
-    [300, 900, 1800].forEach((ms) => {
-      setTimeout(() => { try { if (map) map.invalidateSize({ pan: false }); } catch (e) {} }, ms);
+    [300, 900, 1800, 3200].forEach((ms) => {
+      setTimeout(() => {
+        try { if (map) map.invalidateSize({ pan: false }); } catch (e) {}
+        try { if (map && osmTileLayer) _syncTileLayer(map, osmTileLayer); } catch (e) {}
+      }, ms);
     });
   } else {
     map.setMinZoom(minZoom);
@@ -7844,60 +7848,6 @@ function _geojsonBBox(gj){
 }
 
 /* -- Tile clipping: sınır dışındaki tile'lar HİÇ indirilmez (_isValidTile) -- */
-function _ringContainsLL(ring, lat, lng){
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++){
-    const yi = ring[i][0], xi = ring[i][1], yj = ring[j][0], xj = ring[j][1];
-    const intersect = ((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / ((yj - yi) || 1e-15) + xi);
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
-function _pointInRingsLL(rings, lat, lng){ for (const r of rings){ if (_ringContainsLL(r, lat, lng)) return true; } return false; }
-function _segCross(a, b, c, d){ // noktalar [lng,lat]
-  const ccw = (p, q, r) => (r[1]-p[1])*(q[0]-p[0]) > (q[1]-p[1])*(r[0]-p[0]);
-  return (ccw(a,c,d) !== ccw(b,c,d)) && (ccw(a,b,c) !== ccw(a,b,d));
-}
-function _tileIntersectsRings(tb, rings){
-  const sw = tb.getSouthWest(), ne = tb.getNorthEast();
-  const corners = [sw, ne, L.latLng(ne.lat, sw.lng), L.latLng(sw.lat, ne.lng), tb.getCenter()];
-  for (const c of corners){ if (_pointInRingsLL(rings, c.lat, c.lng)) return true; }
-  for (const r of rings){ for (const v of r){ if (tb.contains(L.latLng(v[0], v[1]))) return true; } }
-  const te = [
-    [[sw.lng,sw.lat],[ne.lng,sw.lat]],
-    [[ne.lng,sw.lat],[ne.lng,ne.lat]],
-    [[ne.lng,ne.lat],[sw.lng,ne.lat]],
-    [[sw.lng,ne.lat],[sw.lng,sw.lat]]
-  ];
-  for (const r of rings){
-    for (let i = 0; i < r.length - 1; i++){
-      const a = [r[i][1], r[i][0]], b = [r[i+1][1], r[i+1][0]];
-      for (const [p, q] of te){ if (_segCross(a, b, p, q)) return true; }
-    }
-  }
-  return false;
-}
-function _boundaryBBoxTooCoarse(tb, boundsRef){
-  try {
-    if (!tb) return false;
-    const tW = tb.getEast() - tb.getWest();
-    const tH = tb.getNorth() - tb.getSouth();
-    const tz = Math.round(Math.log2(360 / Math.max(tW, 1e-9)));
-    const L2 = window.__bLock;
-    const mz = (L2 && Number.isFinite(L2.minZoom)) ? Math.floor(L2.minZoom) : null;
-    if (mz != null) {
-      return tz < mz;
-    }
-    if (!boundsRef) return false;
-    const bW = boundsRef.getEast() - boundsRef.getWest();
-    const bH = boundsRef.getNorth() - boundsRef.getSouth();
-    const bigEnough = (bW > 0.02 || bH > 0.02);
-    if (!bigEnough) return false;
-    const tMax = Math.max(tW, tH), bMax = Math.max(bW, bH);
-    return tMax >= bMax;
-  } catch { return false; }
-}
-
 function _tileAllowedByBoundary(tb, boundsRef, ringsRef){
   try {
     // ---------------------------------------------------------------------
@@ -8005,6 +7955,14 @@ function _installBoundaryCanvasTiles(){
     const canvas = document.createElement('canvas');
     canvas.width = size.x; canvas.height = size.y;
     const ctx = canvas.getContext('2d');
+    // Leaflet'in _abortLoading()'i "yarım kalmış" tile'ı ayırt etmek için
+    // `tile.el.complete` özelliğine bakar. <canvas> elemanında böyle bir özellik
+    // YOKTUR (undefined → falsy), bu yüzden Leaflet her zoom/görünüm geçişinde
+    // TAMAMEN YÜKLENMİŞ canvas tile'ları bile silip hepsini yeniden indirtiyordu.
+    // Bu hem gereksiz istek fırtınası (→ OSM hız sınırı → hatalı/beyaz tile) hem de
+    // geçiş anında boşalan hücreler demekti. Özelliği canvas'ın gerçek durumuna
+    // bağlıyoruz; böylece Leaflet <img> tile'larda olduğu gibi doğru davranıyor.
+    try { Object.defineProperty(canvas, 'complete', { get(){ return !!canvas.__dideLoaded; } }); } catch (e) {}
     const z = coords.z;
     const originX = coords.x * size.x, originY = coords.y * size.y;
     const tileUrl = this.getTileUrl(coords);
@@ -8141,7 +8099,12 @@ const __tileWatchdogLayers = new Map(); // layer -> expiresAt (ms epoch)
 let __tileWatchdogTimer = null;
 function _healVisibleTiles(layer){
   try {
-    if (!layer || !layer._tiles) return;
+    if (!layer) return;
+    // (A) ÖNCE eksik hücre kalmadığından emin ol: konteyner boyutu geç oturduysa
+    //     hiç oluşturulmamış hücreler olabilir; _syncTileLayer bunları ekler.
+    try { _syncTileLayer(layer._map, layer); } catch (e) {}
+    // (B) Sonra oluşturulmuş ama yüklenememiş / askıda kalmış hücreleri tazele.
+    if (!layer._tiles) return;
     Object.keys(layer._tiles).forEach((key) => {
       const t = layer._tiles[key];
       const el = t && t.el;
@@ -8157,7 +8120,7 @@ function _startTileWatchdog(layer){
   // saniyede bir tara; bu süre yeterli olmalı, sonrasında bu katman için
   // watchdog kendini otomatik olarak durdurur (gereksiz sürekli çalışmayı
   // önler). Aynı katman için tekrar çağrılırsa süre sıfırdan başlar.
-  __tileWatchdogLayers.set(layer, Date.now() + 20000);
+  __tileWatchdogLayers.set(layer, Date.now() + 25000);
   if (__tileWatchdogTimer) return; // interval zaten çalışıyor, tüm katmanları tarıyor
   __tileWatchdogTimer = setInterval(() => {
     const now = Date.now();
@@ -8169,7 +8132,7 @@ function _startTileWatchdog(layer){
       clearInterval(__tileWatchdogTimer);
       __tileWatchdogTimer = null;
     }
-  }, 1000);
+  }, 1200);
 }
 function _setTileClipOnLayer(){
   if (!osmTileLayer) return false;
@@ -8198,6 +8161,7 @@ function _setTileClipOnLayer(){
   osmTileLayer._isValidTile = (__clipRings && __clipRings.length)
     ? _tileClipValidTile
     : L.TileLayer.prototype._isValidTile;
+  try { _installPaddedTileRange(osmTileLayer); } catch(e){ console.warn('_installPaddedTileRange', e); }
   if (__clipRings && __clipRings.length) { try { _installBoundaryCanvasTiles(); } catch(e){ console.warn('_installBoundaryCanvasTiles', e); } }
   window.__boundaryClipPending = false; // sınır çözüldü → blokaj kalksın
   window.__redrawMainTiles = function(){ try { osmTileLayer.redraw(); } catch {} };
@@ -8208,49 +8172,72 @@ function applyTileClip(){
 }
 
 // ---------------------------------------------------------------------------
-// ÜÇÜNCÜ KÖK NEDEN (Problem 3 — bir önceki düzeltmeden SONRA da devam eden
-// belirti: site ilk açıldığında sınırın İÇİNDEKİ bazı bölgeler beyaz kalıyor,
-// fakat kullanıcı zoom IN ya da zoom OUT yaptığı anda — hangi yöne olursa
-// olsun — sınırın TÜMÜ doğru görüntüleniyor):
+// ASIL KÖK NEDEN (site ilk açıldığında sınırın İÇİNDE kalan bölgelerin — özellikle
+// görünümün SAĞ ve ALT kenarına denk gelen şeridin — beyaz kalması; kullanıcı
+// zoom yapınca kendiliğinden düzelmesi):
 //
-// `redraw()` sadece görünen tile HÜCRELERİNİ (canvas elemanlarını) yeniden
-// oluşturur; fakat Leaflet'in GridLayer'ı, bir zoom seviyesine ait "pane"in
-// (katman) konum/ölçek dönüşümünü (transform) ve `_tileZoom` durumunu SADECE
-// haritanın GERÇEK bir zoom geçişi (kullanıcı zoom yapınca ya da
-// map.setZoom/zoomIn/zoomOut çağrılınca tetiklenen 'zoomend'/'viewreset'
-// olay zinciri) sırasında tam olarak kurar/senkronize eder. Programatik
-// `fitBounds()` + hemen ardından çağrılan `redraw()` turları, TILE
-// GÖRÜNTÜLERİNİ yeniler ama bu pane/zoom durumunu her zaman aynı şekilde
-// tam senkronize etmeyebiliyor — sonuç: bazı tile'lar canvas'a doğru
-// çizilmiş olsa bile yanlış konum/kırpma durumuyla "kayıp" görünebiliyor.
-// Kullanıcının zoom in/out yapması bu durumu HER SEFERİNDE kesin biçimde
-// düzeltiyor, çünkü bu GERÇEK bir zoom geçişi tetikliyor.
+// Leaflet'in GridLayer'ı, bir tile katmanı için SADECE `map.getSize()` ile
+// hesapladığı görünüm dikdörtgenine denk gelen hücreleri ister. `getSize()` ise
+// ölçümü ÖNBELLEKLER (`map._size`) ve yalnızca gerçek bir resize/zoom olayında
+// tazeler. Sayfa ilk açılırken header yüksekliğinin geç oturması, web font'ların
+// yüklenmesi, mobil tarayıcı araç çubuğu ya da `fitMapHeight()` gibi geç çalışan
+// layout adımları yüzünden konteynerin GERÇEK piksel boyutu ile Leaflet'in
+// önbellekteki boyutu ayrışabiliyor. Bu durumda görünümün sağ/alt kenarındaki
+// hücreler HİÇ İSTENMİYOR; Leaflet o hücreleri bir daha kendiliğinden sorgulamadığı
+// için de orada KALICI beyaz bir bant kalıyordu. Kullanıcı zoom in/out yaptığında
+// Leaflet boyutu yeniden ölçüp grid'i sıfırdan kurduğu için sorun "düzelmiş" gibi
+// görünüyordu.
 //
-// ÇÖZÜM: Aynı gerçek zoom geçişini, kullanıcı hiçbir şey fark etmeden,
-// OTOMATİK olarak simüle ediyoruz. Zoom'u BİR ADIM değiştirip aynı senkron
-// JS turu içinde (araya hiçbir tarayıcı repaint'i girmeden) hemen eski
-// değerine geri alıyoruz: iki `setZoom()` çağrısı da senkron DOM işlemleri
-// olduğundan, tarayıcı bu ikisi arasındaki ara kareyi hiçbir zaman çizmez
-// (repaint, JS çağrı yığını tamamen boşalmadan gerçekleşmez); kullanıcı
-// gözle hiçbir sıçrama görmez. Ama Leaflet içeride GERÇEK bir zoom geçişi
-// (gidiş + dönüş) yaşadığı için, "elle zoom in/zoom out" ile elde edilen
-// düzeltmeyi birebir, otomatik olarak üretmiş oluruz.
+// Önceki sürümdeki çözüm denemesi (görünmez setZoom(+1)/setZoom(-1) gidiş-dönüşü)
+// bu durumu kısmen maskeliyordu ama YENİ bir sorun üretiyordu: her gidiş-dönüş,
+// iki ayrı zoom seviyesi için TÜM tile'ları yeniden indirtiyordu. Buna arka arkaya
+// çağrılan `redraw()` turları (redraw = önce tüm tile'ları SİL, sonra hepsini
+// yeniden indir) eklenince, ilk birkaç saniyede aynı tile'lar 4-5 kez isteniyor,
+// OSM tarafındaki hız sınırına takılan istekler hata dönüyor ve o hücreler yine
+// beyaz kalıyordu.
+//
+// ÇÖZÜM (yeniden indirme YOK, görünür sıçrama YOK):
+//   1) Konteynerin DOM'daki gerçek boyutu ile Leaflet'in bildiği boyut karşılaştırılır;
+//      ayrışma varsa boyut önbelleği geçersiz kılınıp görünüm sıfırdan kurulur.
+//   2) Tile pane'in zoom/transform durumu tazelenir.
+//   3) `_update()` çağrılır: bu, görünümde EKSİK olan hücreleri ekler, MEVCUT
+//      (yüklenmiş) tile'lara hiç dokunmaz → tek bir gereksiz istek bile gitmez.
+// Bu fonksiyon, elle zoom yapmanın ürettiği düzeltici etkinin bedelsiz eşdeğeridir
+// ve istenildiği kadar sık çağrılabilir.
 // ---------------------------------------------------------------------------
-function _forceZoomTransitionResync(m, layer){
+function _syncTileLayer(m, layer){
   try {
-    if (!m || !layer) return;
-    const z = m.getZoom();
-    if (!Number.isFinite(z)) return;
-    const minZ = (typeof m.getMinZoom === 'function') ? m.getMinZoom() : undefined;
-    const maxZ = (typeof m.getMaxZoom === 'function') ? m.getMaxZoom() : undefined;
-    let nudge = z + 1;
-    if (Number.isFinite(maxZ) && nudge > maxZ) nudge = z - 1;
-    if (Number.isFinite(minZ) && nudge < minZ) nudge = z + 1;
-    if (nudge === z || (Number.isFinite(minZ) && nudge < minZ) || (Number.isFinite(maxZ) && nudge > maxZ)) return;
-    m.setZoom(nudge, { animate: false });
-    m.setZoom(z, { animate: false });
-    try { layer.redraw(); } catch {}
-  } catch (e) { console.warn('_forceZoomTransitionResync', e); }
+    if (!m || !layer || !m._loaded || layer._map !== m) return;
+    const el = m.getContainer();
+    if (el && el.clientWidth > 0 && el.clientHeight > 0){
+      const s = m.getSize();
+      if (Math.abs(s.x - el.clientWidth) > 1 || Math.abs(s.y - el.clientHeight) > 1){
+        m._sizeChanged = true;      // getSize() yeniden ÖLÇSÜN
+        m.getSize();
+        try { m._resetView(m.getCenter(), m.getZoom(), true); } catch (e) {}
+      }
+    }
+    if (layer._tileZoom === undefined || layer._tileZoom === null) return;
+    try { layer._setZoomTransforms(m.getCenter(), m.getZoom()); } catch (e) {}
+    layer._update(m.getCenter());
+  } catch (e) {}
+}
+
+// Görünüm dikdörtgenini her yönde BİR tile payıyla genişletir. Böylece Leaflet'in
+// boyut ölçümü bir an için birkaç piksel eksik kalsa bile ekranın sağ/alt kenarındaki
+// hücreler yine de istenir (beyaz bant matematiksel olarak imkânsızlaşır). Maliyeti
+// yok denecek kadar azdır: sınır dışına düşen fazladan hücreler zaten `_isValidTile`
+// tarafından elenir, hiç istek gitmez.
+function _installPaddedTileRange(layer){
+  try {
+    if (!layer || layer.__paddedRangeInstalled) return;
+    layer.__paddedRangeInstalled = true;
+    layer._getTiledPixelBounds = function(center){
+      const b = L.GridLayer.prototype._getTiledPixelBounds.call(this, center);
+      const ts = this.getTileSize();
+      return new L.Bounds(b.min.subtract([ts.x, ts.y]), b.max.add([ts.x, ts.y]));
+    };
+  } catch (e) {}
 }
 
 // Config bayrağı: ZOOM_LEVEL_BOUNDARY yes/true/1 mı? (harita oluşturulurken güvenilir bilinir)
@@ -8260,8 +8247,8 @@ function _wantBoundaryClip(){
 }
 
 // "zoom out + zoom in" ile elde edilen sonucu otomatikleştiren güvence geçişi:
-// mevcut tile isteklerinin bitmesini bekleyip TAM bir redraw() daha tetikler.
-// Böylece ilk turda herhangi bir nedenle (timing, geç oturan layout, vs.)
+// artan gecikmelerle birkaç kez görünümdeki EKSİK hücreleri tamamlar. Böylece ilk
+// turda herhangi bir nedenle (timing, geç oturan layout, geç yüklenen font/header)
 // atlanmış olabilecek hücreler kullanıcı hiçbir şey yapmadan doldurulur.
 let __settlePassScheduled = false;
 function _scheduleBoundaryTileSettlePass(){
@@ -8269,41 +8256,17 @@ function _scheduleBoundaryTileSettlePass(){
   if (__settlePassScheduled) return;
   __settlePassScheduled = true;
   try { _startTileWatchdog(osmTileLayer); } catch (e) {}
-
-  let done = false;
-  const finalize = () => {
-    if (done) return;
-    done = true;
-    // Asıl kesin düzeltme: gerçek (görünmez) bir zoom geçişi ile Leaflet'in
-    // pane/zoom durumunu tam senkronize et — bkz. _forceZoomTransitionResync
-    // üstündeki açıklama.
-    try { _forceZoomTransitionResync(map, osmTileLayer); } catch (e) {}
-    try { osmTileLayer.redraw(); } catch {}
-    try { drawBoundaryMask(); } catch {}
-    // Bir geçiş daha yetmeyebilecek çok yavaş ağlar / geç header oturması için
-    // ikinci bir güvence turu...
-    setTimeout(() => {
-      try { osmTileLayer.redraw(); } catch {}
-      // ...ve kampüs wifi'si gibi gerçekten yavaş/kararsız bağlantılar için
-      // üçüncü, daha geç bir son güvence turu. Bu noktada bayrak serbest
-      // bırakılır; tile isteği gevşetilmiş bbox testine dayandığından
-      // (bkz. _tileAllowedByBoundary) bu ek redraw() çağrıları sadece daha
-      // önce network/timing yüzünden atlanmış olabilecek hücreleri
-      // tazeler, yanlış poligon testi yüzünden kalıcı olarak atlanan bir
-      // hücre artık söz konusu olamaz.
-      setTimeout(() => {
-        try { osmTileLayer.redraw(); } catch {}
-        __settlePassScheduled = false;
-      }, 1800);
-    }, 900);
-  };
-
-  try {
-    osmTileLayer.once('load', finalize);
-  } catch (e) {}
-  // 'load' event'i hiç tetiklenmezse (ör. tüm tile'lar zaten cache'ten anlık
-  // geldi ya da event kaçtı) diye sabit bir zaman aşımı güvencesi.
-  setTimeout(finalize, 1200);
+  // Artan gecikmelerle birkaç "eksik hücre tamamlama" turu. Her tur SADECE eksik
+  // hücreleri ekler (bkz. _syncTileLayer); yüklenmiş tile'lar silinmediği için
+  // yeniden indirme olmaz. Böylece geç oturan layout (header/font/mobil toolbar)
+  // ne zaman otursa otursun görünüm boşluksuz tamamlanır.
+  [0, 250, 700, 1500, 3000].forEach((ms) => {
+    setTimeout(() => { try { _syncTileLayer(map, osmTileLayer); } catch (e) {} }, ms);
+  });
+  setTimeout(() => {
+    try { drawBoundaryMask(); } catch (e) {}
+    __settlePassScheduled = false;
+  }, 3100);
 }
 
 // Tile katmanı "block-all" durumdayken çağrılır: sınır geometrisini garanti eder,
@@ -8352,14 +8315,18 @@ async function ensureBoundaryThenClip(attempt){
         map.fitBounds(bb, { paddingTopLeft: L.point(0, px), paddingBottomRight: L.point(0, 0), animate: false });
         window.__boundaryFitted = true;
         _refreshBoundaryMaxBounds();
-        // fitBounds() BİZZAT bir zoom geçişi olsa da, üzerine hemen çağırdığımız
-        // redraw()/mask/outline adımları ile aynı senkron JS turunda yarışabiliyor;
-        // kesin garanti için burada da görünmez zoom-nudge resync'ini tetikliyoruz
-        // (bkz. _forceZoomTransitionResync üstündeki açıklama).
-        try { _forceZoomTransitionResync(map, osmTileLayer); } catch (e) {}
+        // fitBounds() bir zoom geçişidir ama konteyner boyutu henüz oturmamış
+        // olabilir; eksik kalan hücreleri hemen tamamla (bkz. _syncTileLayer).
+        try { _syncTileLayer(map, osmTileLayer); } catch (e) {}
       }
 
-      try { osmTileLayer.redraw(); } catch {}
+      // NOT: burada bilerek redraw() ÇAĞRILMIYOR. redraw(), görünümdeki tüm
+      // tile'ları silip hepsini yeniden indirtir; _installBoundaryCanvasTiles()
+      // içinde zaten bir kez çalıştı. Tekrarı, ilk saniyelerde aynı tile'ların
+      // 4-5 kez istenmesine ve OSM tarafındaki hız sınırına takılan isteklerin
+      // beyaz hücre bırakmasına yol açıyordu. Eksik hücreler _syncTileLayer ile
+      // (yeniden indirme yapılmadan) tamamlanıyor.
+      try { _syncTileLayer(map, osmTileLayer); } catch (e) {}
       try { drawBoundaryMask(); } catch {}
       try { drawBoundaryLayer(); } catch {}
       __boundaryConstraintsApplied = true;
@@ -8546,8 +8513,8 @@ function applyBoundaryZoomLock(){
       window.__boundaryFitted = true;
       if (Number.isFinite(fitZoom) && map.getZoom() < fitZoom) map.setZoom(fitZoom);
       _refreshBoundaryMaxBounds();
-      // bkz. _forceZoomTransitionResync üstündeki açıklama.
-      try { _forceZoomTransitionResync(map, osmTileLayer); } catch (e) {}
+      // bkz. _syncTileLayer üstündeki açıklama.
+      try { _syncTileLayer(map, osmTileLayer); } catch (e) {}
     }
     try { _scheduleBoundaryTileSettlePass(); } catch (e) {}
   } catch (e) { console.warn('applyBoundaryZoomLock error:', e); }
@@ -12747,6 +12714,14 @@ function _pfInstallBoundaryCanvasTiles(){
     const canvas = document.createElement('canvas');
     canvas.width = size.x; canvas.height = size.y;
     const ctx = canvas.getContext('2d');
+    // Leaflet'in _abortLoading()'i "yarım kalmış" tile'ı ayırt etmek için
+    // `tile.el.complete` özelliğine bakar. <canvas> elemanında böyle bir özellik
+    // YOKTUR (undefined → falsy), bu yüzden Leaflet her zoom/görünüm geçişinde
+    // TAMAMEN YÜKLENMİŞ canvas tile'ları bile silip hepsini yeniden indirtiyordu.
+    // Bu hem gereksiz istek fırtınası (→ OSM hız sınırı → hatalı/beyaz tile) hem de
+    // geçiş anında boşalan hücreler demekti. Özelliği canvas'ın gerçek durumuna
+    // bağlıyoruz; böylece Leaflet <img> tile'larda olduğu gibi doğru davranıyor.
+    try { Object.defineProperty(canvas, 'complete', { get(){ return !!canvas.__dideLoaded; } }); } catch (e) {}
     const z = coords.z;
     const originX = coords.x * size.x, originY = coords.y * size.y;
     const tileUrl = this.getTileUrl(coords);
@@ -12853,6 +12828,7 @@ function _pfSetTileClipOnLayer(){
   layer._isValidTile = (__clipRings && __clipRings.length)
     ? _tileClipValidTile
     : L.TileLayer.prototype._isValidTile;
+  try { _installPaddedTileRange(layer); } catch(e){ console.warn('_installPaddedTileRange (pf)', e); }
   if (__clipRings && __clipRings.length) { try { _pfInstallBoundaryCanvasTiles(); } catch(e){ console.warn('_pfInstallBoundaryCanvasTiles', e); } }
   window.__boundaryClipPending = false;
   return true;
@@ -12884,15 +12860,14 @@ function pfApplyBoundary(m, attempt){
   // Ana giriş haritasıyla AYNI gerçek tile clip: sınır dışı tile'lar hiç indirilmez,
   // sınıra denk gelen tile'lar da canvas ile piksel bazlı kesilir.
   try { pfApplyTileClip(); } catch (e) { console.warn('pfApplyTileClip', e); }
-  // Ana haritadaki AYNI kesin düzeltme (bkz. _forceZoomTransitionResync üstündeki
+  // Ana haritadaki AYNI kesin düzeltme (bkz. _syncTileLayer üstündeki
   // açıklama): görünmez, senkron bir zoom gidiş-dönüşü ile Leaflet'in pane/zoom
   // durumunu tam senkronize eder — "elle zoom in/out" ile elde edilen sonucu
   // profil haritasında da otomatikleştirir.
-  try { _forceZoomTransitionResync(m, __pf.tileLayer); } catch (e) {}
-  setTimeout(() => {
-    try { _forceZoomTransitionResync(m, __pf.tileLayer); } catch (e) {}
-    try { __pf.tileLayer && __pf.tileLayer.redraw(); } catch (e) {}
-  }, 900);
+  try { _startTileWatchdog(__pf.tileLayer); } catch (e) {}
+  [0, 250, 700, 1500, 3000].forEach((ms) => {
+    setTimeout(() => { try { _syncTileLayer(m, __pf.tileLayer); } catch (e) {} }, ms);
+  });
   try {
     const rings = _collectBoundaryRings();
     if (rings && rings.length) {
@@ -12970,6 +12945,13 @@ function pfOpenMap(focusEventId){
   // Boyutu düzelt ve odakla
   setTimeout(() => {
     try { m.invalidateSize(); } catch {}
+    // Profil haritası GİZLİ bir konteynerde oluşturuluyor; görünür olduğunda gerçek
+    // boyutuna kavuşur. Ana haritadakiyle AYNI eksik-hücre tamamlama turlarını burada
+    // da çalıştırıyoruz ki sınır içindeki hiçbir bölge beyaz kalmasın.
+    try { _startTileWatchdog(__pf.tileLayer); } catch (e) {}
+    [0, 250, 700, 1500].forEach((ms) => {
+      setTimeout(() => { try { _syncTileLayer(m, __pf.tileLayer); } catch (e) {} }, ms);
+    });
     if (focusEventId != null && __pf.markers[focusEventId]){
       const mk = __pf.markers[focusEventId];
       const openIt = () => { try { mk.openPopup(); } catch {} };
