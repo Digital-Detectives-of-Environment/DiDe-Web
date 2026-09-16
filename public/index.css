@@ -3607,8 +3607,8 @@ th:has(#btn-add-type){
 }
 
 /* Google Maps benzeri canlı konum: mavi nokta + yönelim oku */
-.gps-live-icon{ background:none !important; border:none !important; }
-.gps-live{ position:relative; width:26px; height:26px; }
+.gps-live-icon{ background:none !important; border:none !important; overflow:visible !important; }
+.gps-live{ position:relative; width:26px; height:26px; overflow:visible; }
 .gps-dot{
   position:absolute; left:50%; top:50%;
   width:16px; height:16px; margin:-8px 0 0 -8px;
@@ -3620,9 +3620,11 @@ th:has(#btn-add-type){
   position:absolute; left:50%; bottom:50%;
   width:0; height:0;
   margin-bottom:6px;
-  border-left:7px solid transparent;
-  border-right:7px solid transparent;
-  border-bottom:12px solid #1a73e8;
+  /* Yön konisi büyütüldü (eskisi: 7/7/12) — taban/yükseklik oranı korunarak
+     ~1.6x büyütüldü, daha belirgin görünsün diye. */
+  border-left:11px solid transparent;
+  border-right:11px solid transparent;
+  border-bottom:19px solid #1a73e8;
   transform:translateX(-50%);
   transform-origin:50% 100%;
   opacity:.9;

@@ -59,6 +59,13 @@ const ALWAYS_REDIRECT_TO_DEFAULT_LOGIN = true;
 const AUTH_KEY = 'auth_token';
 let authToken = null;
 
+/* Bu sekme/pencere için oturumun daha önce başlayıp başlamadığını izlemek
+   üzere sessionStorage kullanılır. sessionStorage sayfa YENİLEMEDE korunur,
+   fakat sekme/pencere kapatılıp yeniden açıldığında (ya da yepyeni bir
+   sekmede) boş gelir. Böylece "yenilemede oturum korunsun, sekme/pencere
+   kapatılınca çıkış yapılmış olsun" davranışı ayırt edilebilir. */
+const SESSION_ACTIVE_KEY = 'session_active';
+
 /* ==================== GLOBAL CONFIG ==================== */
 let APP_CONFIG = {
   siteTitle: null,
@@ -7305,6 +7312,19 @@ function initCompanyPanelUI() {
     __companyMenu._rz = setTimeout(() => {
       const card = qs('#company-card'); if (!card || card.classList.contains('hidden')) return;
       _setCompanyTop();
+      // Bazı Android tarayıcılarında (ör. belirli Samsung modelleri) sanal
+      // klavye açılıp kapanırken da 'resize' olayı tetikleniyor. O an bir
+      // menü item'ı düzenleme modundaysa (input'a dokunulmuş/odaklanmışsa)
+      // aşağıdaki autoFit çağrıları menüyü tamamen yeniden çiziyor
+      // (innerHTML sıfırlanıp satırlar yeniden oluşturuluyordu); bu da
+      // odaklanmış input'u DOM'dan silip klavyenin anında kapanmasına
+      // sebep oluyordu. Düzenleme sürerken bu yeniden çizimi atlıyoruz ki
+      // klavye açık kalsın; düzenleme bitince (kaydet/iptal) normal
+      // render zaten devreye giriyor.
+      const activeEl = document.activeElement;
+      const editingMenuRow = __companyMenu.editIndex !== -1 ||
+        (activeEl && activeEl.closest && activeEl.closest('#company-menu-rows'));
+      if (editingMenuRow) return;
       const ordersActive = qs('#company-view-orders') && qs('#company-view-orders').classList.contains('active');
       if (ordersActive) companyOrdersAutoFit(); else companyMenuAutoFit();
     }, 160);
@@ -11683,6 +11703,14 @@ function importWizardBack() {
   
   loadToken();
   applySavedTheme();
+
+  // Bu sayfa açılışı; sekme/pencere ilk kez mi açıldı yoksa aynı sekmede bir
+  // YENİLEME mi (F5 / reload) — bunu ayırt ediyoruz. Bayrak (flag) zaten
+  // varsa bu bir yenilemedir; yoksa (yeni sekme/pencere ya da kapatılıp
+  // tekrar açılmış bir sekme) taze bir oturumdur.
+  let __isFreshBrowserSession = true;
+  try { __isFreshBrowserSession = !sessionStorage.getItem(SESSION_ACTIVE_KEY); } catch { __isFreshBrowserSession = true; }
+  try { sessionStorage.setItem(SESSION_ACTIVE_KEY, '1'); } catch {}
   
   await applySiteConfig();
   wireEyes();
@@ -11712,18 +11740,24 @@ function importWizardBack() {
   // Sınır kısıtları (clip + maske + zoom/pan kilidi) giriş ÖNCESİ ve tüm rollerde uygulanır.
   try { await initBoundaryConstraints(); } catch (e) { console.warn('initBoundaryConstraints', e); }
 
-  if (FORCE_DEFAULT_LOGIN_ON_LOAD) {
+  if (FORCE_DEFAULT_LOGIN_ON_LOAD && __isFreshBrowserSession) {
     saveToken(null);
     currentUser = null;
-    // checkMe() burada bilerek çağrılmıyor (her açılışta login ekranına
-    // zorlanmak için /api/me kontrolü atlanıyor). Fakat reflectAuth() ve
-    // canlı konum isteği normalde SADECE checkMe() içinde tetiklendiği için,
-    // bu dal yüzünden ilk açılışta header'daki canlı konum butonu hiç
-    // görünmüyor ve konum izni hiç istenmiyordu. currentUser zaten null
-    // olduğuna göre anonim UI durumunu burada da elle uygularız.
+    // checkMe() burada bilerek çağrılmıyor (yalnızca sekme/pencere yeni
+    // açıldığında login ekranına zorlanmak için /api/me kontrolü atlanıyor).
+    // Fakat reflectAuth() ve canlı konum isteği normalde SADECE checkMe()
+    // içinde tetiklendiği için, bu dal yüzünden ilk açılışta header'daki
+    // canlı konum butonu hiç görünmüyor ve konum izni hiç istenmiyordu.
+    // currentUser zaten null olduğuna göre anonim UI durumunu burada da
+    // elle uygularız.
     try { reflectAuth(); } catch (e) { console.warn('reflectAuth (force login)', e); }
     try { startStandaloneLive(); } catch (e) { console.warn('startStandaloneLive (force login)', e); }
   } else {
+    // Aynı sekmede sayfa yenilendiyse (refresh) — localStorage'daki token
+    // ile oturum /api/me üzerinden doğrulanır ve panel (admin/süpervizör/
+    // şirket/kullanıcı) kaldığı yerden günceller; kullanıcı çıkışa
+    // zorlanmaz. Sekme/pencere kapatılıp yeniden açıldığında ise yukarıdaki
+    // dal devreye girer ve oturum sıfırlanır (çıkış yapılmış olur).
     await checkMe();
   }
 
