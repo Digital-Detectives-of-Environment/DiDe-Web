@@ -7900,17 +7900,45 @@ function _boundaryBBoxTooCoarse(tb, boundsRef){
 
 function _tileAllowedByBoundary(tb, boundsRef, ringsRef){
   try {
-    // Küçük bir tolerans (tile boyutunun ~%4'ü) ile test ediyoruz: sınır
-    // çizgisine tam kenarından değen tile'lar, float/kenar hassasiyeti yüzünden
-    // yanlışlıkla "dışarıda" sayılıp hiç istenmeden atlanmasın. Bu sadece tile'ın
-    // İSTENİP İSTENMEYECEĞİNİ gevşetir; görünen şeklin sınırın dışına taşmaması
-    // zaten createTile içindeki piksel-bazlı canvas clip (_projectedRingsForZoom)
-    // tarafından ayrıca ve kesin biçimde garanti edilir.
-    const tbT = (tb && typeof tb.pad === 'function') ? tb.pad(0.04) : tb;
+    // ---------------------------------------------------------------------
+    // KÖK NEDEN NOTU (Problem 1 — ilk yüklemede sınır içindeki bazı alanların
+    // beyaz kalması):
+    //
+    // Önceki sürümde burada, tile'ın sınır poligonunun (ringsRef) TAM/girintili
+    // şekliyle gerçekten kesişip kesişmediğine bakan katı bir geometri testi
+    // (_tileIntersectsRings, ve öncesinde _boundaryBBoxTooCoarse) vardı. Bu
+    // sınırın kendisi çok girintili/köşeli (concave) bir poligon olduğundan,
+    // tile kenarının poligon kenarına teğet geçtiği ya da sayısal hassasiyetin
+    // (float) sınırda kaldığı noktalarda test YANLIŞ NEGATİF verebiliyordu:
+    // yani sınırın GERÇEKTEN İÇİNDE kalan bir tile bu testi geçemediği için
+    // HİÇ İSTENMİYOR ve o hücre KALICI olarak beyaz kalıyordu — Leaflet aynı
+    // tile hücresini bir daha sorgulamadığı için de kullanıcı elle
+    // zoom-out/zoom-in yapmadan asla düzelmiyordu. Ayrıca bu yanlış negatifin
+    // TAM OLARAK sınıra yakın/kesişen bölgelerde ortaya çıkması, gözlemlenen
+    // "sınırlara yakın yerler beyaz kalıyor" belirtisiyle birebir örtüşüyor.
+    //
+    // ÇÖZÜM: İSTEK aşamasında artık SADECE sınırın dikdörtgen kapsayıcı
+    // kutusuna (bbox, cömert bir payla) bakıyoruz. Bir dikdörtgen-kesişim
+    // testi KONVEKS olduğu için, "poligonun gerçekten içinde kalan bir tile"
+    // hiçbir zaman yanlışlıkla "dışarıda" çıkamaz (false negative üretmesi
+    // matematiksel olarak imkânsız). Sınırın GERÇEK (girintili) şekli zaten
+    // iki ayrı katman tarafından piksel-kesin biçimde uygulanmaya devam ediyor:
+    //   1) createTile içindeki canvas clip (_projectedRingsForZoom + ctx.clip())
+    //      — indirilen tile görüntüsünü poligonun tam sınırına kırpar,
+    //   2) drawBoundaryMask() — poligonun dışında kalan HER yeri (bbox'tan
+    //      taşan fazladan istenen tile'lar dahil) opak bir maske ile üstten
+    //      kaplar (bu katman her zaman tile pane'in üstündeki overlay pane'de
+    //      render olur, o yüzden alttaki tile ne olursa olsun görünmez).
+    // Yani bbox içinde olup poligonun GERÇEKTEN dışında kalan fazladan bir
+    // tile istense bile, ekranda hiçbir zaman görünmez; sadece arka planda
+    // (görünmez) bir network isteği daha gitmiş olur — kabul edilebilir bir
+    // bedel. Buna karşılık eski katı testin false-negative riski KALICI ve
+    // KULLANICIYA GÖRÜNÜR beyaz boşluklara yol açıyordu. Bu yüzden isteği
+    // bbox'a gevşetmek net bir kazanç ve sorunu kökten çözer.
+    // ---------------------------------------------------------------------
+    const tbT = (tb && typeof tb.pad === 'function') ? tb.pad(0.15) : tb;
     if (boundsRef && !boundsRef.overlaps(tbT)) return false;
-    if (_boundaryBBoxTooCoarse(tb, boundsRef)) return false;
-    if (!ringsRef || !ringsRef.length) return true;
-    return _tileIntersectsRings(tbT, ringsRef);
+    return true;
   } catch { return true; }
 }
 
@@ -8054,10 +8082,20 @@ function _scheduleBoundaryTileSettlePass(){
     try { osmTileLayer.redraw(); } catch {}
     try { drawBoundaryMask(); } catch {}
     // Bir geçiş daha yetmeyebilecek çok yavaş ağlar / geç header oturması için
-    // ikinci (son) bir güvence turu; sonra bayrağı serbest bırak.
+    // ikinci bir güvence turu...
     setTimeout(() => {
       try { osmTileLayer.redraw(); } catch {}
-      __settlePassScheduled = false;
+      // ...ve kampüs wifi'si gibi gerçekten yavaş/kararsız bağlantılar için
+      // üçüncü, daha geç bir son güvence turu. Bu noktada bayrak serbest
+      // bırakılır; tile isteği gevşetilmiş bbox testine dayandığından
+      // (bkz. _tileAllowedByBoundary) bu ek redraw() çağrıları sadece daha
+      // önce network/timing yüzünden atlanmış olabilecek hücreleri
+      // tazeler, yanlış poligon testi yüzünden kalıcı olarak atlanan bir
+      // hücre artık söz konusu olamaz.
+      setTimeout(() => {
+        try { osmTileLayer.redraw(); } catch {}
+        __settlePassScheduled = false;
+      }, 1800);
     }, 900);
   };
 
