@@ -8207,6 +8207,52 @@ function applyTileClip(){
   if (_setTileClipOnLayer()) { try { osmTileLayer.redraw(); } catch {} }
 }
 
+// ---------------------------------------------------------------------------
+// ÜÇÜNCÜ KÖK NEDEN (Problem 3 — bir önceki düzeltmeden SONRA da devam eden
+// belirti: site ilk açıldığında sınırın İÇİNDEKİ bazı bölgeler beyaz kalıyor,
+// fakat kullanıcı zoom IN ya da zoom OUT yaptığı anda — hangi yöne olursa
+// olsun — sınırın TÜMÜ doğru görüntüleniyor):
+//
+// `redraw()` sadece görünen tile HÜCRELERİNİ (canvas elemanlarını) yeniden
+// oluşturur; fakat Leaflet'in GridLayer'ı, bir zoom seviyesine ait "pane"in
+// (katman) konum/ölçek dönüşümünü (transform) ve `_tileZoom` durumunu SADECE
+// haritanın GERÇEK bir zoom geçişi (kullanıcı zoom yapınca ya da
+// map.setZoom/zoomIn/zoomOut çağrılınca tetiklenen 'zoomend'/'viewreset'
+// olay zinciri) sırasında tam olarak kurar/senkronize eder. Programatik
+// `fitBounds()` + hemen ardından çağrılan `redraw()` turları, TILE
+// GÖRÜNTÜLERİNİ yeniler ama bu pane/zoom durumunu her zaman aynı şekilde
+// tam senkronize etmeyebiliyor — sonuç: bazı tile'lar canvas'a doğru
+// çizilmiş olsa bile yanlış konum/kırpma durumuyla "kayıp" görünebiliyor.
+// Kullanıcının zoom in/out yapması bu durumu HER SEFERİNDE kesin biçimde
+// düzeltiyor, çünkü bu GERÇEK bir zoom geçişi tetikliyor.
+//
+// ÇÖZÜM: Aynı gerçek zoom geçişini, kullanıcı hiçbir şey fark etmeden,
+// OTOMATİK olarak simüle ediyoruz. Zoom'u BİR ADIM değiştirip aynı senkron
+// JS turu içinde (araya hiçbir tarayıcı repaint'i girmeden) hemen eski
+// değerine geri alıyoruz: iki `setZoom()` çağrısı da senkron DOM işlemleri
+// olduğundan, tarayıcı bu ikisi arasındaki ara kareyi hiçbir zaman çizmez
+// (repaint, JS çağrı yığını tamamen boşalmadan gerçekleşmez); kullanıcı
+// gözle hiçbir sıçrama görmez. Ama Leaflet içeride GERÇEK bir zoom geçişi
+// (gidiş + dönüş) yaşadığı için, "elle zoom in/zoom out" ile elde edilen
+// düzeltmeyi birebir, otomatik olarak üretmiş oluruz.
+// ---------------------------------------------------------------------------
+function _forceZoomTransitionResync(m, layer){
+  try {
+    if (!m || !layer) return;
+    const z = m.getZoom();
+    if (!Number.isFinite(z)) return;
+    const minZ = (typeof m.getMinZoom === 'function') ? m.getMinZoom() : undefined;
+    const maxZ = (typeof m.getMaxZoom === 'function') ? m.getMaxZoom() : undefined;
+    let nudge = z + 1;
+    if (Number.isFinite(maxZ) && nudge > maxZ) nudge = z - 1;
+    if (Number.isFinite(minZ) && nudge < minZ) nudge = z + 1;
+    if (nudge === z || (Number.isFinite(minZ) && nudge < minZ) || (Number.isFinite(maxZ) && nudge > maxZ)) return;
+    m.setZoom(nudge, { animate: false });
+    m.setZoom(z, { animate: false });
+    try { layer.redraw(); } catch {}
+  } catch (e) { console.warn('_forceZoomTransitionResync', e); }
+}
+
 // Config bayrağı: ZOOM_LEVEL_BOUNDARY yes/true/1 mı? (harita oluşturulurken güvenilir bilinir)
 function _wantBoundaryClip(){
   const v = String(APP_CONFIG.zoomLevelBoundary ?? '').toLowerCase();
@@ -8228,6 +8274,10 @@ function _scheduleBoundaryTileSettlePass(){
   const finalize = () => {
     if (done) return;
     done = true;
+    // Asıl kesin düzeltme: gerçek (görünmez) bir zoom geçişi ile Leaflet'in
+    // pane/zoom durumunu tam senkronize et — bkz. _forceZoomTransitionResync
+    // üstündeki açıklama.
+    try { _forceZoomTransitionResync(map, osmTileLayer); } catch (e) {}
     try { osmTileLayer.redraw(); } catch {}
     try { drawBoundaryMask(); } catch {}
     // Bir geçiş daha yetmeyebilecek çok yavaş ağlar / geç header oturması için
@@ -8302,6 +8352,11 @@ async function ensureBoundaryThenClip(attempt){
         map.fitBounds(bb, { paddingTopLeft: L.point(0, px), paddingBottomRight: L.point(0, 0), animate: false });
         window.__boundaryFitted = true;
         _refreshBoundaryMaxBounds();
+        // fitBounds() BİZZAT bir zoom geçişi olsa da, üzerine hemen çağırdığımız
+        // redraw()/mask/outline adımları ile aynı senkron JS turunda yarışabiliyor;
+        // kesin garanti için burada da görünmez zoom-nudge resync'ini tetikliyoruz
+        // (bkz. _forceZoomTransitionResync üstündeki açıklama).
+        try { _forceZoomTransitionResync(map, osmTileLayer); } catch (e) {}
       }
 
       try { osmTileLayer.redraw(); } catch {}
@@ -8491,6 +8546,8 @@ function applyBoundaryZoomLock(){
       window.__boundaryFitted = true;
       if (Number.isFinite(fitZoom) && map.getZoom() < fitZoom) map.setZoom(fitZoom);
       _refreshBoundaryMaxBounds();
+      // bkz. _forceZoomTransitionResync üstündeki açıklama.
+      try { _forceZoomTransitionResync(map, osmTileLayer); } catch (e) {}
     }
     try { _scheduleBoundaryTileSettlePass(); } catch (e) {}
   } catch (e) { console.warn('applyBoundaryZoomLock error:', e); }
@@ -12827,6 +12884,15 @@ function pfApplyBoundary(m, attempt){
   // Ana giriş haritasıyla AYNI gerçek tile clip: sınır dışı tile'lar hiç indirilmez,
   // sınıra denk gelen tile'lar da canvas ile piksel bazlı kesilir.
   try { pfApplyTileClip(); } catch (e) { console.warn('pfApplyTileClip', e); }
+  // Ana haritadaki AYNI kesin düzeltme (bkz. _forceZoomTransitionResync üstündeki
+  // açıklama): görünmez, senkron bir zoom gidiş-dönüşü ile Leaflet'in pane/zoom
+  // durumunu tam senkronize eder — "elle zoom in/out" ile elde edilen sonucu
+  // profil haritasında da otomatikleştirir.
+  try { _forceZoomTransitionResync(m, __pf.tileLayer); } catch (e) {}
+  setTimeout(() => {
+    try { _forceZoomTransitionResync(m, __pf.tileLayer); } catch (e) {}
+    try { __pf.tileLayer && __pf.tileLayer.redraw(); } catch (e) {}
+  }, 900);
   try {
     const rings = _collectBoundaryRings();
     if (rings && rings.length) {
