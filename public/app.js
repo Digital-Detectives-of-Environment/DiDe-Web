@@ -223,6 +223,41 @@ function createOrUpdateMapFromConfig() {
       fitMapHeight();
       map.invalidateSize();
     });
+    // Mobil tarayıcılarda adres/arama çubuğu açılıp kapandığında, header
+    // yüksekliği geç oturduğunda ya da fontlar/asenkron içerik layout'u
+    // ittiğinde harita konteynerinin GERÇEK piksel boyutu, Leaflet'in ilk
+    // hesapladığı boyuttan farklı olabiliyor. Bu durumda bazı tile'lar hiç
+    // istenmiyor ve harita "beyaz" kalıyor; kullanıcı zoom yapınca
+    // invalidateSize dolaylı olarak tetiklendiği için sorun kendiliğinden
+    // düzeliyordu. Burada konteynerin gerçek boyutunu bir ResizeObserver ile
+    // izleyip her gerçek boyut değişiminde invalidateSize'ı biz tetikliyoruz;
+    // böylece kullanıcı elle zoom yapmadan da harita her zaman doğru
+    // boyutla (ve dolayısıyla boşluksuz) render ediliyor.
+    try {
+      const __mapEl = map.getContainer();
+      if (__mapEl && typeof ResizeObserver !== 'undefined') {
+        let __rsTimer = null;
+        let __lastW = __mapEl.clientWidth;
+        let __lastH = __mapEl.clientHeight;
+        const __ro = new ResizeObserver(() => {
+          const w = __mapEl.clientWidth, h = __mapEl.clientHeight;
+          if (w === __lastW && h === __lastH) return;
+          __lastW = w; __lastH = h;
+          clearTimeout(__rsTimer);
+          __rsTimer = setTimeout(() => {
+            try { map.invalidateSize({ pan: false }); } catch (e) {}
+          }, 80);
+        });
+        __ro.observe(__mapEl);
+      }
+    } catch (e) { console.warn('[map] ResizeObserver kurulamadı:', e); }
+    // Sayfa ilk yüklenirken (fontlar / header oturması / mobil toolbar
+    // animasyonu vb. geç layout değişiklikleri) için ek güvenlik: kısa
+    // gecikmelerle birkaç kez invalidateSize çağırıyoruz. ResizeObserver zaten
+    // çoğu durumu yakalar, bu sadece ek bir güvenlik katmanıdır.
+    [300, 900, 1800].forEach((ms) => {
+      setTimeout(() => { try { if (map) map.invalidateSize({ pan: false }); } catch (e) {} }, ms);
+    });
   } else {
     map.setMinZoom(minZoom);
     map.setMaxZoom(18);

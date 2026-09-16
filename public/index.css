@@ -77,6 +77,21 @@
   --legend-maxh: clamp(120px, 38vh, 44vh);
 }
 
+/* Mobil tarayıcılarda (Safari/Chrome) adres çubuğu / arama çubuğu açılıp
+   kapandıkça "100vh" gerçek görünür alanı yansıtmaz; her zaman çubuk gizliymiş
+   gibi en büyük (large) yüksekliği baz alır. Bu yüzden tam ekran harita,
+   çubuk görünürken görünür alandan taşar ve alt kısmı (sınırın bir kısmı dahil)
+   çubuğun ALTINDA kalır. Destekleyen tarayıcılarda "100dvh" (dynamic viewport
+   height) ile üzerine yazıp haritayı her zaman GERÇEKTEN görünen alana
+   sabitliyoruz. Desteklemeyen eski tarayıcılarda bu blok tamamen yok sayılır
+   ve yukarıdaki 100vh tabanlı değerler geçerli kalır (güvenli fallback). */
+@supports (height: 100dvh){
+  :root,
+  :root.theme-dark{
+    --map-h: calc(100dvh - var(--header-h) - 16px);
+  }
+}
+
 *,
 *::before,
 *::after{ box-sizing: border-box; }
@@ -96,6 +111,7 @@ body{
   overflow-x: hidden;
   position: relative;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* ==========
@@ -110,6 +126,11 @@ body.public-fullmap #map{
   width: 100vw !important;
   height: 100vh !important;
   min-height: 100vh !important;
+  /* Mobilde adres/arama çubuğu yüzünden 100vh'nin taştığı alt kısmı
+     100dvh ile gerçek görünür alana çekiyoruz (desteklemeyen tarayıcıda
+     bu iki satır geçersiz sayılıp yukarıdaki 100vh aynen kalır). */
+  height: 100dvh !important;
+  min-height: 100dvh !important;
   z-index: 0;
   border-radius: 0;
   border: none;
@@ -120,6 +141,7 @@ body.login-fullmap,
 body.public-fullmap{
   overflow: hidden !important;
   height: 100vh;
+  height: 100dvh;
 }
 
 /* Harita Blur Efekti (Desktop) */
@@ -469,6 +491,8 @@ body.role-user #map{
   width: 100vw !important;
   height: 100vh !important;
   min-height: 100vh !important;
+  height: 100dvh !important;
+  min-height: 100dvh !important;
   z-index: 0;
   border-radius: 0;
   border: none;
@@ -477,6 +501,7 @@ body.role-user #map{
 body.role-user{
   overflow: hidden !important;
   height: 100vh;
+  height: 100dvh;
 }
 
 body.role-user #olay-card{
@@ -757,6 +782,7 @@ body.supervisor-readonly-map,
 body.supervisor-mode-form{
   overflow: hidden !important;
   height: 100vh !important;
+  height: 100dvh !important;
 }
 
 body.supervisor-readonly-map main,
@@ -765,6 +791,7 @@ body.supervisor-mode-form main{
   margin: 0;
   padding: 0;
   height: calc(100vh - var(--header-h));
+  height: calc(100dvh - var(--header-h));
   overflow: hidden !important;
 }
 
@@ -776,6 +803,8 @@ body.supervisor-mode-form #map{
   width: 100vw !important;
   height: calc(100vh - var(--header-h)) !important;
   min-height: calc(100vh - var(--header-h)) !important;
+  height: calc(100dvh - var(--header-h)) !important;
+  min-height: calc(100dvh - var(--header-h)) !important;
   z-index: 1;
   border-radius: 0;
   border: none;
