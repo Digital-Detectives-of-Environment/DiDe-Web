@@ -7963,6 +7963,21 @@ function _projectedRingsForZoom(z){
   } catch { return []; }
 }
 
+// ---------------------------------------------------------------------------
+// İKİNCİ KÖK NEDEN (bağımsız): görüntü (img) yüklemesi ağ hatası/timeout
+// yüzünden başarısız olursa eski kod HİÇBİR YENİDEN DENEME yapmadan pes
+// ediyordu (img.onerror -> done(e, canvas) ve canvas boş kalıyordu). Zayıf/
+// kararsız bir ağda (ör. kampüs wifi) TEK bir başarısız istek bile o tile'ı
+// KALICI olarak beyaz bırakıyordu — bu, sınır poligonu mantığıyla hiç ilgisi
+// olmayan, saf bir "başarısız isteği tekrar denemiyoruz" hatasıydı. Aşağıdaki
+// sürüm: (1) başarısız yüklemeleri artan gecikmeyle birkaç kez otomatik
+// yeniden dener, (2) her tile'ın son durumunu (__dideLoaded/__dideFailed)
+// canvas üzerinde işaretler, (3) bu durum global bir "tile watchdog"
+// (_startTileWatchdog) tarafından okunarak, birkaç deneme sonunda hâlâ
+// başarısız olan veya hiç tamamlanmamış tile'lar ekran görünürken periyodik
+// olarak yeniden tetiklenir. Böylece "ilk denemede kaybolan" bir istek asla
+// kalıcı beyaz alana dönüşemez.
+// ---------------------------------------------------------------------------
 function _installBoundaryCanvasTiles(){
   if (!osmTileLayer || osmTileLayer.__boundaryCanvasInstalled) return;
   osmTileLayer.__boundaryCanvasInstalled = true;
@@ -7992,10 +8007,18 @@ function _installBoundaryCanvasTiles(){
     const ctx = canvas.getContext('2d');
     const z = coords.z;
     const originX = coords.x * size.x, originY = coords.y * size.y;
-    const img = new Image();
-    img.onload = function(){
+    const tileUrl = this.getTileUrl(coords);
+
+    canvas.__dideLoaded = false;
+    canvas.__dideFailed = false;
+    canvas.__dideLoading = false;
+    canvas.__dideLoadStartedAt = 0;
+    canvas.__dideRetries = 0;
+
+    const drawInto = (img) => {
       try {
         const pr = _projectedRingsForZoom(z);
+        ctx.clearRect(0, 0, size.x, size.y);
         if (pr && pr.length){
           ctx.save();
           ctx.beginPath();
@@ -8015,13 +8038,109 @@ function _installBoundaryCanvasTiles(){
       } catch (e) {
         try { ctx.clearRect(0,0,size.x,size.y); ctx.drawImage(img, 0, 0, size.x, size.y); } catch {}
       }
-      if (done) done(null, canvas);
     };
-    img.onerror = function(e){ if (done) done(e, canvas); };
-    img.src = this.getTileUrl(coords);
+
+    // Yükleme mantığı ayrı bir fonksiyon: hem ilk deneme hem de sonraki
+    // yeniden denemeler (retry + watchdog) aynı yolu kullanır.
+    const startLoad = (isRetry) => {
+      canvas.__dideLoading = true;
+      canvas.__dideLoadStartedAt = Date.now();
+      const img = new Image();
+      img.onload = function(){
+        drawInto(img);
+        canvas.__dideLoaded = true;
+        canvas.__dideFailed = false;
+        canvas.__dideLoading = false;
+        if (!isRetry && done) done(null, canvas);
+      };
+      img.onerror = function(e){
+        canvas.__dideRetries++;
+        if (canvas.__dideRetries <= 4){
+          // Artan gecikmeyle (500ms, 1000ms, 1500ms, 2000ms) yeniden dene.
+          // URL AYNI kalır (OSM tile kullanım politikasına aykırı gereksiz
+          // cache-bust query parametresi eklenmez); başarısızlık genelde
+          // geçici bir network/timeout hatasıdır, aynı URL'e tekrar istek
+          // atmak yeterlidir.
+          setTimeout(() => startLoad(true), 500 * canvas.__dideRetries);
+        } else {
+          canvas.__dideFailed = true;
+          canvas.__dideLoading = false;
+          // Deneme hakları bitti: yine de canvas boş bırakılmaz, en azından
+          // "başarısız" olarak işaretlenir ki watchdog haritayı görüntülemeye
+          // devam ettiği sürece bu tile'ı yeniden denemeyi sürdürsün.
+          if (!isRetry && done) done(e, canvas);
+        }
+      };
+      img.src = tileUrl;
+    };
+    // Watchdog'un (aşağıda) bu tile'ı ileride yeniden tetikleyebilmesi için
+    // yükleme başlatıcıyı canvas üzerinde erişilebilir bırak. Hâlâ normal
+    // şekilde yüklenmekte olan (süresi dolmamış) bir tile'a watchdog'un
+    // gereksiz paralel istek yığmaması için __dideCanReload, "gerçekten
+    // takılı kalmış mı" kontrolünü de üstlenir.
+    canvas.__dideReload = () => { canvas.__dideRetries = 0; startLoad(true); };
+    canvas.__dideCanReload = () => {
+      if (canvas.__dideLoaded) return false;
+      if (!canvas.__dideLoading) return true; // hiç yükleme yok / tükendi → tetikle
+      // Yükleniyor gibi görünüyor ama 8 saniyedir sonuç gelmemiş → muhtemelen
+      // askıda kalmış bir istek; yine de tetikle.
+      return (Date.now() - canvas.__dideLoadStartedAt) > 8000;
+    };
+
+    startLoad(false);
     return canvas;
   };
   try { osmTileLayer.redraw(); } catch {}
+  try { _startTileWatchdog(osmTileLayer); } catch (e) {}
+}
+
+// ---------------------------------------------------------------------------
+// TILE WATCHDOG: yukarıdaki retry mekanizması "bir tile'ın kendi yüklemesini"
+// iyileştirir; bu fonksiyon ise HARİTADA O AN GÖRÜNEN tüm tile hücrelerini
+// tarayıp, herhangi bir sebeple (retry hakları tükenmiş, ya da hiç
+// tamamlanmamış/askıda kalmış) hâlâ yüklenmemiş olanları periyodik olarak
+// yeniden tetikler. Kök neden ne olursa olsun (poligon testi, ağ hatası,
+// zamanlama/race), kullanıcı haritayı ilk açtığında ekranda kalıcı beyaz bir
+// hücre kalmasını engelleyen SON ve KESİN güvence katmanıdır.
+// ---------------------------------------------------------------------------
+// Birden fazla tile katmanı (ana harita + profil haritası) aynı anda
+// izlenebilsin diye tek bir global interval, birden çok katmanı bir Map
+// üzerinden (katman → bitiş zamanı) takip eder. Bir katman tekrar
+// _startTileWatchdog ile eklenirse bitiş süresi sadece uzatılır/yenilenir;
+// diğer izlenen katmanlar etkilenmez.
+const __tileWatchdogLayers = new Map(); // layer -> expiresAt (ms epoch)
+let __tileWatchdogTimer = null;
+function _healVisibleTiles(layer){
+  try {
+    if (!layer || !layer._tiles) return;
+    Object.keys(layer._tiles).forEach((key) => {
+      const t = layer._tiles[key];
+      const el = t && t.el;
+      if (!el || typeof el.__dideReload !== 'function') return;
+      const canReload = (typeof el.__dideCanReload === 'function') ? el.__dideCanReload() : !el.__dideLoaded;
+      if (canReload) { try { el.__dideReload(); } catch (e) {} }
+    });
+  } catch (e) {}
+}
+function _startTileWatchdog(layer){
+  if (!layer) return;
+  // İlk 20 saniye boyunca (ilk yükleme + olası art arda ağ hataları için)
+  // saniyede bir tara; bu süre yeterli olmalı, sonrasında bu katman için
+  // watchdog kendini otomatik olarak durdurur (gereksiz sürekli çalışmayı
+  // önler). Aynı katman için tekrar çağrılırsa süre sıfırdan başlar.
+  __tileWatchdogLayers.set(layer, Date.now() + 20000);
+  if (__tileWatchdogTimer) return; // interval zaten çalışıyor, tüm katmanları tarıyor
+  __tileWatchdogTimer = setInterval(() => {
+    const now = Date.now();
+    __tileWatchdogLayers.forEach((expiresAt, l) => {
+      if (now > expiresAt){ __tileWatchdogLayers.delete(l); return; }
+      _healVisibleTiles(l);
+    });
+    if (__tileWatchdogLayers.size === 0){
+      clearInterval(__tileWatchdogTimer);
+      __tileWatchdogTimer = null;
+    }
+  }, 1000);
 }
 function _setTileClipOnLayer(){
   if (!osmTileLayer) return false;
@@ -8074,6 +8193,7 @@ function _scheduleBoundaryTileSettlePass(){
   if (!osmTileLayer || !map) return;
   if (__settlePassScheduled) return;
   __settlePassScheduled = true;
+  try { _startTileWatchdog(osmTileLayer); } catch (e) {}
 
   let done = false;
   const finalize = () => {
@@ -12543,10 +12663,16 @@ function _pfInstallBoundaryCanvasTiles(){
     const ctx = canvas.getContext('2d');
     const z = coords.z;
     const originX = coords.x * size.x, originY = coords.y * size.y;
-    const img = new Image();
-    img.onload = function(){
+    const tileUrl = this.getTileUrl(coords);
+
+    canvas.__dideLoaded = false;
+    canvas.__dideFailed = false;
+    canvas.__dideRetries = 0;
+
+    const drawInto = (img) => {
       try {
         const pr = _pfProjectedRingsForZoom(z);
+        ctx.clearRect(0, 0, size.x, size.y);
         if (pr && pr.length){
           ctx.save();
           ctx.beginPath();
@@ -12566,13 +12692,48 @@ function _pfInstallBoundaryCanvasTiles(){
       } catch (e) {
         try { ctx.clearRect(0,0,size.x,size.y); ctx.drawImage(img, 0, 0, size.x, size.y); } catch {}
       }
-      if (done) done(null, canvas);
     };
-    img.onerror = function(e){ if (done) done(e, canvas); };
-    img.src = this.getTileUrl(coords);
+
+    // Ana haritadaki AYNI retry mekanizması (bkz. _installBoundaryCanvasTiles
+    // üstündeki açıklama): tek seferlik ağ hatası artık kalıcı beyaz tile'a
+    // dönüşmüyor.
+    canvas.__dideLoading = false;
+    canvas.__dideLoadStartedAt = 0;
+    const startLoad = (isRetry) => {
+      canvas.__dideLoading = true;
+      canvas.__dideLoadStartedAt = Date.now();
+      const img = new Image();
+      img.onload = function(){
+        drawInto(img);
+        canvas.__dideLoaded = true;
+        canvas.__dideFailed = false;
+        canvas.__dideLoading = false;
+        if (!isRetry && done) done(null, canvas);
+      };
+      img.onerror = function(e){
+        canvas.__dideRetries++;
+        if (canvas.__dideRetries <= 4){
+          setTimeout(() => startLoad(true), 500 * canvas.__dideRetries);
+        } else {
+          canvas.__dideFailed = true;
+          canvas.__dideLoading = false;
+          if (!isRetry && done) done(e, canvas);
+        }
+      };
+      img.src = tileUrl;
+    };
+    canvas.__dideReload = () => { canvas.__dideRetries = 0; startLoad(true); };
+    canvas.__dideCanReload = () => {
+      if (canvas.__dideLoaded) return false;
+      if (!canvas.__dideLoading) return true;
+      return (Date.now() - canvas.__dideLoadStartedAt) > 8000;
+    };
+
+    startLoad(false);
     return canvas;
   };
   try { layer.redraw(); } catch {}
+  try { _startTileWatchdog(layer); } catch (e) {}
 }
 function _pfSetTileClipOnLayer(){
   const layer = __pf.tileLayer;
