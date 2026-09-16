@@ -2999,6 +2999,28 @@ app.post('/api/auth/forgot/reset', async (req, res) => {
 
 
 /* ===================== Public  ===================== */
+// Giriş yapılmamış (public/login) ekranın Layers panelinde kullanılır: sadece
+// AKTİF ve PUBLIC (herkese açık) olay türlerini döner, kimlik doğrulama
+// gerektirmez. Kimliği doğrulanmış kullanıcı/süpervizör/admin ekranlarında bunun
+// yerine aşağıdaki /api/event_types (tüm aktif türler, public/private ayrımı
+// olmadan) kullanılır.
+app.get('/api/public/event_types', async (req, res) => {
+  try {
+    const r = await pool.query(`
+      SELECT event_type_id, event_type_name, "public_" AS "public",
+             is_point, is_line, is_polygon,
+             COALESCE(time_dependent, false) AS time_dependent, valid_time
+      FROM event_type
+      WHERE COALESCE(active,true)=true AND COALESCE("public_",false)=true
+      ORDER BY event_type_id
+    `);
+    res.json(r.rows);
+  } catch (e) {
+    console.error('GET /api/public/event_types error:', e);
+    res.status(500).json({ error: 'sunucu_hatasi', message: getErrorMessage(req, 'sunucu_hatasi') });
+  }
+});
+
 app.get('/api/event_types', requireAuth, async (req, res) => {
   try {
     const r = await pool.query(`

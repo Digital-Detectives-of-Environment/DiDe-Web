@@ -741,9 +741,18 @@ function toggleEventTypeMarkers(typeId, visible){
 async function rebuildEventTypeLayerPanel(mapInstance){
   mapInstance = mapInstance || map;
   if (!mapInstance || !markersLayer) return;
-  let types = (tableStates && tableStates.types && Array.isArray(tableStates.types.data)) ? tableStates.types.data : [];
-  if (!types.length){
-    try { const r = await fetch('/api/event_types'); if (r.ok) types = await r.json(); } catch {}
+  let types = [];
+  if (!currentUser){
+    // Giriş ekranı: sadece public + active türler. tableStates.types.data
+    // BİLEREK kullanılmıyor — önceki bir oturumdan (logout'tan önce) kalma
+    // özel (private) türleri içeriyor olabilir.
+    try { const r = await fetch('/api/public/event_types'); if (r.ok) types = await r.json(); } catch {}
+  } else {
+    // Giriş yapıldıktan sonra: public/private ayrımı YOK, tüm active türler.
+    types = (tableStates && tableStates.types && Array.isArray(tableStates.types.data)) ? tableStates.types.data : [];
+    if (!types.length){
+      try { const r = await fetch('/api/event_types'); if (r.ok) types = await r.json(); } catch {}
+    }
   }
   const activeIds = new Set(), nameById = new Map();
   types.forEach(tp => {
@@ -9661,7 +9670,7 @@ function stopLiveLocation(){
    Form akışından TAMAMEN bağımsız: kendi watch/marker/circle durumunu tutar,
    yalnızca #btn-live-location butonunu etkiler. */
 let __slWatch = null, __slMarker = null, __slCircle = null, __slCenterPending = false;
-let __slOutsideWarned = false, __slFixCount = 0;
+let __slOutsideWarned = false;
 
 function startStandaloneLive(){
   if (!("geolocation" in navigator)) return;
@@ -9669,38 +9678,19 @@ function startStandaloneLive(){
   enableDeviceHeading();
   __slCenterPending = true;
   __slOutsideWarned = false;
-  __slFixCount = 0;
   __slWatch = navigator.geolocation.watchPosition(
     (position) => {
       const { latitude, longitude, accuracy } = position.coords;
-      __slFixCount++;
 
-      // "Sınır dışındasınız" kararı SADECE güvenilir bir konum ölçümüyle verilir.
-      // Önceki sürümde ilk gelen ölçüm (tarayıcının önbelleğinden gelen, bazen
-      // kilometrelerce hatalı olabilen bir konum) doğrudan sınır testine sokuluyor,
-      // uyarı daha kullanıcı konum butonunun yandığını göremeden, sayfa açılır
-      // açılmaz çıkıyordu. Artık:
-      //   - hassasiyeti çok kötü (>1500 m) olan ölçümler sınır kararı için
-      //     KULLANILMAZ; takip sürer, daha iyi bir ölçüm beklenir,
-      //   - ilk ölçüm önbellekten gelmesin diye maximumAge: 0 kullanılır,
-      //   - uyarı en fazla bir kez gösterilir.
-      const accOk = !Number.isFinite(accuracy) || accuracy <= 1500;
+      // "Sınır dışındasınız" uyarısı SADECE yeterince güvenilir (<=300 m) bir
+      // ölçümle verilir; kaba ölçümler (özellikle mobilde ilk hücre/Wi-Fi
+      // tabanlı fixler) yanlış uyarıya yol açmasın. ANCAK bu kontrol SADECE
+      // uyarıyı geciktirir — mavi noktanın çizilmesini, butonun yanıp
+      // sönmesini veya haritanın konuma yakınlaşmasını ENGELLEMEZ; aksi
+      // halde mobilde "butona basıyorum ama hiçbir şey olmuyor" durumu
+      // ortaya çıkıyordu.
+      const accOk = !Number.isFinite(accuracy) || accuracy <= 300;
       if (accOk && _liveLocationOutsideBoundary(longitude, latitude)) {
-        stopStandaloneLive();
-        if (!__slOutsideWarned){
-          __slOutsideWarned = true;
-          showGridWarning(t('liveLocationOutsideBoundary'));
-        }
-        return;
-      }
-      if (!accOk && __slFixCount < 4) {
-        // Henüz karar verilebilecek kalitede bir ölçüm yok: noktayı da çizme,
-        // bir sonraki (daha hassas) ölçümü bekle.
-        return;
-      }
-      if (!accOk && _liveLocationOutsideBoundary(longitude, latitude)) {
-        // Birkaç denemeden sonra hâlâ kaba ölçüm geliyorsa ve konum sınırın
-        // dışındaysa artık uyar.
         stopStandaloneLive();
         if (!__slOutsideWarned){
           __slOutsideWarned = true;
@@ -9716,8 +9706,12 @@ function startStandaloneLive(){
         if (__slCircle) __slCircle.setLatLng(ll).setRadius(accuracy);
         else __slCircle = L.circle(ll, { radius: accuracy, color:'#3b82f6', weight:1, opacity:.5, fillColor:'#3b82f6', fillOpacity:.15, interactive:false }).addTo(map);
       }
-      // Buton ancak GERÇEKTEN bir konum çizildiğinde "aktif" (yanıp sönen) duruma
-      // geçer; böylece gösterge kullanıcının gördüğü durumla tutarlı olur.
+      // Buton, İLK konum geldiği anda (hassasiyet ne olursa olsun) yanıp
+      // sönmeye başlar; kullanıcı "bastım ama hiçbir şey olmuyor" hissine
+      // kapılmasın. Haritanın konuma yakınlaşması da AYNI ilk ölçümde olur —
+      // "belli bir eşikten sonra zoom yap" isteği, "gerçek bir konum fix'i
+      // gelene kadar bekle" eşiğiyle karşılanır (rastgele/önbellek konumuna
+      // değil, tarayıcının döndürdüğü ilk GERÇEK ölçüme göre).
       updateLiveLocBtn();
       if (__slCenterPending){ __slCenterPending = false; try { map.setView(ll, Math.max(map.getZoom(), 17), { animate:true }); } catch {} }
     },
@@ -9729,7 +9723,6 @@ function startStandaloneLive(){
 
 function stopStandaloneLive(){
   if (__slWatch !== null){ try { navigator.geolocation.clearWatch(__slWatch); } catch {} __slWatch = null; }
-  __slFixCount = 0;
   if (__slMarker){ try { map.removeLayer(__slMarker); } catch {} __slMarker = null; }
   if (__slCircle){ try { map.removeLayer(__slCircle); } catch {} __slCircle = null; }
   __slCenterPending = false;
@@ -10651,25 +10644,25 @@ async function checkMe(){
     ]); 
     
     try { ensureMapLegend(map); } catch {}
-    try { await loadBoundary(); } catch (e) { console.warn('boundary load', e); }
     // Girişte konum izni iste; verilirse canlı mavi nokta takibini başlat (opener + solver).
+    // Sınır verisinin yüklenmesini BEKLEMEDEN tetiklenir (bkz. yukarıdaki not).
     try {
       if (currentUser && currentUser.role === 'user') {
         startStandaloneLive();
       }
     } catch {}
+    try { await loadBoundary(); } catch (e) { console.warn('boundary load', e); }
   } else { 
     markersLayer.clearLayers(); 
     
     try { ensureMapLegend(map); } catch {}
     try { drawBoundaryLayer(); } catch {}
-    // Giriş ekranında (henüz oturum açılmamışken) da konum izni istensin;
-    // izin verilirse canlı mavi nokta + header'daki canlı konum butonu aktif olur.
-    // ÖNEMLİ: sınır verisi YÜKLENMEDEN başlatılırsa ilk gelen konum sınır testine
-    // sokulamaz (pointInBoundary sınır yokken her zaman "içeride" der) ve doğru
-    // uyarı verilemez; bu yüzden önce sınır bekleniyor.
-    try { await loadBoundary(); } catch (e) { console.warn('boundary load', e); }
+    // Giriş ekranında (henüz oturum açılmamışken) da konum izni istensin; bunu
+    // sınır verisinin gelmesini BEKLEMEDEN, sayfa açılır açılmaz tetikliyoruz —
+    // aksi halde mobilde yavaş bağlantıda izin isteği gecikiyor ya da hiç
+    // görünmüyordu ("bazen izin istemiyor" şikâyeti buradandı).
     try { startStandaloneLive(); } catch {}
+    try { await loadBoundary(); } catch (e) { console.warn('boundary load', e); }
   }
 }
 
