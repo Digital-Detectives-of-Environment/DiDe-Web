@@ -246,6 +246,10 @@ function createOrUpdateMapFromConfig() {
           clearTimeout(__rsTimer);
           __rsTimer = setTimeout(() => {
             try { map.invalidateSize({ pan: false }); } catch (e) {}
+            // Boyut gerçekten değiştiyse (ör. mobil toolbar açılıp kapandı) ve
+            // sınır clip'i aktifse, invalidateSize tek başına yetmeyebilir;
+            // görünüme giren yeni alan için tile'ları da tazeleyelim.
+            try { if (osmTileLayer && window.__bLock && window.__bLock.active) osmTileLayer.redraw(); } catch (e) {}
           }, 80);
         });
         __ro.observe(__mapEl);
@@ -7896,10 +7900,17 @@ function _boundaryBBoxTooCoarse(tb, boundsRef){
 
 function _tileAllowedByBoundary(tb, boundsRef, ringsRef){
   try {
-    if (boundsRef && !boundsRef.overlaps(tb)) return false;
+    // Küçük bir tolerans (tile boyutunun ~%4'ü) ile test ediyoruz: sınır
+    // çizgisine tam kenarından değen tile'lar, float/kenar hassasiyeti yüzünden
+    // yanlışlıkla "dışarıda" sayılıp hiç istenmeden atlanmasın. Bu sadece tile'ın
+    // İSTENİP İSTENMEYECEĞİNİ gevşetir; görünen şeklin sınırın dışına taşmaması
+    // zaten createTile içindeki piksel-bazlı canvas clip (_projectedRingsForZoom)
+    // tarafından ayrıca ve kesin biçimde garanti edilir.
+    const tbT = (tb && typeof tb.pad === 'function') ? tb.pad(0.04) : tb;
+    if (boundsRef && !boundsRef.overlaps(tbT)) return false;
     if (_boundaryBBoxTooCoarse(tb, boundsRef)) return false;
     if (!ringsRef || !ringsRef.length) return true;
-    return _tileIntersectsRings(tb, ringsRef);
+    return _tileIntersectsRings(tbT, ringsRef);
   } catch { return true; }
 }
 
@@ -8026,6 +8037,38 @@ function _wantBoundaryClip(){
   return v === 'yes' || v === 'true' || v === '1';
 }
 
+// "zoom out + zoom in" ile elde edilen sonucu otomatikleştiren güvence geçişi:
+// mevcut tile isteklerinin bitmesini bekleyip TAM bir redraw() daha tetikler.
+// Böylece ilk turda herhangi bir nedenle (timing, geç oturan layout, vs.)
+// atlanmış olabilecek hücreler kullanıcı hiçbir şey yapmadan doldurulur.
+let __settlePassScheduled = false;
+function _scheduleBoundaryTileSettlePass(){
+  if (!osmTileLayer || !map) return;
+  if (__settlePassScheduled) return;
+  __settlePassScheduled = true;
+
+  let done = false;
+  const finalize = () => {
+    if (done) return;
+    done = true;
+    try { osmTileLayer.redraw(); } catch {}
+    try { drawBoundaryMask(); } catch {}
+    // Bir geçiş daha yetmeyebilecek çok yavaş ağlar / geç header oturması için
+    // ikinci (son) bir güvence turu; sonra bayrağı serbest bırak.
+    setTimeout(() => {
+      try { osmTileLayer.redraw(); } catch {}
+      __settlePassScheduled = false;
+    }, 900);
+  };
+
+  try {
+    osmTileLayer.once('load', finalize);
+  } catch (e) {}
+  // 'load' event'i hiç tetiklenmezse (ör. tüm tile'lar zaten cache'ten anlık
+  // geldi ya da event kaçtı) diye sabit bir zaman aşımı güvencesi.
+  setTimeout(finalize, 1200);
+}
+
 // Tile katmanı "block-all" durumdayken çağrılır: sınır geometrisini garanti eder,
 // haritayı sınıra fit eder, gerçek clip'i uygular. Sınır çözülemezse block'u kaldırır.
 async function ensureBoundaryThenClip(attempt){
@@ -8053,20 +8096,42 @@ async function ensureBoundaryThenClip(attempt){
       _wireHeaderBoundsRefresh();
       _refreshBoundaryMaxBounds();
       map.options.maxBoundsViscosity = 1.0;
+
+      // ÖNEMLİ SIRALAMA: gerçek tile doğrulayıcı (_isValidTile) ve canvas clip
+      // (createTile) HER ZAMAN fitBounds'tan ÖNCE kurulmalı. Aksi halde fitBounds'un
+      // tetiklediği ilk _update() döngüsü hâlâ "tümünü blokla" durumundaki eski
+      // doğrulayıcıyı görüyor; o anda atlanan tile'lar daha sonra elle zoom
+      // yapılana kadar (Leaflet o hücreleri tekrar sorgulamadığı için) boş
+      // kalabiliyordu. Önce clip'i kuruyoruz, SONRA fitBounds çağırıyoruz; böylece
+      // fitBounds'un kendi iç _update() döngüsü ilk seferde doğrudan doğru
+      // (nihai) doğrulayıcı ve canvas clip ile çalışır.
+      if (!_setTileClipOnLayer()){
+        osmTileLayer._isValidTile = L.TileLayer.prototype._isValidTile;
+      }
+      window.__boundaryClipPending = false;
+
       if (!window.__boundaryFitted){
         const px = _mapTopObstructionPx();
         map.fitBounds(bb, { paddingTopLeft: L.point(0, px), paddingBottomRight: L.point(0, 0), animate: false });
         window.__boundaryFitted = true;
         _refreshBoundaryMaxBounds();
       }
-      if (!_setTileClipOnLayer()){
-        osmTileLayer._isValidTile = L.TileLayer.prototype._isValidTile;
-      }
-      window.__boundaryClipPending = false;
+
       try { osmTileLayer.redraw(); } catch {}
       try { drawBoundaryMask(); } catch {}
       try { drawBoundaryLayer(); } catch {}
       __boundaryConstraintsApplied = true;
+      // GÜVENCE KATMANI: "zoom out + zoom in" kullanıcının elle yaptığında sorunu
+      // düzeltmesinin nedeni, Leaflet'in görünümdeki tüm tile hücrelerini nihai
+      // (stabilize olmuş) doğrulayıcıya karşı sıfırdan yeniden değerlendirmesiydi.
+      // Aynı etkiyi otomatik ve görünür bir zıplama olmadan elde etmek için:
+      // önce mevcut tile isteklerinin bitmesini (tile layer 'load' event'i)
+      // bekleyip TAM bir redraw() daha tetikliyoruz; header/font/mobil toolbar
+      // gibi geç oturan layout değişiklikleri ya da bu turdaki isteklerden
+      // kaçan herhangi bir hücre varsa bu ikinci geçişte kesin olarak dolduruluyor.
+      // 'load' event'i hiç gelmezse (ör. ağ hatası) sabit bir zaman aşımıyla
+      // yine de bu ikinci geçiş devreye giriyor.
+      try { _scheduleBoundaryTileSettlePass(); } catch (e) { console.warn('_scheduleBoundaryTileSettlePass', e); }
       return;
     }
     // Sınır beklendiği halde çözülemedi → blokta kal, tekrar dene.
@@ -8240,6 +8305,7 @@ function applyBoundaryZoomLock(){
       if (Number.isFinite(fitZoom) && map.getZoom() < fitZoom) map.setZoom(fitZoom);
       _refreshBoundaryMaxBounds();
     }
+    try { _scheduleBoundaryTileSettlePass(); } catch (e) {}
   } catch (e) { console.warn('applyBoundaryZoomLock error:', e); }
 }
 function removeBoundaryZoomLock(){
