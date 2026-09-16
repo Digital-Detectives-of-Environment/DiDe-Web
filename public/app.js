@@ -598,9 +598,20 @@ function reorderMapLayers(mapInstance, layers){
 }
 
 function renderLayerList(mapInstance, layers, listId){
+  if(!mapInstance) return;
   if(!layers) layers = __geomLayers;
   if(!listId) listId = 'layer-list';
-  const list = mapInstance.getContainer().querySelector('#' + listId);
+  let list = mapInstance.getContainer().querySelector('#' + listId);
+  // KÖK NEDEN: liste kabı (#layer-list) yalnızca ensureLayerDrawer() çağrıldıktan
+  // sonra var oluyordu. Olay türleri panelini kuran rebuildEventTypeLayerPanel(),
+  // geom/raster katman yüklemelerinden ÖNCE bitince (mobilde ağ sırası farklı
+  // olduğu için sıklıkla böyle oluyor) burada sessizce return ediliyor ve olay
+  // türleri katman listesine hiç yazılmıyordu. Artık kap yoksa çekmeceyi kendimiz
+  // kuruyoruz; böylece sıralama ne olursa olsun liste her zaman doluyor.
+  if(!list){
+    try { ensureLayerDrawer(mapInstance, listId); } catch (e) {}
+    list = mapInstance.getContainer().querySelector('#' + listId);
+  }
   if(!list) return;
   list.innerHTML = '';
 
@@ -741,7 +752,14 @@ async function rebuildEventTypeLayerPanel(mapInstance){
       nameById.set(String(tp.event_type_id), tp.event_type_name);
     }
   });
-  __geomLayers = __geomLayers.filter(x => !x.__isEventType);
+  // DİKKAT: __geomLayers YERİNDE değiştirilir, yeniden ATANMAZ. loadRasterLayers() /
+  // loadGeomLayersForMap() gibi fonksiyonlar diziyi parametre olarak yakalıyor;
+  // yeniden atama yapılırsa bu fonksiyonlar ESKİ diziyi render eder ve olay türü
+  // satırları panelde hiç görünmez (mobilde yükleme sırası farklı olduğu için sık
+  // yaşanıyordu).
+  for (let i = __geomLayers.length - 1; i >= 0; i--){
+    if (__geomLayers[i].__isEventType) __geomLayers.splice(i, 1);
+  }
   __eventTypeGroups.forEach((grp, tid) => {
     if (!activeIds.has(String(tid))) return;
     if (!grp.markers || grp.markers.size === 0) return;
@@ -751,6 +769,7 @@ async function rebuildEventTypeLayerPanel(mapInstance){
       visible: grp.visible !== false, z: 100
     });
   });
+  try { ensureLayerDrawer(mapInstance, 'layer-list'); } catch {}
   try { renderLayerList(mapInstance); } catch {}
 }
 
@@ -897,7 +916,10 @@ async function loadGeomLayersForMap(isPublic){
       try { map.removeLayer(x.layer); } catch {}
     });
 
-  __geomLayers = __geomLayers.filter(x => x.geomType === 'point' || x.table === 'Events' || x.geomType === 'raster');
+  for (let i = __geomLayers.length - 1; i >= 0; i--){
+    const x = __geomLayers[i];
+    if (!(x.geomType === 'point' || x.table === 'Events' || x.geomType === 'raster')) __geomLayers.splice(i, 1);
+  }
 
   const isSupervisor = currentUser && (currentUser.role === 'supervisor' || currentUser.role === 'admin');
   const tablesUrl = isSupervisor ? '/api/geom-tables' : '/api/public/geom-tables';
@@ -942,6 +964,8 @@ async function loadGeomLayersForMap(isPublic){
 
   ensureLayerDrawer(map);
   renderLayerList(map);
+  // Olay türü satırları bu yükleme turundan önce hesaplanmış olabilir → tazele.
+  try { rebuildEventTypeLayerPanel(map); } catch (e) {}
 }
 
 let __eventsLayersLoading = false;
@@ -1840,6 +1864,10 @@ async function loadRasterLayers(mapInstance, layersArray, listId){
   if(!listId) listId = 'layer-list';
   ensureLayerDrawer(mapInstance, listId);
   renderLayerList(mapInstance, layersArray, listId);
+  // Ana harita ise olay türü satırlarını da tazele: raster/geom yüklemesi olay
+  // yüklemesinden SONRA bitmiş olabilir; bu durumda panel tür satırları olmadan
+  // render edilmiş olurdu.
+  if (mapInstance === map) { try { rebuildEventTypeLayerPanel(map); } catch (e) {} }
 }
 
 /* ==================== VERI_TIPI (Supervisor) ==================== */
@@ -8100,6 +8128,8 @@ let __tileWatchdogTimer = null;
 function _healVisibleTiles(layer){
   try {
     if (!layer) return;
+    // Kullanıcı haritayla etkileşimdeyse bu turu tamamen atla (bkz. _mapIsInteracting).
+    if (_mapIsInteracting(layer._map)) return;
     // (A) ÖNCE eksik hücre kalmadığından emin ol: konteyner boyutu geç oturduysa
     //     hiç oluşturulmamış hücreler olabilir; _syncTileLayer bunları ekler.
     try { _syncTileLayer(layer._map, layer); } catch (e) {}
@@ -8113,6 +8143,14 @@ function _healVisibleTiles(layer){
       if (canReload) { try { el.__dideReload(); } catch (e) {} }
     });
   } catch (e) {}
+}
+function _stopTileWatchdog(layer){
+  if (!layer) return;
+  __tileWatchdogLayers.delete(layer);
+  if (__tileWatchdogLayers.size === 0 && __tileWatchdogTimer){
+    clearInterval(__tileWatchdogTimer);
+    __tileWatchdogTimer = null;
+  }
 }
 function _startTileWatchdog(layer){
   if (!layer) return;
@@ -8205,9 +8243,29 @@ function applyTileClip(){
 // Bu fonksiyon, elle zoom yapmanın ürettiği düzeltici etkinin bedelsiz eşdeğeridir
 // ve istenildiği kadar sık çağrılabilir.
 // ---------------------------------------------------------------------------
+// Kullanıcı o anda haritayla etkileşimde mi? (pinch-zoom, sürükleme, zoom animasyonu)
+// Bu sırada görünümü/pane transform'unu dışarıdan tazelemek gesture'ı iptal eder;
+// mobilde "zoom in/out hiç çalışmıyor, takılı kalıyor" belirtisinin sebebi tam olarak
+// budur: arka planda periyodik çalışan tile senkronizasyonu her seferinde
+// _resetView()/_setZoomTransforms() çağırıp parmak hareketini öldürüyordu.
+function _mapIsInteracting(m){
+  try {
+    if (!m) return false;
+    if (m._animatingZoom) return true;
+    if (m.touchZoom && m.touchZoom._zooming) return true;
+    if (m.boxZoom && m.boxZoom._moved) return true;
+    if (m.dragging && typeof m.dragging.moving === 'function' && m.dragging.moving()) return true;
+    if (m._panAnim && m._panAnim._inProgress) return true;
+    return false;
+  } catch { return false; }
+}
+
 function _syncTileLayer(m, layer){
   try {
     if (!m || !layer || !m._loaded || layer._map !== m) return;
+    // Parmak/fare haritanın üzerindeyken hiçbir şey yapma — aksi halde zoom/pan
+    // hareketi iptal edilir (mobilde zoom'un kilitlenmesinin sebebi).
+    if (_mapIsInteracting(m)) return;
     const el = m.getContainer();
     if (el && el.clientWidth > 0 && el.clientHeight > 0){
       const s = m.getSize();
@@ -8218,6 +8276,7 @@ function _syncTileLayer(m, layer){
       }
     }
     if (layer._tileZoom === undefined || layer._tileZoom === null) return;
+    if (_mapIsInteracting(m)) return;
     try { layer._setZoomTransforms(m.getCenter(), m.getZoom()); } catch (e) {}
     layer._update(m.getCenter());
   } catch (e) {}
@@ -9602,22 +9661,54 @@ function stopLiveLocation(){
    Form akışından TAMAMEN bağımsız: kendi watch/marker/circle durumunu tutar,
    yalnızca #btn-live-location butonunu etkiler. */
 let __slWatch = null, __slMarker = null, __slCircle = null, __slCenterPending = false;
+let __slOutsideWarned = false, __slFixCount = 0;
 
 function startStandaloneLive(){
   if (!("geolocation" in navigator)) return;
   if (__slWatch !== null) return;
   enableDeviceHeading();
   __slCenterPending = true;
+  __slOutsideWarned = false;
+  __slFixCount = 0;
   __slWatch = navigator.geolocation.watchPosition(
     (position) => {
       const { latitude, longitude, accuracy } = position.coords;
-      // ZOOM_LEVEL_BOUNDARY=yes ve konum sınır verisinin dışındaysa: canlı konum
-      // butonunu kapat, kullanıcı konumunu göremesin ve üstten uyarı ver.
-      if (_liveLocationOutsideBoundary(longitude, latitude)) {
+      __slFixCount++;
+
+      // "Sınır dışındasınız" kararı SADECE güvenilir bir konum ölçümüyle verilir.
+      // Önceki sürümde ilk gelen ölçüm (tarayıcının önbelleğinden gelen, bazen
+      // kilometrelerce hatalı olabilen bir konum) doğrudan sınır testine sokuluyor,
+      // uyarı daha kullanıcı konum butonunun yandığını göremeden, sayfa açılır
+      // açılmaz çıkıyordu. Artık:
+      //   - hassasiyeti çok kötü (>1500 m) olan ölçümler sınır kararı için
+      //     KULLANILMAZ; takip sürer, daha iyi bir ölçüm beklenir,
+      //   - ilk ölçüm önbellekten gelmesin diye maximumAge: 0 kullanılır,
+      //   - uyarı en fazla bir kez gösterilir.
+      const accOk = !Number.isFinite(accuracy) || accuracy <= 1500;
+      if (accOk && _liveLocationOutsideBoundary(longitude, latitude)) {
         stopStandaloneLive();
-        showGridWarning(t('liveLocationOutsideBoundary'));
+        if (!__slOutsideWarned){
+          __slOutsideWarned = true;
+          showGridWarning(t('liveLocationOutsideBoundary'));
+        }
         return;
       }
+      if (!accOk && __slFixCount < 4) {
+        // Henüz karar verilebilecek kalitede bir ölçüm yok: noktayı da çizme,
+        // bir sonraki (daha hassas) ölçümü bekle.
+        return;
+      }
+      if (!accOk && _liveLocationOutsideBoundary(longitude, latitude)) {
+        // Birkaç denemeden sonra hâlâ kaba ölçüm geliyorsa ve konum sınırın
+        // dışındaysa artık uyar.
+        stopStandaloneLive();
+        if (!__slOutsideWarned){
+          __slOutsideWarned = true;
+          showGridWarning(t('liveLocationOutsideBoundary'));
+        }
+        return;
+      }
+
       const ll = L.latLng(latitude, longitude);
       if (__slMarker) __slMarker.setLatLng(ll);
       else __slMarker = L.marker(ll, { icon: blueDotIcon(), interactive:false, zIndexOffset: 500 }).addTo(map);
@@ -9625,16 +9716,20 @@ function startStandaloneLive(){
         if (__slCircle) __slCircle.setLatLng(ll).setRadius(accuracy);
         else __slCircle = L.circle(ll, { radius: accuracy, color:'#3b82f6', weight:1, opacity:.5, fillColor:'#3b82f6', fillOpacity:.15, interactive:false }).addTo(map);
       }
+      // Buton ancak GERÇEKTEN bir konum çizildiğinde "aktif" (yanıp sönen) duruma
+      // geçer; böylece gösterge kullanıcının gördüğü durumla tutarlı olur.
+      updateLiveLocBtn();
       if (__slCenterPending){ __slCenterPending = false; try { map.setView(ll, Math.max(map.getZoom(), 17), { animate:true }); } catch {} }
     },
     () => { stopStandaloneLive(); },
-    { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
   );
   updateLiveLocBtn();
 }
 
 function stopStandaloneLive(){
   if (__slWatch !== null){ try { navigator.geolocation.clearWatch(__slWatch); } catch {} __slWatch = null; }
+  __slFixCount = 0;
   if (__slMarker){ try { map.removeLayer(__slMarker); } catch {} __slMarker = null; }
   if (__slCircle){ try { map.removeLayer(__slCircle); } catch {} __slCircle = null; }
   __slCenterPending = false;
@@ -9645,7 +9740,10 @@ function stopStandaloneLive(){
 // Header canlı konum butonu: yalnızca standalone durumuna göre yeşil yanıp söner
 function updateLiveLocBtn(){
   const b = qs('#btn-live-location');
-  if (b) b.classList.toggle('active', __slWatch !== null);
+  // "active" (yeşil yanıp sönen) durum, takibin başlatılmış OLMASINA değil, ekranda
+  // gerçekten bir canlı konum noktası bulunmasına bağlıdır. Aksi halde izin/konum
+  // hiç gelmese bile buton bir an yanıp hemen sönüyordu.
+  if (b) b.classList.toggle('active', __slWatch !== null && !!__slMarker);
 }
 
 // Standalone canlı konum toggle (formdan bağımsız)
@@ -10567,6 +10665,10 @@ async function checkMe(){
     try { drawBoundaryLayer(); } catch {}
     // Giriş ekranında (henüz oturum açılmamışken) da konum izni istensin;
     // izin verilirse canlı mavi nokta + header'daki canlı konum butonu aktif olur.
+    // ÖNEMLİ: sınır verisi YÜKLENMEDEN başlatılırsa ilk gelen konum sınır testine
+    // sokulamaz (pointInBoundary sınır yokken her zaman "içeride" der) ve doğru
+    // uyarı verilemez; bu yüzden önce sınır bekleniyor.
+    try { await loadBoundary(); } catch (e) { console.warn('boundary load', e); }
     try { startStandaloneLive(); } catch {}
   }
 }
@@ -10753,7 +10855,10 @@ async function logout(){
   __geomLayers
     .filter(x => x.geomType !== 'point' && x.table !== 'Events')
     .forEach(x => { try { map.removeLayer(x.layer); } catch {} });
-  __geomLayers = __geomLayers.filter(x => x.geomType === 'point' || x.table === 'Events');
+  for (let i = __geomLayers.length - 1; i >= 0; i--){
+    const x = __geomLayers[i];
+    if (!(x.geomType === 'point' || x.table === 'Events')) __geomLayers.splice(i, 1);
+  }
 
   try {
     await loadGeomLayersForMap(true);
@@ -10767,7 +10872,9 @@ async function logout(){
     __polygonLayer = null;
   }
   // __geomLayers içinden de polygon referansını temizle
-  __geomLayers = __geomLayers.filter(x => x.table !== '__polygon_env');
+  for (let i = __geomLayers.length - 1; i >= 0; i--){
+    if (__geomLayers[i].table === '__polygon_env') __geomLayers.splice(i, 1);
+  }
 
   try {
     await loadRasterLayers(map, __geomLayers, 'layer-list');
@@ -12643,6 +12750,15 @@ function pfEnsureMap(){
   if (!el || typeof L === 'undefined') return null;
   // Harita üzerinde kendi +/- zoom kontrolü OLMAYACAK (zoomControl: false)
   __pf.map = L.map(el, { zoomControl: false, worldCopyJump: false });
+  // ÖNEMLİ SIRALAMA: görünüm (center/zoom) HER ZAMAN katmanlardan ÖNCE kurulmalı.
+  // MarkerClusterGroup.onAdd(), eklendiği anda `map._zoom` ve `map.getBounds()`
+  // değerlerini okuyup kendi iç durumunu (`_zoom`, `_currentShownBounds`) kurar.
+  // setView() henüz çağrılmamışsa `map._zoom` UNDEFINED olur; cluster `_zoom = NaN`
+  // ve geçersiz bir görünüm sınırı ile başlar. Bu durumda sonradan eklenen her
+  // marker "görünür alanın dışında" sayılıp HİÇ çizilmez — profil haritasının ilk
+  // açılışta BOŞ gelmesinin, geri dönüp tekrar açınca (harita artık kurulu olduğu
+  // için) dolu gelmesinin kök nedeni tam olarak budur.
+  __pf.map.setView([39.0, 35.0], 5);
   __pf.tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors', noWrap: true
   });
@@ -12654,7 +12770,6 @@ function pfEnsureMap(){
   __pf.tileLayer.addTo(__pf.map);
   // Kullanıcı girişindeki gibi clustering katmanı
   __pf.markersLayer = makeMarkersLayer().addTo(__pf.map);
-  __pf.map.setView([39.0, 35.0], 5);
   try { pfApplyBoundary(__pf.map); } catch (e) { console.warn('pfApplyBoundary', e); }
   return __pf.map;
 }
@@ -12833,6 +12948,24 @@ function _pfSetTileClipOnLayer(){
   window.__boundaryClipPending = false;
   return true;
 }
+// Profil haritasının zoom/pan sınırlarını GÜNCEL konteyner boyutuna göre yeniden
+// hesaplar. pfEnsureMap() haritayı overlay daha yeni görünür olmuşken kuruyor;
+// o anda ölçülen boyut nihai boyut olmayabiliyor ve minZoom yanlış (fazla yüksek)
+// hesaplanıp kullanıcı mobilde uzaklaşamıyordu.
+function pfRefreshZoomLimits(m){
+  try {
+    if (!m) return;
+    if (typeof _wantBoundaryClip === 'function' && !_wantBoundaryClip()) return;
+    const bb = (typeof _boundaryBounds === 'function') ? _boundaryBounds() : null;
+    if (!bb) return;
+    m.setMinZoom(2); // önce serbest bırak ki getBoundsZoom eski sınıra takılmasın
+    const fz = m.getBoundsZoom(bb, false);
+    if (Number.isFinite(fz)) m.setMinZoom(Math.min(fz, m.getMaxZoom()));
+    m.setMaxBounds(bb);
+    m.options.maxBoundsViscosity = 1.0;
+  } catch (e) { console.warn('pfRefreshZoomLimits', e); }
+}
+
 function pfApplyTileClip(){
   if (_pfSetTileClipOnLayer()) { try { __pf.tileLayer.redraw(); } catch {} }
 }
@@ -12864,8 +12997,7 @@ function pfApplyBoundary(m, attempt){
   // açıklama): görünmez, senkron bir zoom gidiş-dönüşü ile Leaflet'in pane/zoom
   // durumunu tam senkronize eder — "elle zoom in/out" ile elde edilen sonucu
   // profil haritasında da otomatikleştirir.
-  try { _startTileWatchdog(__pf.tileLayer); } catch (e) {}
-  [0, 250, 700, 1500, 3000].forEach((ms) => {
+  [0, 250, 700].forEach((ms) => {
     setTimeout(() => { try { _syncTileLayer(m, __pf.tileLayer); } catch (e) {} }, ms);
   });
   try {
@@ -12916,6 +13048,12 @@ function pfOpenMap(focusEventId){
   const m = pfEnsureMap();
   if (!m) return;
 
+  // Konteyner AZ ÖNCE görünür oldu. Leaflet'in boyutu ölçmesi ŞART: MarkerClusterGroup
+  // eklenen her marker için "şu anki görünür alanın içinde mi?" kontrolü yapar ve
+  // dışarıda sandıklarını hiç çizmez. Boyut 0 / eski iken eklenen markerlar bu yüzden
+  // ilk açılışta görünmüyordu.
+  try { m.invalidateSize(); } catch {}
+
   // Haritaya geçildiğinde tablodaki kırmızı vurgu temizlenir; vurgu YALNIZCA marker
   // pop-up'ındaki harita logosundan tabloya geçişte (pfGotoTableForEvent) yeniden kurulur.
   __pf.highlightId = null;
@@ -12942,16 +13080,20 @@ function pfOpenMap(focusEventId){
   });
   window.FORCE_BLUE_MARKERS = _savedForceBlue;
 
-  // Boyutu düzelt ve odakla
-  setTimeout(() => {
-    try { m.invalidateSize(); } catch {}
-    // Profil haritası GİZLİ bir konteynerde oluşturuluyor; görünür olduğunda gerçek
-    // boyutuna kavuşur. Ana haritadakiyle AYNI eksik-hücre tamamlama turlarını burada
-    // da çalıştırıyoruz ki sınır içindeki hiçbir bölge beyaz kalmasın.
-    try { _startTileWatchdog(__pf.tileLayer); } catch (e) {}
-    [0, 250, 700, 1500].forEach((ms) => {
-      setTimeout(() => { try { _syncTileLayer(m, __pf.tileLayer); } catch (e) {} }, ms);
-    });
+  // Cluster katmanını, görünüm kesinleştikten SONRA baştan kurar. onAdd() sırasında
+  // cluster kendi `_zoom` ve `_currentShownBounds` değerlerini GÜNCEL haritadan
+  // yeniden hesaplar ve tüm markerları yeniden yerleştirir. Bu, "markerlar ilk
+  // açılışta görünmüyor" durumuna karşı kesin güvencedir (yeniden indirme/istek yok).
+  const resyncClusters = () => {
+    try {
+      const cl = __pf.markersLayer;
+      if (!cl || !m.hasLayer(cl)) return;
+      m.removeLayer(cl);
+      m.addLayer(cl);
+    } catch (e) { console.warn('pf cluster resync', e); }
+  };
+
+  const applyView = () => {
     if (focusEventId != null && __pf.markers[focusEventId]){
       const mk = __pf.markers[focusEventId];
       const openIt = () => { try { mk.openPopup(); } catch {} };
@@ -12964,12 +13106,38 @@ function pfOpenMap(focusEventId){
     } else if (pts.length){
       try { m.fitBounds(L.latLngBounds(pts).pad(0.2)); } catch { m.setView(pts[0], 12); }
     }
+  };
+
+  // Boyutu düzelt, görünümü kur, cluster'ı tazele
+  setTimeout(() => {
+    try { m.invalidateSize(); } catch {}
+    // Boyut kesinleşti → zoom/pan sınırlarını GÜNCEL boyuta göre yeniden hesapla.
+    try { pfRefreshZoomLimits(m); } catch (e) {}
+    applyView();
+    resyncClusters();
+    // Profil haritası GİZLİ bir konteynerde oluşturuluyor; görünür olduğunda gerçek
+    // boyutuna kavuşur. Ana haritadakiyle AYNI eksik-hücre tamamlama turlarını burada
+    // da çalıştırıyoruz ki sınır içindeki hiçbir bölge beyaz kalmasın.
+    try { _startTileWatchdog(__pf.tileLayer); } catch (e) {}
+    [0, 250, 700, 1500].forEach((ms) => {
+      setTimeout(() => { try { _syncTileLayer(m, __pf.tileLayer); } catch (e) {} }, ms);
+    });
+    // Son bir güvence: layout tamamen oturduktan sonra bir kez daha.
+    setTimeout(() => {
+      try { m.invalidateSize(); } catch {}
+      try { pfRefreshZoomLimits(m); } catch (e) {}
+      resyncClusters();
+    }, 400);
   }, 60);
 }
 
 function pfCloseMap(){
   const view = pfEl('profile-map-view');
   if (view) view.classList.add('hidden');
+  // Harita kapandıysa tile watchdog'un arka planda çalışmaya devam etmesi anlamsız;
+  // ayrıca gizli konteynerde boyut ölçümü 0 olduğu için gereksiz görünüm sıfırlamaları
+  // yapardı. Tekrar açıldığında pfOpenMap yeniden başlatıyor.
+  try { _stopTileWatchdog(__pf.tileLayer); } catch (e) {}
 }
 
 // Haritadaki pop-up'tan tabloya geç: ilgili olayın bulunduğu sayfaya git ve satırı vurgula
