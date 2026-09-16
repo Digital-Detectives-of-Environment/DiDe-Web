@@ -8014,6 +8014,13 @@ function _installBoundaryCanvasTiles(){
     canvas.__dideLoading = false;
     canvas.__dideLoadStartedAt = 0;
     canvas.__dideRetries = 0;
+    // Leaflet'e verilen `done` callback'i bu tile için TAM OLARAK BİR KEZ
+    // çağrılmalı (ilk nihai sonuçta — başarı ya da tükenmiş deneme hakları).
+    // Watchdog bu tile'ı daha SONRA (done zaten çağrıldıktan sonra) tekrar
+    // __dideReload() ile yeniden yükletirse, o turlarda canvas görseli yine
+    // güncellenir ama done() BİR DAHA çağrılmaz (Leaflet'in kendi yükleme
+    // sayacını bozmamak için).
+    let __dideDoneCalled = false;
 
     const drawInto = (img) => {
       try {
@@ -8051,7 +8058,26 @@ function _installBoundaryCanvasTiles(){
         canvas.__dideLoaded = true;
         canvas.__dideFailed = false;
         canvas.__dideLoading = false;
-        if (!isRetry && done) done(null, canvas);
+        // KÖK NEDEN (Problem 2 — ilk yüklemede sınır İÇİNDEKİ bazı tile'lar
+        // kalıcı beyaz kalıyordu, zoom out/in ile düzeliyordu):
+        // Leaflet, bir tile'ı görünür yapmak (CSS: .leaflet-tile { visibility:
+        // hidden } → .leaflet-tile-loaded { visibility: inherit }) için
+        // createTile'a verilen `done(err, tile)` callback'inin çağrılmasını
+        // ZORUNLU tutar. Eski kodda bu callback SADECE isRetry=false iken
+        // (yani ilk deneme başarılıysa) çağrılıyordu. İlk deneme network/
+        // timeout yüzünden başarısız olup bir SONRAKİ denemede (isRetry=true)
+        // başarılı olan tile'larda ise done() HİÇ çağrılmıyordu: görüntü
+        // canvas'a gerçekten çiziliyordu (drawInto çalışıyordu) ama Leaflet
+        // tile'ı hâlâ "yükleniyor" sanıp visibility:hidden'da bırakıyordu —
+        // yani veri var ama görünmüyordu (beyaz). __dideLoaded=true olduğu
+        // için watchdog da bu tile'ı "tamam" sayıp bir daha dokunmuyordu, bu
+        // yüzden sorun kalıcı oluyordu. Kullanıcı zoom out yaptığında Leaflet
+        // o zoom için TAMAMEN YENİ tile'lar (ve yeni canvas/done çiftleri)
+        // oluşturduğundan, o turda ilk denemede başarılı olanlar normal
+        // şekilde görünür oluyor ve sorun "düzelmiş" gibi görünüyordu.
+        // ÇÖZÜM: done() retry olsun olmasın, nihai başarı durumunda HER ZAMAN
+        // çağrılmalı (her canvas için yalnızca bir kez tetiklenir).
+        if (!__dideDoneCalled) { __dideDoneCalled = true; if (done) done(null, canvas); }
       };
       img.onerror = function(e){
         canvas.__dideRetries++;
@@ -8067,8 +8093,11 @@ function _installBoundaryCanvasTiles(){
           canvas.__dideLoading = false;
           // Deneme hakları bitti: yine de canvas boş bırakılmaz, en azından
           // "başarısız" olarak işaretlenir ki watchdog haritayı görüntülemeye
-          // devam ettiği sürece bu tile'ı yeniden denemeyi sürdürsün.
-          if (!isRetry && done) done(e, canvas);
+          // devam ettiği sürece bu tile'ı yeniden denemeyi sürdürsün. Aynı
+          // "done() nihai durumda her zaman çağrılmalı" kuralı burada da
+          // geçerli — aksi halde Leaflet'in kendi yükleme sayacı hiç
+          // kapanmaz ve katmanın 'load' event'i tetiklenmeyebilir.
+          if (!__dideDoneCalled) { __dideDoneCalled = true; if (done) done(e, canvas); }
         }
       };
       img.src = tileUrl;
@@ -12668,6 +12697,9 @@ function _pfInstallBoundaryCanvasTiles(){
     canvas.__dideLoaded = false;
     canvas.__dideFailed = false;
     canvas.__dideRetries = 0;
+    // Ana haritadaki aynı "done() tam olarak bir kez" koruması (bkz.
+    // _installBoundaryCanvasTiles içindeki açıklama).
+    let __dideDoneCalled = false;
 
     const drawInto = (img) => {
       try {
@@ -12708,7 +12740,11 @@ function _pfInstallBoundaryCanvasTiles(){
         canvas.__dideLoaded = true;
         canvas.__dideFailed = false;
         canvas.__dideLoading = false;
-        if (!isRetry && done) done(null, canvas);
+        // Ana haritadaki AYNI kök neden düzeltmesi (bkz. _installBoundaryCanvasTiles
+        // içindeki açıklama): done() retry olsun olmasın nihai başarıda HER ZAMAN
+        // çağrılmalı, aksi halde Leaflet tile'ı visibility:hidden'da bırakır ve
+        // canvas'a çizilen görüntü ekranda beyaz/görünmez kalır.
+        if (!__dideDoneCalled) { __dideDoneCalled = true; if (done) done(null, canvas); }
       };
       img.onerror = function(e){
         canvas.__dideRetries++;
@@ -12717,7 +12753,7 @@ function _pfInstallBoundaryCanvasTiles(){
         } else {
           canvas.__dideFailed = true;
           canvas.__dideLoading = false;
-          if (!isRetry && done) done(e, canvas);
+          if (!__dideDoneCalled) { __dideDoneCalled = true; if (done) done(e, canvas); }
         }
       };
       img.src = tileUrl;
