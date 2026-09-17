@@ -3243,6 +3243,84 @@ app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
   }
 });
 
+
+/* ===================== Basit ZIP yazıcı (bağımlılık yok) =====================
+   Kullanıcının kendi verisini (GeoJSON + photos/ + videos/) tek dosyada
+   indirebilmesi için "store" (sıkıştırmasız) ZIP üretir. Fotoğraf/video zaten
+   sıkıştırılmış formatlarda olduğundan sıkıştırma kaybı önemsizdir. */
+const _CRC32_TABLE = (() => {
+  const t = new Int32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c;
+  }
+  return t;
+})();
+function _crc32(buf) {
+  let c = -1;
+  for (let i = 0; i < buf.length; i++) c = _CRC32_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ -1) >>> 0;
+}
+function _dosDateTime(d) {
+  const dt = (d instanceof Date && !isNaN(d)) ? d : new Date();
+  const time = ((dt.getHours() & 0x1f) << 11) | ((dt.getMinutes() & 0x3f) << 5) | ((dt.getSeconds() / 2) & 0x1f);
+  const date = (((dt.getFullYear() - 1980) & 0x7f) << 9) | (((dt.getMonth() + 1) & 0x0f) << 5) | (dt.getDate() & 0x1f);
+  return { time, date };
+}
+// entries: [{ name: 'photos/a.jpg', data: Buffer, mtime?: Date, dir?: true }]
+function buildZipBuffer(entries) {
+  const local = [];
+  const central = [];
+  let offset = 0;
+  for (const e of entries) {
+    const nameBuf = Buffer.from(e.dir ? (e.name.endsWith('/') ? e.name : e.name + '/') : e.name, 'utf8');
+    const data = e.dir ? Buffer.alloc(0) : (Buffer.isBuffer(e.data) ? e.data : Buffer.from(e.data || ''));
+    const crc = _crc32(data);
+    const { time, date } = _dosDateTime(e.mtime);
+
+    const lh = Buffer.alloc(30);
+    lh.writeUInt32LE(0x04034b50, 0);
+    lh.writeUInt16LE(20, 4);            // version needed
+    lh.writeUInt16LE(0x0800, 6);        // UTF-8 dosya adı bayrağı
+    lh.writeUInt16LE(0, 8);             // method: store
+    lh.writeUInt16LE(time, 10);
+    lh.writeUInt16LE(date, 12);
+    lh.writeUInt32LE(crc, 14);
+    lh.writeUInt32LE(data.length, 18);
+    lh.writeUInt32LE(data.length, 22);
+    lh.writeUInt16LE(nameBuf.length, 26);
+    lh.writeUInt16LE(0, 28);
+    local.push(lh, nameBuf, data);
+
+    const ch = Buffer.alloc(46);
+    ch.writeUInt32LE(0x02014b50, 0);
+    ch.writeUInt16LE(20, 4);            // version made by
+    ch.writeUInt16LE(20, 6);            // version needed
+    ch.writeUInt16LE(0x0800, 8);
+    ch.writeUInt16LE(0, 10);
+    ch.writeUInt16LE(time, 12);
+    ch.writeUInt16LE(date, 14);
+    ch.writeUInt32LE(crc, 16);
+    ch.writeUInt32LE(data.length, 20);
+    ch.writeUInt32LE(data.length, 24);
+    ch.writeUInt16LE(nameBuf.length, 28);
+    ch.writeUInt32LE(e.dir ? 0x10 : 0, 38);   // external attrs: klasör bayrağı
+    ch.writeUInt32LE(offset, 42);
+    central.push(ch, nameBuf);
+
+    offset += lh.length + nameBuf.length + data.length;
+  }
+  const centralBuf = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralBuf.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...local, centralBuf, end]);
+}
+
 /* =============== Profil: istatistikler =============== */
 app.get('/api/me/stats', requireAuth, async (req, res) => {
   try {
@@ -3333,6 +3411,124 @@ app.get('/api/me/posts', requireAuth, async (req, res) => {
     res.json({ solver: isSolver, posts: rows });
   } catch (e) {
     console.error('GET /api/me/posts error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+
+/* =============== Profil: kendi verimi indir (ZIP) ===============
+   Olay ekleyen (opener) kullanıcı, kendi eklediği noktaları GeoJSON olarak ve
+   bu noktalara eklediği fotoğraf/videoları photos/ ve videos/ klasörlerinde
+   (uploads'taki dosya adlarıyla) tek bir ZIP dosyasında indirir. */
+app.get('/api/me/export', requireAuth, async (req, res) => {
+  try {
+    if (req.user.role !== 'user' || req.user.solver === true) {
+      return res.status(403).json({ error: 'yetkisiz', message: getErrorMessage(req, 'yetkisiz') });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT o.event_id,
+              o.latitude,
+              o.longitude,
+              l.event_type_name              AS event_type_name,
+              o.description,
+              ST_AsGeoJSON(o.geom)           AS geom_json,
+              COALESCE(o.active, true)       AS active,
+              o.deactivated_by_name,
+              o.deactivated_at,
+              o.created_at,
+              o.photo_urls,
+              o.video_urls,
+              COALESCE(o.num_agrees, 0)      AS num_agrees,
+              COALESCE(o.agreed_ids, '[]'::jsonb) AS agreed_ids
+         FROM event o
+         LEFT JOIN event_type l ON l.event_type_id = o.event_type
+        WHERE o.created_by_id = $1
+        ORDER BY o.event_id`,
+      [req.user.id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'olay_yok', message: getErrorMessage(req, 'olay_yok') });
+    }
+
+    const photoFiles = new Map(); // dosya adı -> mutlak yol (tekrarlar tek kez)
+    const videoFiles = new Map();
+    const collect = (raw, bucket) => {
+      let list = [];
+      try { list = JSON.parse(String(raw || '[]')); } catch { list = []; }
+      if (!Array.isArray(list)) list = [];
+      const out = [];
+      for (const u of list) {
+        const name = path.basename(String(u || ''));
+        if (!name) continue;
+        out.push(name);
+        const abs = path.join(UPLOAD_DIR, name);
+        if (!abs.startsWith(UPLOAD_DIR)) continue;
+        if (_fileExists(abs)) bucket.set(name, abs);
+      }
+      return out;
+    };
+
+    const features = rows.map((r) => {
+      const photos = collect(r.photo_urls, photoFiles);
+      const videos = collect(r.video_urls, videoFiles);
+      let geometry = null;
+      try { geometry = r.geom_json ? JSON.parse(r.geom_json) : null; } catch { geometry = null; }
+      if (!geometry && Number.isFinite(parseFloat(r.longitude)) && Number.isFinite(parseFloat(r.latitude))) {
+        geometry = { type: 'Point', coordinates: [parseFloat(r.longitude), parseFloat(r.latitude)] };
+      }
+      return {
+        type: 'Feature',
+        geometry,
+        properties: {
+          event_id: r.event_id,
+          latitude: r.latitude != null ? parseFloat(r.latitude) : null,
+          longitude: r.longitude != null ? parseFloat(r.longitude) : null,
+          event_type: r.event_type_name || null,   // ham ID değil, okunabilir tür adı
+          description: r.description ?? null,
+          active: r.active === true,
+          deactivated_by_name: r.deactivated_by_name ?? null,
+          deactivated_at: r.deactivated_at ?? null,
+          created_at: r.created_at ?? null,
+          photo_urls: photos,                      // ZIP içindeki photos/ dosya adları
+          video_urls: videos,                      // ZIP içindeki videos/ dosya adları
+          num_agrees: r.num_agrees,
+          agreed_ids: r.agreed_ids
+        }
+      };
+    });
+
+    const geojson = {
+      type: 'FeatureCollection',
+      features,
+      metadata: {
+        username: req.user.username,
+        total_events: features.length,
+        export_date: new Date().toISOString()
+      }
+    };
+
+    const entries = [
+      { name: 'events.geojson', data: Buffer.from(JSON.stringify(geojson, null, 2), 'utf8') },
+      { name: 'photos/', dir: true },
+      { name: 'videos/', dir: true }
+    ];
+    for (const [name, abs] of photoFiles) {
+      try { entries.push({ name: `photos/${name}`, data: fs.readFileSync(abs), mtime: fs.statSync(abs).mtime }); } catch {}
+    }
+    for (const [name, abs] of videoFiles) {
+      try { entries.push({ name: `videos/${name}`, data: fs.readFileSync(abs), mtime: fs.statSync(abs).mtime }); } catch {}
+    }
+
+    const zip = buildZipBuffer(entries);
+    const safeUser = String(req.user.username || 'user').replace(/[^a-zA-Z0-9_.-]/g, '_');
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="my_events_${safeUser}_${Date.now()}.zip"`);
+    res.setHeader('Content-Length', String(zip.length));
+    return res.end(zip);
+  } catch (e) {
+    console.error('GET /api/me/export error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 });

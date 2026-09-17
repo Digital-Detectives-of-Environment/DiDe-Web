@@ -253,6 +253,8 @@ window.i18nLangs.tr = {
     pointsRuleInterval: 'Bir gönderi ekledikten sonra yenisini ekleyebilmek için {{time}} beklersin. Bu yüzden gerçekten değerli gördüğün gözlemleri paylaş.',
     pointsRuleSpend: 'Biriken puanlarını profilindeki QR kodla anlaşmalı işletmelerde indirim olarak kullanabilirsin.',
     pointsInfoFooter: 'Kısacası: az sayıda ama gerçekten değerli gönderi, çok sayıda gelişigüzel gönderiden daha fazla puan kazandırır.',
+    downloadMyData: 'Verilerimi indir (ZIP)',
+    myDataDownloaded: 'Verileriniz indirildi.',
     pointsRuleSolverClose: 'Zamana bağlı olay türlerinden eklenmiş gönderileri kapatabilirsin; kapattığın gönderiler profilindeki "Silinenler" listesinde görünür.',
     pointsRuleSolverNoPoint: 'Gönderi kapatmak puan kazandırmaz ya da kaybettirmez; puan yalnızca gönderi eklemekten ve gönderilere gelen katılımlardan kazanılır.',
     pointsRuleSolverAgree: 'Başkalarının gönderilerine katılabilirsin; her katılımın gönderi sahibine +2 puan kazandırır.',

@@ -248,6 +248,8 @@ window.i18nLangs.it = {
     pointsRuleInterval: 'Dopo aver aggiunto un post devi attendere {{time}} prima del successivo, quindi condividi le osservazioni che ritieni davvero importanti.',
     pointsRuleSpend: 'Puoi usare i punti accumulati come sconto presso le attività convenzionate con il codice QR del tuo profilo.',
     pointsInfoFooter: 'In breve: pochi post davvero validi fanno guadagnare più punti di molti post casuali.',
+    downloadMyData: 'Scarica i miei dati (ZIP)',
+    myDataDownloaded: 'I tuoi dati sono stati scaricati.',
     pointsRuleSolverClose: 'Puoi chiudere i post creati da tipi di evento a tempo; i post che chiudi compaiono nell\'elenco "Eliminati" del tuo profilo.',
     pointsRuleSolverNoPoint: 'Chiudere un post non fa guadagnare né perdere punti; i punti derivano solo dall\'aggiunta di post e dalle adesioni che ricevono.',
     pointsRuleSolverAgree: 'Puoi aderire ai post di altre persone; ogni adesione dà +2 punti al proprietario del post.',

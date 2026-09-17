@@ -253,6 +253,8 @@ window.i18nLangs.en = {
     pointsRuleInterval: 'After adding a post you wait {{time}} before you can add the next one, so share the observations you truly find valuable.',
     pointsRuleSpend: 'You can spend your points as a discount at partner businesses with the QR code in your profile.',
     pointsInfoFooter: 'In short: a few genuinely valuable posts earn more points than many random ones.',
+    downloadMyData: 'Download my data (ZIP)',
+    myDataDownloaded: 'Your data has been downloaded.',
     pointsRuleSolverClose: 'You can close posts created from time-dependent event types; the posts you close appear in the "Deleted" list in your profile.',
     pointsRuleSolverNoPoint: 'Closing a post neither earns nor costs points; points come only from adding posts and from the agreements those posts receive.',
     pointsRuleSolverAgree: 'You can agree with other people\'s posts; each agreement gives the post owner +2 points.',

@@ -34,9 +34,6 @@
   --tbl-font: clamp(13px, 1.05vw, 15px);
   --tbl-head: clamp(13.5px, 1.1vw, 16px);
 
-  --legend-font: clamp(10px, 2.8vw, 13px);
-  --legend-w: clamp(160px, 36%, 320px);
-  --legend-maxh: clamp(120px, 38vh, 44vh);
 }
 
 /* Dark Theme */
@@ -72,9 +69,6 @@
   --tbl-font: clamp(13px, 1.05vw, 15px);
   --tbl-head: clamp(13.5px, 1.1vw, 16px);
 
-  --legend-font: clamp(10px, 2.8vw, 13px);
-  --legend-w: clamp(160px, 36%, 320px);
-  --legend-maxh: clamp(120px, 38vh, 44vh);
 }
 
 /* Mobil tarayıcılarda (Safari/Chrome) adres çubuğu / arama çubuğu açılıp
@@ -2098,168 +2092,11 @@ a:focus-visible{
 :root.theme-dark .sep{
   background: var(--border);
 }
-/* ==========
-   Map Legend - Responsive
-   ========== */
+/* Harita lejantı KALDIRILDI — lejanta ait tüm stiller silindi. */
 .map-wrap{ position: relative; }
-.map-wrap .map-legend:not(:last-of-type){ 
-  display:none !important;
-}
-
-.map-legend{
-  position: absolute;
-  right: max(8px, env(safe-area-inset-right));
-  bottom: max(8px, env(safe-area-inset-bottom));
-  left: auto;
-  z-index: 600;
-  background: var(--surface);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: var(--shadow-sm);
-  padding: clamp(8px, 1.5vw, 12px);
-  font-size: var(--legend-font);
-  line-height: 1.3;
-  max-width: var(--legend-w);
-  width: auto;
-  max-height: var(--legend-maxh);
-  overflow: auto;
-  user-select: none;
-  -webkit-user-select: none;
-  touch-action: none;
-  backdrop-filter: saturate(160%) blur(4px);
-}
-
-.map-legend .legend-title{
-  margin: 0 0 8px;
-  font-size: 0.95rem;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  color: var(--text);
-}
-
-.map-legend .legend-item{
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-  line-height: 1.2;
-}
-
-.map-legend .legend-item:last-child{
-  margin-bottom: 0;
-}
-
-.map-legend .legend-item svg{
-  flex-shrink: 0;
-  width: 20px;
-  height: 28px;
-  display: block;
-}
-
-.map-legend .legend-item span{
-  font-size: 0.8rem;
-  color: var(--text);
-  font-weight: 500;
-}
-
-.map-legend::-webkit-scrollbar{ 
-  width: 10px; 
-  height: 10px;
-}
-
-.map-legend::-webkit-scrollbar-thumb{ 
-  background: #d1d5db; 
-  border-radius: 8px; 
-  border: 2px solid #fff;
-}
-
-.map-legend{ scrollbar-width: thin; }
-
-@media (max-width: 992px){
-  .map-legend{
-    padding: 6px 8px;
-    max-width: clamp(160px, 42%, 280px);
-  }
-  
-  .map-legend .legend-title{
-    font-size: 0.85rem;
-    margin-bottom: 6px;
-  }
-  
-  .map-legend .legend-item{
-    gap: 6px;
-    margin-bottom: 5px;
-  }
-  
-  .map-legend .legend-item svg{
-    width: 18px;
-    height: 24px;
-  }
-  
-  .map-legend .legend-item span{
-    font-size: 0.72rem;
-  }
-}
-
-@media (max-width: 576px){
-  :root{
-    --legend-font: clamp(9px, 2.8vw, 11px);
-    --legend-w: clamp(150px, 65vw, 260px);
-    --legend-maxh: clamp(110px, 34vh, 38vh);
-  }
-  
-  .map-legend{
-    padding: 6px 8px;
-    right: 6px; 
-    bottom: 6px;
-  }
-  
-  .map-legend .legend-title{
-    font-size: 0.8rem;
-    margin-bottom: 5px;
-  }
-  
-  .map-legend .legend-item{
-    gap: 6px;
-    margin-bottom: 4px;
-  }
-  
-  .map-legend .legend-item svg{
-    width: 16px;
-    height: 22px;
-  }
-  
-  .map-legend .legend-item span{
-    font-size: 0.68rem;
-  }
-}
-
-@media (min-width: 1100px){
-  :root{ --legend-w: clamp(200px, 28%, 320px); }
-}
 
 .leaflet-control .info{ display:none !important; }
 
-/* Dark Mode - Map Legend */
-:root.theme-dark .map-legend{
-  background: rgba(30, 41, 59, 0.95);
-  border-color: var(--border);
-  color: var(--text);
-}
-
-:root.theme-dark .map-legend .legend-title{
-  color: var(--text);
-}
-
-:root.theme-dark .map-legend .legend-item span{
-  color: var(--text);
-}
-
-:root.theme-dark .map-legend::-webkit-scrollbar-thumb{
-  background: #475569;
-  border-color: var(--surface);
-}
 /* ==========
    Cluster İkonları 
    ========== */
@@ -3326,9 +3163,11 @@ th:has(#btn-add-type){
 .profile-info-btn:hover{ opacity:1; }
 .profile-info-btn:active{ transform:scale(.94); }
 .profile-info-btn svg{
-  width:clamp(20px, 5.4vw, 26px);
-  height:clamp(20px, 5.4vw, 26px);
+  width:clamp(30px, 8vw, 40px);
+  height:clamp(30px, 8vw, 40px);
   display:block;
+  overflow:visible;
+  shape-rendering:geometricPrecision;
 }
 
 /* ===== Puan sistemi bilgi ekranı (tam ekran) ===== */
@@ -3481,6 +3320,11 @@ th:has(#btn-add-type){
 }
 .profile-map-open-list:hover{ background:#eff6ff; }
 .profile-map-open-list-img{ width:24px; height:24px; }
+
+/* "Verimi indir" butonu — harita butonuyla aynı boyut ve tema */
+.profile-download-btn{ padding:0; }
+.profile-download-icon{ width:24px; height:24px; display:block; color:var(--primary, #2563eb); }
+.profile-download-btn:disabled{ opacity:.55; cursor:not-allowed; }
 
 .profile-table-wrap{
   max-width:100%;

@@ -2495,84 +2495,15 @@ function ensureExportControl() {
   __exportCtrlAdded = false;
 }
 
+/* Harita lejantı KALDIRILDI (tüm haritalarda: ana harita, olaylar haritası,
+   aggregation/bölge haritası, profil haritası). Lejant üreten kod silindi;
+   bu fonksiyon yalnızca eski/önbellekten kalmış bir lejant varsa onu temizler.
+   Çağrı yerleri korunduğu için mevcut akışlar bozulmaz. */
 function ensureMapLegend(mapInstance) {
-  if (!mapInstance) return;
-  
-  if (!shouldShowLegend()) {
-    const existing = mapInstance.getContainer().querySelector('.map-legend');
-    if (existing) existing.remove();
-    return;
-  }
-  
-  const existingLegend = mapInstance.getContainer().querySelector('.map-legend');
-  if (existingLegend) {
-    return;
-  }
-  
-  const Legend = L.Control.extend({
-    options: { position: 'bottomright' },
-    onAdd: function() {
-      const div = L.DomUtil.create('div', 'map-legend');
-      
-      div.style.cssText = `
-        display: block !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        pointer-events: auto !important;
-        z-index: 1000 !important;
-        position: relative !important;
-      `;
-      
-      div.innerHTML = `
-        <div class="legend-title">${t('eventIcons')}</div>
-        <div class="legend-item">
-          <svg width="20" height="28" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path fill="#10b981" d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/>
-          </svg>
-          <span>${t('myEvent')}</span>
-        </div>
-        <div class="legend-item">
-          <svg width="20" height="28" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path fill="#3b82f6" d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/>
-          </svg>
-          <span>${t('otherEvents')}</span>
-        </div>
-        <div class="legend-item">
-          <svg width="20" height="28" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <g transform="translate(0,3)">
-              <rect x="3" y="5" width="18" height="12" rx="3" fill="#3b82f6"/>
-              <rect x="7" y="3" width="6" height="3" rx="1" fill="#3b82f6"/>
-              <circle cx="12" cy="11" r="3.2" fill="rgba(255,255,255,.9)"/>
-            </g>
-          </svg>
-          <span>${t('withPhoto')}</span>
-        </div>
-        <div class="legend-item">
-          <svg width="20" height="28" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <g transform="translate(0,3)">
-              <rect x="3" y="6" width="12" height="10" rx="2" fill="#3b82f6"/>
-              <path d="M16 8l5-2v10l-5-2z" fill="#3b82f6"/>
-              <rect x="6.8" y="9.2" width="4.4" height="3.6" rx="1" fill="rgba(255,255,255,.9)"/>
-            </g>
-          </svg>
-          <span>${t('withVideo')}</span>
-        </div>
-        <div class="legend-item">
-          <svg width="20" height="28" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <g transform="translate(0,3)">
-              <rect x="3" y="5" width="18" height="12" rx="3" fill="#3b82f6"/>
-              <path d="M10 9l6 3-6 3z" fill="rgba(255,255,255,.95)"/>
-            </g>
-          </svg>
-          <span>${t('withPhotoAndVideo')}</span>
-        </div>
-      `;
-      
-      return div;
-    }
-  });
-  
-  mapInstance.addControl(new Legend());
+  if (!mapInstance || typeof mapInstance.getContainer !== 'function') return;
+  try {
+    mapInstance.getContainer().querySelectorAll('.map-legend').forEach(el => el.remove());
+  } catch {}
 }
 
 function removeDownloadIfAny(){
@@ -2633,27 +2564,6 @@ function boolFromConfigValue(v) {
   if (typeof v === 'boolean') return v;
   if (typeof v === 'string') return v.toLowerCase() === 'true';
   if (typeof v === 'number') return v === 1;
-  return false;
-}
-
-function shouldShowLegend() {
-  // Never show legend when not logged in (login screen)
-  if (!currentUser) {
-    return false;
-  }
-
-  if (currentUser.role === 'user') {
-    return true;
-  }
-
-  if (currentUser.role === 'supervisor') {
-    return true;
-  }
-
-  if (currentUser.role === 'admin') {
-    return true;
-  }
-
   return false;
 }
 
@@ -12683,20 +12593,7 @@ async function updateUIWithNewLanguage() {
   
   setMediaButtonsAsIcons();
 
-  try {
-    if (map) {
-      const existingLegend = map.getContainer().querySelector('.map-legend');
-      if (existingLegend) existingLegend.remove();
-      ensureMapLegend(map);
-    }
-    if (eventsMap) {
-      const existingLegend = eventsMap.getContainer().querySelector('.map-legend');
-      if (existingLegend) existingLegend.remove();
-      ensureMapLegend(eventsMap);
-    }
-  } catch(e) {
-    console.warn('Map legend update error:', e);
-  }
+  // Lejant kaldırıldığı için dil değişiminde yeniden çizilecek bir lejant yok.
 
   // Update layer panel headers and re-render layer lists for i18n
   try {
@@ -13055,6 +12952,13 @@ async function openProfileOverlay(){
   // Gönderiler/Silinenler başlığı ve tablo başlıkları solver'a göre
   const postsTitle = pfEl('profile-posts-title');
   if (postsTitle) postsTitle.textContent = __pf.solver ? t('deletedPosts') : t('posts');
+
+  // "Verimi indir" butonu yalnızca olay ekleyen (opener) hesapta görünür
+  const dlBtn = pfEl('profile-download-btn');
+  if (dlBtn) {
+    dlBtn.style.display = __pf.solver ? 'none' : '';
+    dlBtn.disabled = false;
+  }
 
   // Verileri çek
   try {
@@ -13813,6 +13717,39 @@ function pfRenderPointsInfo(){
   }
 }
 
+/* Opener: kendi verisini ZIP olarak indirir (events.geojson + photos/ + videos/). */
+async function pfDownloadMyData(){
+  const btn = pfEl('profile-download-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch('/api/me/export');
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 404) { toast(t('noEventsToDownload'), 'error', 4000); return; }
+      toast(t('downloadError') + ': ' + (d.message || d.error || r.status), 'error', 4000);
+      return;
+    }
+    const blob = await r.blob();
+    // Dosya adını sunucunun Content-Disposition başlığından al (yoksa yedek ad üret)
+    let fname = 'my_events.zip';
+    const cd = r.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="?([^";]+)"?/i);
+    if (m && m[1]) fname = m[1];
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { try { URL.revokeObjectURL(url); a.remove(); } catch {} }, 800);
+    toast(t('myDataDownloaded'), 'success');
+  } catch (e) {
+    toast(t('downloadError') + ': ' + ((e && e.message) || ''), 'error', 4000);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 function openPointsInfo(){
   const ov = pfEl('points-info-overlay');
   if (!ov) return;
@@ -13835,6 +13772,10 @@ function initProfileOverlay(){
   // Puan sistemi bilgi ekranı ("i" butonu)
   const infoBtn = pfEl('profile-info-btn');
   if (infoBtn) infoBtn.onclick = openPointsInfo;
+
+  // Kendi verimi indir (ZIP) — yalnızca olay ekleyen (opener) hesaplarda görünür
+  const dlBtn = pfEl('profile-download-btn');
+  if (dlBtn) dlBtn.onclick = pfDownloadMyData;
   const infoClose = pfEl('points-info-close');
   if (infoClose) infoClose.onclick = closePointsInfo;
   document.addEventListener('keydown', (e) => {

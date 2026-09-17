@@ -1077,10 +1077,11 @@
             <button id="profile-info-btn" class="profile-info-btn" type="button"
                     data-i18n-title="pointsInfo" data-i18n-aria-label="pointsInfo"
                     title="Point system" aria-label="Point system">
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <circle cx="12" cy="12" r="9.25" fill="none" stroke="currentColor" stroke-width="1.5"/>
-                <circle cx="12" cy="7.6" r="1.25" fill="currentColor"/>
-                <path d="M12 10.9v6.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <svg viewBox="0 0 48 48" aria-hidden="true" focusable="false" shape-rendering="geometricPrecision">
+                <circle cx="24" cy="24" r="21" fill="none" stroke="currentColor" stroke-width="2.6"/>
+                <circle cx="24" cy="14.4" r="2.6" fill="currentColor"/>
+                <path d="M24 21.4v13.2" fill="none" stroke="currentColor" stroke-width="4"
+                      stroke-linecap="round"/>
               </svg>
             </button>
             <div id="profile-qr" class="profile-qr">
@@ -1106,6 +1107,19 @@
             <h3 id="profile-posts-title" class="profile-posts-title">Posts</h3>
             <button id="profile-map-open-list" class="profile-map-open-list icon-btn" type="button" data-i18n-title="openMap" title="Open map">
               <img src="/map-view.svg" alt="map" class="profile-map-open-list-img" onerror="this.onerror=null;this.src='/useposition.svg';" />
+            </button>
+            <!-- Kendi verimi indir (GeoJSON + photos/ + videos/ → ZIP) — yalnızca opener -->
+            <button id="profile-download-btn" class="profile-map-open-list profile-download-btn icon-btn" type="button"
+                    data-i18n-title="downloadMyData" data-i18n-aria-label="downloadMyData"
+                    title="Download my data" aria-label="Download my data">
+              <svg class="profile-download-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
+                   shape-rendering="geometricPrecision">
+                <path d="M12 3.5v10.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <path d="M7.4 9.6L12 14.2l4.6-4.6" fill="none" stroke="currentColor" stroke-width="2"
+                      stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M4.5 16.2v2.1a2.2 2.2 0 0 0 2.2 2.2h10.6a2.2 2.2 0 0 0 2.2-2.2v-2.1"
+                      fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
             </button>
           </div>
           <div class="profile-table-wrap">
