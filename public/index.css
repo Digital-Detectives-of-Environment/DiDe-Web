@@ -2968,6 +2968,11 @@ th:has(#btn-add-type){
   text-align: center;
   line-height: 1.4;
 }
+/* Bilgi bandı: uyarı bandıyla aynı yerleşim, YEŞİL tema */
+.grid-warning-banner.info-banner{
+  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+}
+
 .grid-warning-banner .banner-icon {
   font-size: 20px;
   flex-shrink: 0;
@@ -3301,6 +3306,133 @@ th:has(#btn-add-type){
 }
 .profile-score-label{ font-size:clamp(14px, 4vw, 17px); color:var(--muted, #6b7280); font-weight:600; }
 .profile-score-value{ font-size:clamp(28px, 8vw, 42px); font-weight:900; color:var(--primary, #2563eb); }
+
+/* Puanın altındaki çerçevesiz "i" (bilgi) butonu */
+.profile-info-btn{
+  margin-top:2px;
+  padding:4px;
+  background:none;
+  border:none;
+  outline:none;
+  color:var(--primary, #2563eb);
+  cursor:pointer;
+  line-height:0;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  opacity:.85;
+  transition:opacity .15s ease, transform .1s ease;
+}
+.profile-info-btn:hover{ opacity:1; }
+.profile-info-btn:active{ transform:scale(.94); }
+.profile-info-btn svg{
+  width:clamp(20px, 5.4vw, 26px);
+  height:clamp(20px, 5.4vw, 26px);
+  display:block;
+}
+
+/* ===== Puan sistemi bilgi ekranı (tam ekran) ===== */
+.points-info-overlay{
+  position:fixed;
+  inset:0;
+  z-index:11600;
+  background:var(--bg, #f8fafc);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.points-info-overlay.hidden{ display:none; }
+.points-info-inner{
+  position:relative;
+  width:100%;
+  height:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:clamp(48px, 9vh, 72px) clamp(12px, 4vw, 28px) clamp(16px, 4vh, 32px);
+  box-sizing:border-box;
+  overflow:auto;               /* güvenlik: çok küçük ekranlarda içerik kesilmesin */
+  -webkit-overflow-scrolling:touch;
+}
+.points-info-close{
+  position:absolute;
+  top:12px;
+  right:12px;
+  z-index:12;
+  width:42px;
+  height:42px;
+  border-radius:50%;
+  border:1.5px solid var(--border, #e5e7eb);
+  background:#fff;
+  color:var(--text, #111);
+  font-size:20px;
+  line-height:1;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  box-shadow:0 2px 8px rgba(0,0,0,.12);
+}
+.points-info-content{
+  width:min(640px, 100%);
+  max-width:100%;
+  display:flex;
+  flex-direction:column;
+  gap:clamp(8px, 1.6vh, 16px);
+}
+.points-info-title{
+  margin:0;
+  text-align:center;
+  font-size:clamp(18px, min(6vw, 3.4vh), 28px);
+  font-weight:800;
+  color:var(--text, #111);
+  word-break:break-word;
+}
+.points-info-list{
+  display:flex;
+  flex-direction:column;
+  gap:clamp(6px, 1.3vh, 12px);
+}
+.points-info-row{
+  display:flex;
+  align-items:flex-start;
+  gap:clamp(8px, 2.2vw, 14px);
+  padding:clamp(8px, 1.5vh, 14px) clamp(10px, 3vw, 16px);
+  border:1px solid var(--border, #e5e7eb);
+  border-radius:14px;
+  background:var(--surface, #fff);
+  box-shadow:var(--shadow-sm);
+}
+.points-info-badge{
+  flex:0 0 auto;
+  min-width:clamp(30px, 8.5vw, 42px);
+  padding:clamp(3px, .7vh, 6px) clamp(5px, 1.5vw, 9px);
+  border-radius:10px;
+  background:var(--primary, #2563eb);
+  color:#fff;
+  font-weight:800;
+  font-size:clamp(11px, min(3.4vw, 1.9vh), 15px);
+  text-align:center;
+  line-height:1.25;
+}
+.points-info-text{
+  flex:1 1 auto;
+  min-width:0;
+  font-size:clamp(11px, min(3.4vw, 1.95vh), 16px);
+  line-height:1.4;
+  color:var(--text, #111);
+  overflow-wrap:anywhere;
+}
+.points-info-foot{
+  text-align:center;
+  font-size:clamp(10px, min(3vw, 1.7vh), 14px);
+  line-height:1.4;
+  color:var(--muted, #6b7280);
+  overflow-wrap:anywhere;
+}
+@media (max-width: 576px){
+  .points-info-close{ width:38px; height:38px; top:8px; right:8px; }
+}
 
 .profile-map-open-big{
   width:min(72px, 18vw, 9vh);

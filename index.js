@@ -71,6 +71,30 @@ if (RESTRICT_GNSS_NORM !== 'true' && RESTRICT_GNSS_NORM !== 'false') {
 }
 const RESTRICT_GNSS = RESTRICT_GNSS_NORM === 'true';
 
+// ==================== EVENT_SUBMIT_INTERVAL_HOURS ====================
+// Olay ekleyen (opener) kullanıcıların İKİ GÖNDERİ ARASINDA beklemesi gereken
+// süre — SAAT cinsinden. Tam sayı ya da ondalıklı olabilir (1, 2, 24, 0.5 ...).
+//   EVENT_SUBMIT_INTERVAL_HOURS=1   -> bir gönderiden sonra yenisi 1 saat sonra
+//   EVENT_SUBMIT_INTERVAL_HOURS=0.5 -> 30 dakika
+//   EVENT_SUBMIT_INTERVAL_HOURS=    -> (boş) bekleme YOK; istenildiği zaman eklenir
+// Boş bırakılabilir; ama yazıldıysa SAYI olmak zorundadır (metin kabul edilmez).
+const EVENT_SUBMIT_INTERVAL_RAW = String(process.env.EVENT_SUBMIT_INTERVAL_HOURS ?? '').trim();
+let EVENT_SUBMIT_INTERVAL_HOURS = 0; // 0 = sınır yok
+if (EVENT_SUBMIT_INTERVAL_RAW !== '') {
+  const parsed = Number(EVENT_SUBMIT_INTERVAL_RAW.replace(',', '.'));
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    console.error(`\n[FATAL] EVENT_SUBMIT_INTERVAL_HOURS is invalid in your .env file.`);
+    console.error(`        It must be a number in HOURS (integer or decimal), or left empty.`);
+    console.error(`          EVENT_SUBMIT_INTERVAL_HOURS=1    -> one post per hour`);
+    console.error(`          EVENT_SUBMIT_INTERVAL_HOURS=0.5  -> one post per 30 minutes`);
+    console.error(`          EVENT_SUBMIT_INTERVAL_HOURS=     -> no waiting time between posts`);
+    console.error(`        Current value: "${EVENT_SUBMIT_INTERVAL_RAW}".`);
+    console.error(`        System cannot start. Exiting.\n`);
+    process.exit(1);
+  }
+  EVENT_SUBMIT_INTERVAL_HOURS = parsed;
+}
+
 // ==================== EVENT_TYPE_VALIDITY_UNITS ====================
 // "Validity period for the event type to be displayed".
 // Controls which time units the supervisor is allowed to enter when creating a
@@ -1138,7 +1162,13 @@ function cookieOptsSession(req = null) {
 // ve users tablosuna yazar. Beğeni değişince, olay eklenince/kapatılınca çağrılır.
 //   num_events  = kullanıcının eklediği toplam olay (aktif+deaktif)
 //   agreed_point = gönderilerinde aldığı toplam beğeni
-//   posts_point = SUM(2*num_agrees + 1) = 2*agreed_point + num_events
+//   posts_point = 2*agreed_point + (kullanıcının KENDİSİNİN silmediği olay sayısı)
+//
+//   Gönderi puanı (+1), kullanıcı kendi gönderisini sildiğinde geri alınır (-1).
+//   Beğeni (katılım) puanları (+2/beğeni) ise gönderi silinse bile kullanıcıda KALIR —
+//   bu yüzden beğeni toplamı tüm olaylar üzerinden, gönderi sayısı ise yalnızca
+//   "kullanıcının kendisi silmediği" olaylar üzerinden hesaplanır.
+//   (Solver/supervisor tarafından kapatılan olaylar kullanıcının puanını düşürmez.)
 async function recomputeUserStats(userId) {
   if (userId == null) return;
   try {
@@ -1146,9 +1176,14 @@ async function recomputeUserStats(userId) {
       `UPDATE public.users u SET
          num_events  = COALESCE(sub.cnt, 0),
          agreed_point = COALESCE(sub.agrees, 0),
-         posts_point = COALESCE(2*sub.agrees + sub.cnt, 0)
+         posts_point = COALESCE(2*sub.agrees + sub.kept, 0)
        FROM (
          SELECT COUNT(*) AS cnt,
+                COUNT(*) FILTER (
+                  WHERE COALESCE(active, true) = true
+                     OR deactivated_by_id IS NULL
+                     OR deactivated_by_id <> created_by_id
+                ) AS kept,
                 COALESCE(SUM(COALESCE(num_agrees,0)),0) AS agrees
          FROM public.event
          WHERE created_by_id = $1
@@ -2021,10 +2056,15 @@ async function ensureDbSqlHelpers() {
     UPDATE public.users u SET
       num_events  = COALESCE(sub.cnt, 0),
       agreed_point = COALESCE(sub.agrees, 0),
-      posts_point = COALESCE(2*sub.agrees + sub.cnt, 0)
+      posts_point = COALESCE(2*sub.agrees + sub.kept, 0)
     FROM (
       SELECT created_by_id AS uid,
              COUNT(*) AS cnt,
+             COUNT(*) FILTER (
+               WHERE COALESCE(active, true) = true
+                  OR deactivated_by_id IS NULL
+                  OR deactivated_by_id <> created_by_id
+             ) AS kept,
              COALESCE(SUM(COALESCE(num_agrees,0)),0) AS agrees
       FROM public.event
       WHERE created_by_id IS NOT NULL
@@ -2539,6 +2579,8 @@ app.get('/api/config', (_req, res) => {
     restrictGnss: RESTRICT_GNSS,
     eventTypeValidityUnits: EVENT_TYPE_VALIDITY_UNITS,
     zoomLevelBoundary: String(process.env.ZOOM_LEVEL_BOUNDARY || '').trim().toLowerCase(),
+    // İki gönderi arasındaki bekleme süresi (saat). 0 => sınır yok.
+    eventSubmitIntervalHours: EVENT_SUBMIT_INTERVAL_HOURS > 0 ? EVENT_SUBMIT_INTERVAL_HOURS : 0,
   });
 });
 /* ===================== AUTH ===================== */
@@ -3385,6 +3427,35 @@ app.post('/api/submit_olay', requireAuth, async (req, res) => {
     if (req.user.role === 'user' && req.user.solver === true) {
       return res.status(403).json({ error: 'solver_cannot_add', message: getErrorMessage(req, 'solver_cannot_add') });
     }
+    // İki gönderi arasındaki bekleme süresi (.env: EVENT_SUBMIT_INTERVAL_HOURS).
+    // Boş/0 ise sınır yoktur. Yalnızca 'user' (olay ekleyen) hesapları için geçerlidir.
+    if (req.user.role === 'user' && EVENT_SUBMIT_INTERVAL_HOURS > 0) {
+      try {
+        const last = await pool.query(
+          `SELECT created_at FROM public.event
+            WHERE created_by_id = $1 AND created_at IS NOT NULL
+            ORDER BY created_at DESC LIMIT 1`,
+          [req.user.id]
+        );
+        if (last.rowCount) {
+          const lastAt = new Date(last.rows[0].created_at).getTime();
+          const nextAt = lastAt + EVENT_SUBMIT_INTERVAL_HOURS * 3600 * 1000;
+          const remainMs = nextAt - Date.now();
+          if (Number.isFinite(remainMs) && remainMs > 0) {
+            return res.status(429).json({
+              error: 'submit_interval_wait',
+              message: getErrorMessage(req, 'submit_interval_wait'),
+              interval_hours: EVENT_SUBMIT_INTERVAL_HOURS,
+              retry_after_seconds: Math.ceil(remainMs / 1000),
+              next_allowed_at: new Date(nextAt).toISOString()
+            });
+          }
+        }
+      } catch (e) {
+        console.error('[submit_olay] submit interval check error:', e.message);
+      }
+    }
+
     const { p_id, event_type, description, latitude, longitude } = req.body || {};
     const lat = parseFloat(latitude), lng = parseFloat(longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng))
@@ -3659,12 +3730,16 @@ app.delete('/api/event/:id', requireAuth, async (req, res) => {
            deactivated_by_id=$4,
            deactivated_at=NOW()
        WHERE event_id=$1 AND COALESCE(active,true)=true
-       RETURNING event_id`,
+       RETURNING event_id, created_by_id`,
       [id, req.user.username, req.user.role, req.user.id]
     );
     await client.query('COMMIT');
 
     if (!r.rowCount) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+
+    // Gönderi sahibinin puanını tazele: kullanıcı KENDİ gönderisini sildiyse
+    // gönderi puanı (+1) geri alınır; beğeni (katılım) puanları korunur.
+    try { await recomputeUserStats(r.rows[0].created_by_id); } catch {}
 
     res.set('X-UI-Remove', '1');
     res.json({ ok: true, event_id: r.rows[0].event_id, ui_remove: true });

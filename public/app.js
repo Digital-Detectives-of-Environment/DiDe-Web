@@ -95,7 +95,11 @@ let APP_CONFIG = {
   eventTypeValidityUnits: ['days'],
 
   // ZOOM_LEVEL_BOUNDARY=yes ise sınır dışı maskelenir ve harita sınıra kilitlenir.
-  zoomLevelBoundary: false
+  zoomLevelBoundary: false,
+
+  // .env → EVENT_SUBMIT_INTERVAL_HOURS: opener'ın iki gönderi arasında beklemesi
+  // gereken süre (saat). 0 / boş => bekleme yok (mevcut davranış).
+  eventSubmitIntervalHours: 0
 };
 
 /* ---------------------------------------------------------------------------
@@ -157,6 +161,7 @@ async function loadAppConfig() {
       if (config.pageSizeEvents) config.pageSizeEvents = Number(config.pageSizeEvents);
       if (config.pageSizeTypes) config.pageSizeTypes = Number(config.pageSizeTypes);
       if (config.pageSizeUsers) config.pageSizeUsers = Number(config.pageSizeUsers);
+      config.eventSubmitIntervalHours = Number(config.eventSubmitIntervalHours) || 0;
       
       APP_CONFIG = { ...APP_CONFIG, ...config };
       console.log('[CONFIG] polygonTable =', APP_CONFIG.polygonTable, '| polygonPk1 =', APP_CONFIG.polygonPk1);
@@ -350,6 +355,61 @@ function showGridWarning(message, timeout=5000){
   const closeBtn = banner.querySelector('.banner-close');
   const timer = setTimeout(() => { try { banner.remove(); } catch {} }, timeout);
   if (closeBtn) closeBtn.onclick = () => { clearTimeout(timer); banner.remove(); };
+}
+
+/* Yeşil bilgi bandı — uyarı bandıyla (showGridWarning) aynı yerleşim, yeşil tema.
+   Ekranda başka bir bant varsa onu ezmez; kısa süre sonra yeniden dener. */
+function showInfoBanner(message, timeout=12000, _try=0){
+  if (document.querySelector('.grid-warning-banner')){
+    if (_try < 4) setTimeout(() => showInfoBanner(message, timeout, _try + 1), 4000);
+    return;
+  }
+  const banner = document.createElement('div');
+  banner.className = 'grid-warning-banner info-banner';
+  banner.innerHTML = `
+    <span class="banner-icon">ℹ️</span>
+    <span>${escapeHtml(message)}</span>
+    <button class="banner-close" type="button">&times;</button>
+  `;
+  document.body.appendChild(banner);
+  const closeBtn = banner.querySelector('.banner-close');
+  const timer = setTimeout(() => { try { banner.remove(); } catch {} }, timeout);
+  if (closeBtn) closeBtn.onclick = () => { clearTimeout(timer); banner.remove(); };
+}
+
+/* ===== Gönderi aralığı (.env: EVENT_SUBMIT_INTERVAL_HOURS) ===== */
+function postIntervalHours(){
+  const h = Number(APP_CONFIG.eventSubmitIntervalHours);
+  return (Number.isFinite(h) && h > 0) ? h : 0;
+}
+
+// Saat değerini okunur metne çevirir: 2 -> "2 saat", 0.5 -> "30 dakika", 1.5 -> "1 saat 30 dakika"
+function formatDurationHours(hours){
+  const totalMin = Math.round(Number(hours) * 60);
+  return formatDurationMinutes(totalMin);
+}
+function formatDurationMinutes(totalMin){
+  totalMin = Math.max(1, Math.round(Number(totalMin) || 0));
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h > 0 && m > 0) return t('durationHours', { count: h }) + ' ' + t('durationMinutes', { count: m });
+  if (h > 0) return t('durationHours', { count: h });
+  return t('durationMinutes', { count: m });
+}
+function formatDurationSeconds(seconds){
+  return formatDurationMinutes(Math.ceil((Number(seconds) || 0) / 60));
+}
+
+// Opener girişinde, oturumda bir kez, yeşil bilgi bandı (yalnızca .env'de süre tanımlıysa).
+const POST_INTERVAL_NOTICE_KEY = 'post_interval_notice';
+function maybeShowPostIntervalNotice(){
+  if (!currentUser || currentUser.role !== 'user') return;
+  try { if (isSolverUser()) return; } catch {}
+  const h = postIntervalHours();
+  if (!h) return;   // .env boş → bildirim hiç gösterilmez
+  try { if (sessionStorage.getItem(POST_INTERVAL_NOTICE_KEY) === '1') return; } catch {}
+  try { sessionStorage.setItem(POST_INTERVAL_NOTICE_KEY, '1'); } catch {}
+  showInfoBanner(t('postIntervalNotice', { time: formatDurationHours(h) }), 14000);
 }
 
 /* Media (multiple URL — backend TEXT(JSON)) */
@@ -9431,7 +9491,14 @@ async function submitOlay(){
         body:JSON.stringify(payload) 
       });
       d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.message || d.error || r.status);
+      if (!r.ok) {
+        // Gönderi aralığı dolmadı → kalan süreyi kullanıcıya göster (form açık kalır)
+        if (r.status === 429 && d && d.error === 'submit_interval_wait') {
+          setError(errEl, t('postIntervalWait', { time: formatDurationSeconds(d.retry_after_seconds) }));
+          return;
+        }
+        throw new Error(d.message || d.error || r.status);
+      }
       toast(t('eventAdded', {id: d.event_id}), 'success');
     }
     
@@ -11095,6 +11162,8 @@ async function checkMe(){
       }
     } catch {}
     try { await loadBoundary(); } catch (e) { console.warn('boundary load', e); }
+    // Opener: gönderi aralığı bildirimi (oturumda bir kez, .env'de süre varsa)
+    try { maybeShowPostIntervalNotice(); } catch (e) { console.warn('postIntervalNotice', e); }
   } else { 
     markersLayer.clearLayers(); 
     
@@ -11279,6 +11348,8 @@ async function logout(){
   // ekran kalır. Reflow'un oturması için küçük bir gecikmeyle invalidateSize çağırıyoruz.
   try { setTimeout(() => { try { if (map) { map.invalidateSize(); } } catch {} }, 120); } catch {}
   
+  try { sessionStorage.removeItem(POST_INTERVAL_NOTICE_KEY); } catch {}
+
   const currentLang = window.getLanguage();
   
   goDefaultScreen();
@@ -13642,6 +13713,7 @@ function pfShowPage(index){
 }
 
 function closeProfileOverlay(){
+  try { closePointsInfo(); } catch {}
   const ov = pfEl('profile-overlay');
   if (!ov) return;
   ov.classList.add('hidden');
@@ -13655,6 +13727,10 @@ function closeProfileOverlay(){
 // Overlay açıkken dil değişimini uygula: solver'a göre başlık, rol etiketi, tablo başlıkları
 // ve aktif dil butonu vurgusu güncellenir. (Tablo sütun başlıkları data-i18n ile çevrilir.)
 function pfApplyLanguage(){
+  // Puan sistemi ekranı açıksa onu da tazele
+  const __info = pfEl('points-info-overlay');
+  if (__info && !__info.classList.contains('hidden')) { try { pfRenderPointsInfo(); } catch {} }
+
   // Gönderiler / Silinenler başlığı (solver'a göre)
   const postsTitle = pfEl('profile-posts-title');
   if (postsTitle) postsTitle.textContent = __pf.solver ? t('deletedPosts') : t('posts');
@@ -13693,9 +13769,79 @@ function pfApplyLanguage(){
 }
 
 // Overlay olaylarını bağla
+/* ===================== PUAN SİSTEMİ BİLGİ EKRANI =====================
+   Profil ekranındaki puanın altındaki "i" butonuyla açılır. Tam ekrandır,
+   çarpı ile kapanınca profil ekranı olduğu gibi geri gelir. İçerik role göre
+   (olay ekleyen / solver) ve .env'deki gönderi aralığına göre üretilir. */
+function pfPointsRules(){
+  const rules = [];
+  if (__pf.solver) {
+    rules.push({ badge: '✔',  text: t('pointsRuleSolverClose') });
+    rules.push({ badge: '+2', text: t('pointsRuleSolverAgree') });
+    rules.push({ badge: 'i',  text: t('pointsRuleSolverNoPoint') });
+    rules.push({ badge: '%',  text: t('pointsRuleSpend') });
+    return rules;
+  }
+  rules.push({ badge: '+1', text: t('pointsRulePost') });
+  rules.push({ badge: '+2', text: t('pointsRuleAgree') });
+  rules.push({ badge: '−1', text: t('pointsRuleDelete') });
+  // Gönderi aralığı .env'de tanımlı DEĞİLSE bu satır hiç gösterilmez.
+  const h = (typeof postIntervalHours === 'function') ? postIntervalHours() : 0;
+  if (h) rules.push({ badge: '⏳', text: t('pointsRuleInterval', { time: formatDurationHours(h) }) });
+  rules.push({ badge: '%',  text: t('pointsRuleSpend') });
+  return rules;
+}
+
+function pfRenderPointsInfo(){
+  const title = pfEl('points-info-title');
+  const list  = pfEl('points-info-list');
+  const foot  = pfEl('points-info-foot');
+  if (title) title.textContent = t('pointsInfoTitle');
+  if (list) {
+    list.innerHTML = pfPointsRules().map(r => (
+      `<div class="points-info-row">
+         <span class="points-info-badge">${escapeHtml(r.badge)}</span>
+         <span class="points-info-text">${escapeHtml(r.text)}</span>
+       </div>`
+    )).join('');
+  }
+  if (foot) {
+    const h = (typeof postIntervalHours === 'function') ? postIntervalHours() : 0;
+    const showFoot = !__pf.solver && !!h;
+    foot.textContent = showFoot ? t('pointsInfoFooter') : '';
+    foot.style.display = showFoot ? '' : 'none';
+  }
+}
+
+function openPointsInfo(){
+  const ov = pfEl('points-info-overlay');
+  if (!ov) return;
+  pfRenderPointsInfo();
+  ov.classList.remove('hidden');
+  ov.setAttribute('aria-hidden', 'false');
+}
+
+function closePointsInfo(){
+  const ov = pfEl('points-info-overlay');
+  if (!ov) return;
+  ov.classList.add('hidden');
+  ov.setAttribute('aria-hidden', 'true');
+}
+
 function initProfileOverlay(){
   const closeBtn = pfEl('profile-close');
   if (closeBtn) closeBtn.onclick = closeProfileOverlay;
+
+  // Puan sistemi bilgi ekranı ("i" butonu)
+  const infoBtn = pfEl('profile-info-btn');
+  if (infoBtn) infoBtn.onclick = openPointsInfo;
+  const infoClose = pfEl('points-info-close');
+  if (infoClose) infoClose.onclick = closePointsInfo;
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const ov = pfEl('points-info-overlay');
+    if (ov && !ov.classList.contains('hidden')) closePointsInfo();
+  });
 
   // Profil overlay dil butonları (çarpının solunda) — header dil butonlarıyla aynı davranış
   const pfLangDefault = pfEl('pf-lang-default');
@@ -13726,6 +13872,8 @@ function initProfileOverlay(){
   window.addEventListener('languagechange', () => {
     const ov = pfEl('profile-overlay');
     if (ov && !ov.classList.contains('hidden')) pfApplyLanguage();
+    const info = pfEl('points-info-overlay');
+    if (info && !info.classList.contains('hidden')) pfRenderPointsInfo();
     try { refreshTdDurationTexts(); } catch {}
   });
 

@@ -1036,6 +1036,18 @@
   </div>
 
   <!-- ============ PROFİL OVERLAY (tam ekran, mobil uyumlu) ============ -->
+  <!-- Puan sistemi bilgi ekranı (tam ekran, kaydırmasız) -->
+  <div id="points-info-overlay" class="points-info-overlay hidden" aria-hidden="true">
+    <div class="points-info-inner">
+      <button id="points-info-close" class="points-info-close" type="button" aria-label="Close" data-i18n-title="close" title="Close">&#10005;</button>
+      <div class="points-info-content">
+        <h3 id="points-info-title" class="points-info-title" data-i18n="pointsInfoTitle">Point system</h3>
+        <div id="points-info-list" class="points-info-list"></div>
+        <div id="points-info-foot" class="points-info-foot"></div>
+      </div>
+    </div>
+  </div>
+
   <div id="profile-overlay" class="profile-overlay hidden" aria-hidden="true">
     <div class="profile-overlay-inner">
       <button id="profile-close" class="profile-close" type="button" aria-label="Close" data-i18n-title="close" title="Close">&#10005;</button>
@@ -1061,6 +1073,16 @@
               <span class="profile-score-label" data-i18n="points">Points</span>
               <span id="profile-score-value" class="profile-score-value">0</span>
             </div>
+            <!-- Puanın ALTINDA: çerçevesiz "i" (bilgi) butonu → puan sistemi ekranı -->
+            <button id="profile-info-btn" class="profile-info-btn" type="button"
+                    data-i18n-title="pointsInfo" data-i18n-aria-label="pointsInfo"
+                    title="Point system" aria-label="Point system">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="12" r="9.25" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                <circle cx="12" cy="7.6" r="1.25" fill="currentColor"/>
+                <path d="M12 10.9v6.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
             <div id="profile-qr" class="profile-qr">
               <button id="profile-qr-btn" class="btn profile-qr-btn" type="button" data-i18n="generateQr">Generate QR</button>
               <div id="profile-qr-box" class="profile-qr-box hidden">
