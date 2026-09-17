@@ -9526,7 +9526,7 @@ function geoFindMeToggle(){
 }
 
 function geoFindMeStart() {
-  if (!_geoAvailable()) { showGridWarning(_locText('unsupported'), 7000); return; }
+  if (!_geoAvailable()) { showGridWarning(t('locationNotSupported'), 7000); return; }
   setLocateUI(true);
   requestOrientationFromGesture();
   navigator.geolocation.getCurrentPosition(
@@ -9626,30 +9626,42 @@ let __orientPerm = (typeof DeviceOrientationEvent !== 'undefined' &&
                     typeof DeviceOrientationEvent.requestPermission === 'function') ? 'unknown' : 'granted';
 
 let __gpsIconSeq = 0;
+/* Google Maps (iOS/Android) ile birebir ölçülerle çizilmiş konum işareti.
+   Referans ekran görüntüsünden piksel ölçümüyle alınan değerler (CSS px):
+   - Nokta: toplam çap 20px, 2.5px beyaz kenar, dolgu rengi #0656FF
+   - Koni: noktanın iki yanından (≈ nokta genişliğinde) başlar, kenarları eksene
+     göre ±15° açılarak ~54px uzar; saydamlık nokta dibinde ≈%80'den uca doğru
+     (ölçülen eğriyle) 0'a iner. Radyal solma sayesinde uç köşeleri yumuşak/yuvarlak
+     görünür (Google'daki gibi). Koni ikon içinde YUKARI (kuzey) bakacak şekilde
+     çizilir, yön .gps-beam döndürülerek verilir. */
 function blueDotIcon(){
   const id = 'gpsBeamGrad' + (++__gpsIconSeq);
-  // Koni: merkezden yukarı doğru ±35° açılı, 44px yarıçaplı dilim; radyal gradyanla uca doğru solar.
   const svg =
-    '<svg viewBox="0 0 96 96" width="96" height="96" aria-hidden="true" focusable="false">' +
+    '<svg viewBox="0 0 120 120" width="120" height="120" aria-hidden="true" focusable="false">' +
       '<defs>' +
-        '<radialGradient id="' + id + '" gradientUnits="userSpaceOnUse" cx="48" cy="48" r="44">' +
-          '<stop offset="0" stop-color="#4285F4" stop-opacity="0.65"/>' +
-          '<stop offset="0.3" stop-color="#4285F4" stop-opacity="0.45"/>' +
-          '<stop offset="1" stop-color="#4285F4" stop-opacity="0"/>' +
+        '<radialGradient id="' + id + '" gradientUnits="userSpaceOnUse" cx="60" cy="60" r="54">' +
+          '<stop offset="0"    stop-color="#0656FF" stop-opacity="0.82"/>' +
+          '<stop offset="0.20" stop-color="#0656FF" stop-opacity="0.76"/>' +
+          '<stop offset="0.25" stop-color="#0656FF" stop-opacity="0.70"/>' +
+          '<stop offset="0.44" stop-color="#0656FF" stop-opacity="0.60"/>' +
+          '<stop offset="0.64" stop-color="#0656FF" stop-opacity="0.47"/>' +
+          '<stop offset="0.79" stop-color="#0656FF" stop-opacity="0.28"/>' +
+          '<stop offset="0.89" stop-color="#0656FF" stop-opacity="0.12"/>' +
+          '<stop offset="1"    stop-color="#0656FF" stop-opacity="0"/>' +
         '</radialGradient>' +
       '</defs>' +
-      '<path d="M48 48 L22.76 11.96 A44 44 0 0 1 73.24 11.96 Z" fill="url(#' + id + ')"/>' +
+      '<path d="M50.5 60 L69.5 60 L84.5 4 L35.5 4 Z" fill="url(#' + id + ')"/>' +
     '</svg>';
   return L.divIcon({
     className: 'gps-live-icon',
     html: '<div class="gps-live"><div class="gps-beam">' + svg + '</div><div class="gps-dot"></div></div>',
-    iconSize: [96, 96],
-    iconAnchor: [48, 48]
+    iconSize: [120, 120],
+    iconAnchor: [60, 60]
   });
 }
 
 function _accuracyCircleOpts(radius){
-  return { radius: radius, color: '#4285F4', weight: 1, opacity: 0.35, fillColor: '#4285F4', fillOpacity: 0.14, interactive: false };
+  return { radius: radius, color: '#0656FF', weight: 1, opacity: 0.30, fillColor: '#0656FF', fillOpacity: 0.12, interactive: false };
 }
 
 function _normDeg(d){ d = d % 360; return d < 0 ? d + 360 : d; }
@@ -9759,22 +9771,34 @@ function _pushGpsCourse(coords){
   }
 }
 
-function _locText(kind){
-  const lang = (typeof getLanguage === 'function' ? String(getLanguage() || 'en') : 'en').toLowerCase();
-  const T = {
-    denied: {
-      tr: 'Konum izni kapalı. Konumunuzu haritada gösterebilmemiz için tarayıcı / telefon ayarlarından bu siteye konum izni verin ve canlı konum butonuna tekrar dokunun.',
-      en: 'Location permission is off. To show your position on the map, allow location access for this site in your browser / phone settings and tap the live location button again.',
-      it: 'L\'autorizzazione alla posizione è disattivata. Per mostrare la tua posizione sulla mappa, consenti l\'accesso alla posizione per questo sito nelle impostazioni del browser / telefono e tocca di nuovo il pulsante della posizione in tempo reale.'
-    },
-    unsupported: {
-      tr: 'Bu tarayıcıda konum özelliği kullanılamıyor (tarayıcı desteklemiyor ya da bağlantı güvenli/https değil).',
-      en: 'Location is not available in this browser (not supported, or the connection is not secure/https).',
-      it: 'La posizione non è disponibile in questo browser (non supportata o connessione non sicura/https).'
-    }
-  };
-  const row = T[kind] || {};
-  return row[lang] || row.en || '';
+// Cihaz / tarayıcı tespiti (yalnızca yardım metnini seçmek için)
+function _locPlatform(){
+  const ua = navigator.userAgent || '';
+  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);
+  if (isIOS) {
+    if (/CriOS/.test(ua)) return 'iosChrome';
+    if (/FxiOS|EdgiOS|OPiOS|FBAN|FBAV|Instagram|Line\/|Twitter/.test(ua)) return 'iosOther';
+    return 'iosSafari';
+  }
+  if (/Android/.test(ua)) return 'android';
+  return 'other';
+}
+
+function _locHelpShownThisSession(){
+  try { return sessionStorage.getItem('loc_help_shown') === '1'; } catch { return false; }
+}
+
+// Konum izni kapalıyken cihaza özel, adım adım yardım bandı (çok satırlı, uzun süre açık kalır).
+function showLocationHelpBanner(){
+  try { sessionStorage.setItem('loc_help_shown', '1'); } catch {}
+  const plat = _locPlatform();
+  const key = (plat === 'iosSafari') ? 'locationHelpIosSafari'
+            : (plat === 'iosChrome' || plat === 'iosOther') ? 'locationHelpIosApp'
+            : (plat === 'android') ? 'locationHelpAndroid' : 'locationPermissionDenied';
+  showGridWarning(t(key), 25000);
+  const banners = document.querySelectorAll('.grid-warning-banner');
+  const last = banners[banners.length - 1];
+  if (last) last.classList.add('loc-help');
 }
 
 function _geoAvailable(){
@@ -9897,12 +9921,21 @@ function _slHandleError(err){
     __slDenied = true;
     const warnNow = __slWarnOnDeny;
     const warnLater = __slDeniedNeedsWarn;
+    // Hata, istekten hemen sonra (izin penceresi GÖSTERİLMEDEN) geldiyse ya da
+    // Permissions API 'denied' diyorsa: izni tarayıcı/telefon AYARI engelliyor
+    // (ör. iPhone'da Konum Servisleri › Safari Web Siteleri = "Asla", ya da Safari
+    // bu site için daha önce "İzin Verme" kararını hatırlıyor). Bu durumda
+    // JavaScript izin penceresini hiçbir şekilde açtıramaz; kullanıcıya cihazına
+    // özel adımları gösteriyoruz.
+    const blockedBySettings = (Date.now() - __slReqStartedAt) < 1500 || __slPermState === 'denied';
     stopStandaloneLive();
     if (warnNow) {
-      showGridWarning(_locText('denied'), 9000);
+      showLocationHelpBanner();
+    } else if (blockedBySettings && !_locHelpShownThisSession()) {
+      showLocationHelpBanner();
     } else if (warnLater) {
       // Giriş sırasında reddedildi: rol "user" ise hemen, henüz belli değilse checkMe sonrası uyar.
-      if (currentUser && currentUser.role === 'user') { __slDeniedNeedsWarn = false; showGridWarning(_locText('denied'), 9000); }
+      if (currentUser && currentUser.role === 'user') { __slDeniedNeedsWarn = false; showLocationHelpBanner(); }
       else if (!currentUser) __slDeniedNeedsWarn = true;
     }
     return;
@@ -9959,7 +9992,7 @@ function startStandaloneLive(opts){
   opts = opts || {};
   const center = opts.center !== false;
   if (!_geoAvailable()) {
-    if (opts.userInitiated) showGridWarning(_locText('unsupported'), 7000);
+    if (opts.userInitiated) showGridWarning(t('locationNotSupported'), 7000);
     return;
   }
   enableDeviceHeading();
@@ -11058,7 +11091,7 @@ async function checkMe(){
     try {
       if (currentUser && currentUser.role === 'user') {
         startStandaloneLive({ center: true });
-        if (__slDeniedNeedsWarn) { __slDeniedNeedsWarn = false; showGridWarning(_locText('denied'), 9000); }
+        if (__slDeniedNeedsWarn) { __slDeniedNeedsWarn = false; showLocationHelpBanner(); }
       }
     } catch {}
     try { await loadBoundary(); } catch (e) { console.warn('boundary load', e); }

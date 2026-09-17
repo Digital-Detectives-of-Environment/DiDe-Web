@@ -3606,28 +3606,32 @@ th:has(#btn-add-type){
   .profile-posts-table tbody td{ padding:10px 6px; }
 }
 
-/* Google Maps benzeri canlı konum: mavi nokta + yön konisi (beam) */
+/* Google Maps benzeri canlı konum: mavi nokta + yön konisi (beam)
+   Ölçüler referans Google Maps ekran görüntüsünden alınmıştır (bkz. app.js blueDotIcon). */
 .gps-live-icon{ background:none !important; border:none !important; overflow:visible !important; pointer-events:none; }
 .gps-live{ position:relative; width:100%; height:100%; overflow:visible; }
 .gps-beam{
   position:absolute; top:0; left:0; right:0; bottom:0;
   opacity:0;
   transform-origin:50% 50%;
-  -webkit-transform-origin:50% 50%;
   transition: transform .18s linear, opacity .25s ease;
   will-change: transform;
 }
-.gps-beam svg{ display:block; width:100%; height:100%; overflow:visible; vertical-align:top; }
+.gps-beam svg{ display:block; width:100%; height:100%; overflow:visible; }
 .gps-live.has-heading .gps-beam{ opacity:1; }
 .gps-dot{
   position:absolute; left:50%; top:50%; z-index:1;
-  width:18px; height:18px; margin:-9px 0 0 -9px;
+  width:20px; height:20px; margin:-10px 0 0 -10px;
   box-sizing:border-box;
-  background:#4285F4; border:3px solid #fff; border-radius:50%;
-  box-shadow:0 1px 5px rgba(0,0,0,.4);
+  background:#0656FF; border:2.5px solid #fff; border-radius:50%;
+  box-shadow:0 0 3px rgba(0,0,0,.28);
 }
 /* Eski yön oku (artık kullanılmıyor) */
 .gps-heading{ display:none !important; }
+
+/* Konum izni yardım bandı: çok satırlı adım adım metin */
+.grid-warning-banner.loc-help{ align-items:flex-start; max-height:70vh; overflow-y:auto; }
+.grid-warning-banner.loc-help > span:not(.banner-icon){ white-space:pre-line; text-align:left; line-height:1.45; }
 
 /* ==================== Canlı konum butonu ==================== */
 #btn-live-location{ color: var(--text, #111); }

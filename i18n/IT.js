@@ -235,6 +235,11 @@ window.i18nLangs.it = {
     locationUnavailable: 'Impossibile accedere alla tua posizione; il modulo non si e aperto e nessun punto e stato aggiunto. Consenti l accesso alla posizione.',
     liveLocation: 'Posizione in tempo reale',
     liveLocationOutsideBoundary: 'La tua posizione è attualmente fuori dai confini. Per questo motivo non possiamo mostrare la tua posizione.',
+    locationPermissionDenied: 'L\'autorizzazione alla posizione è disattivata. Per mostrare la tua posizione sulla mappa, consenti l\'accesso alla posizione per questo sito nelle impostazioni del browser / telefono e tocca di nuovo il pulsante della posizione in tempo reale.',
+    locationNotSupported: 'La posizione non è disponibile in questo browser (non supportata o connessione non sicura/https).',
+    locationHelpIosSafari: 'Safari blocca la posizione senza chiedere (impostazione del telefono). Per attivarla:\n1) Impostazioni › Privacy e sicurezza › Localizzazione › (attiva) › Siti web di Safari › "Mentre usi l\'app" (Posizione esatta attiva)\n2) Impostazioni › App › Safari (iOS meno recenti: Impostazioni › Safari) › Posizione › "Chiedi" o "Consenti"\n3) In Safari, menu della pagina nella barra degli indirizzi (aA) › Impostazioni sito web › Posizione › "Chiedi"\nPoi ricarica la pagina.',
+    locationHelpIosApp: 'L\'autorizzazione alla posizione è disattivata per questo browser. Vai su Impostazioni › Privacy e sicurezza › Localizzazione › (il tuo browser, es. Chrome) › "Mentre usi l\'app", poi ricarica la pagina.',
+    locationHelpAndroid: 'L\'autorizzazione alla posizione è disattivata. Tocca l\'icona lucchetto / impostazioni nella barra degli indirizzi › Autorizzazioni › Posizione › "Consenti". Assicurati che Impostazioni › Posizione del telefono sia attiva, poi ricarica la pagina.',
     
     events: 'Eventi',
     addEvent: 'Aggiungi evento',

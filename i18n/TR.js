@@ -240,6 +240,11 @@ window.i18nLangs.tr = {
     locationUnavailable: 'Konuma ulaşılamadığı için olay bildirim formu açılamadı; nokta ekleyemezsiniz. Lütfen konum iznini verin.',
     liveLocation: 'Canlı konum',
     liveLocationOutsideBoundary: 'Şu anda konumunuz sınır verisinin dışındadır. Bu yüzden konumunuzu gösteremiyoruz.',
+    locationPermissionDenied: 'Konum izni kapalı. Konumunuzu haritada gösterebilmemiz için tarayıcı / telefon ayarlarından bu siteye konum izni verin ve canlı konum butonuna tekrar dokunun.',
+    locationNotSupported: 'Bu tarayıcıda konum özelliği kullanılamıyor (tarayıcı desteklemiyor ya da bağlantı güvenli/https değil).',
+    locationHelpIosSafari: 'Safari konum iznini sormadan engelliyor (telefon ayarı). Açmak için:\n1) Ayarlar › Gizlilik ve Güvenlik › Konum Servisleri › (açık olsun) › Safari Web Siteleri › "Uygulamayı Kullanırken" (Tam Konum açık)\n2) Ayarlar › Uygulamalar › Safari (eski iOS: Ayarlar › Safari) › Konum › "Sor" veya "İzin Ver"\n3) Safari\'de adres çubuğundaki sayfa menüsü (aA) › Web Sitesi Ayarları › Konum › "Sor"\nArdından sayfayı yenileyin.',
+    locationHelpIosApp: 'Bu tarayıcının konum izni kapalı. Ayarlar › Gizlilik ve Güvenlik › Konum Servisleri › (tarayıcınızın adı, ör. Chrome) › "Uygulamayı Kullanırken" seçin, sonra sayfayı yenileyin.',
+    locationHelpAndroid: 'Konum izni kapalı. Adres çubuğundaki kilit / ayar simgesine dokunun › İzinler › Konum › "İzin ver". Telefonun Ayarlar › Konum özelliğinin de açık olduğundan emin olun, sonra sayfayı yenileyin.',
     
     events: 'Olaylar',
     addEvent: 'Olay Ekle',

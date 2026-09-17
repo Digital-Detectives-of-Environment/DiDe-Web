@@ -240,6 +240,11 @@ window.i18nLangs.en = {
     locationUnavailable: 'Could not access your location, so the event form could not open and no point was added. Please allow location access.',
     liveLocation: 'Live location',
     liveLocationOutsideBoundary: 'Your location is currently outside the boundary. For this reason we cannot show your location.',
+    locationPermissionDenied: 'Location permission is off. To show your position on the map, allow location access for this site in your browser / phone settings and tap the live location button again.',
+    locationNotSupported: 'Location is not available in this browser (not supported, or the connection is not secure/https).',
+    locationHelpIosSafari: 'Safari is blocking location without asking (phone setting). To turn it on:\n1) Settings › Privacy & Security › Location Services › (on) › Safari Websites › "While Using the App" (Precise Location on)\n2) Settings › Apps › Safari (older iOS: Settings › Safari) › Location › "Ask" or "Allow"\n3) In Safari, page menu in the address bar (aA) › Website Settings › Location › "Ask"\nThen reload the page.',
+    locationHelpIosApp: 'Location permission is off for this browser. Go to Settings › Privacy & Security › Location Services › (your browser, e.g. Chrome) › "While Using the App", then reload the page.',
+    locationHelpAndroid: 'Location permission is off. Tap the lock / settings icon in the address bar › Permissions › Location › "Allow". Also make sure Settings › Location is on for your phone, then reload the page.',
     
     events: 'Events',
     addEvent: 'Add Event',
