@@ -6821,9 +6821,36 @@ async function refreshCompanyMarkers() {
       iconSize: [46, 54], iconAnchor: [23, 52], popupAnchor: [0, -48]
     });
     const m = L.marker([lat, lng], { icon, title: c.company_name || '' });
-    m.bindPopup(`<div class="company-marker-popup">${escapeHtml(c.company_name || '')}</div>`);
+    m.bindPopup(companyPopupHtml(c));
+    m.__companyData = c;   // dil değişiminde içeriği tazeleyebilmek için
     m.addTo(companyMarkersLayer);
   });
+}
+
+// Şirket marker'ının pop-up içeriği: şirket adı + indirim bilgisi (kaç puana yüzde kaç).
+// İndirim tanımlı değilse bunu belirten satır gösterilir. Metinler dil dosyalarından gelir.
+function companyPopupHtml(c){
+  const pct = Number(c && c.discount_percentage);
+  const thr = Number(c && c.discount_threshold_point);
+  const hasDiscount = Number.isFinite(pct) && pct > 0 && Number.isFinite(thr) && thr > 0;
+  const line = hasDiscount
+    ? t('companyDiscountLine', { threshold: thr, percent: pct })
+    : t('companyNoDiscount');
+  return `<div class="company-marker-popup">
+    <div class="company-marker-name">${escapeHtml((c && c.company_name) || '')}</div>
+    <div class="company-marker-discount${hasDiscount ? '' : ' is-none'}">${escapeHtml(line)}</div>
+  </div>`;
+}
+
+// Dil değişince açık/kapalı tüm şirket pop-up'larının metnini güncelle
+function refreshCompanyPopupTexts(){
+  if (!companyMarkersLayer) return;
+  try {
+    companyMarkersLayer.eachLayer(m => {
+      if (!m || !m.__companyData || typeof m.setPopupContent !== 'function') return;
+      m.setPopupContent(companyPopupHtml(m.__companyData));
+    });
+  } catch {}
 }
 
 /* ==================== ŞİRKET HESABI PANELİ (company role) ==================== */
@@ -9655,7 +9682,7 @@ function _pushHeading(deg, source){
     __hdg.unwrapped = deg;
   } else {
     const delta = ((deg - _normDeg(__hdg.unwrapped)) + 540) % 360 - 180;
-    if (source === 'compass' && Math.abs(delta) < 0.8) return; // mikro titreşimleri yut
+    if (source === 'compass' && Math.abs(delta) < 0.4) return; // yalnızca mikro titreşimleri yut
     __hdg.unwrapped += delta;
   }
   if (source === 'compass') __hdg.lastCompassTs = Date.now();
@@ -9682,23 +9709,40 @@ function _applyHeadingToMarkers(){
 // Geriye dönük uyumluluk (başka yerlerden çağrılırsa)
 function _setLiveHeading(deg){ _pushHeading(deg, 'compass'); }
 
+let _orientHandler2 = null, _orientFallbackTimer = null;
+function _orientReading(e, fromAbsoluteEvent){
+  let h = null;
+  if (typeof e.webkitCompassHeading === 'number' && e.webkitCompassHeading >= 0 &&
+      !(typeof e.webkitCompassAccuracy === 'number' && e.webkitCompassAccuracy < 0)) {
+    h = e.webkitCompassHeading;                       // iOS: zaten kuzeye göre, saat yönünde
+  } else if (e.alpha != null && (fromAbsoluteEvent || e.absolute === true)) {
+    h = 360 - e.alpha;                                // alpha saat yönünün tersine artar
+  } else {
+    return;                                           // göreli alpha → kuzeye göre değil, kullanma
+  }
+  _pushHeading(h + _screenAngle(), 'compass');
+}
+
 function _attachOrientation(){
   if (_orientHandler) return;
   const useAbsolute = ('ondeviceorientationabsolute' in window);
   _orientEventName = useAbsolute ? 'deviceorientationabsolute' : 'deviceorientation';
-  _orientHandler = (e) => {
-    let h = null;
-    if (typeof e.webkitCompassHeading === 'number' && e.webkitCompassHeading >= 0 &&
-        !(typeof e.webkitCompassAccuracy === 'number' && e.webkitCompassAccuracy < 0)) {
-      h = e.webkitCompassHeading;                       // iOS: zaten kuzeye göre, saat yönünde
-    } else if (e.alpha != null && (useAbsolute || e.absolute === true)) {
-      h = 360 - e.alpha;                                // alpha saat yönünün tersine artar
-    } else {
-      return;                                           // göreli alpha → kuzeye göre değil, kullanma
-    }
-    _pushHeading(h + _screenAngle(), 'compass');
-  };
+  _orientHandler = (e) => _orientReading(e, useAbsolute);
   try { window.addEventListener(_orientEventName, _orientHandler, true); } catch {}
+
+  // Bazı cihazlarda 'deviceorientationabsolute' hiç tetiklenmiyor (pusula yok ya da
+  // tarayıcı yalnızca 'deviceorientation' veriyor). Kısa bir süre içinde okuma
+  // gelmezse yedek olarak 'deviceorientation'ı da dinleriz; oradan yalnızca
+  // kuzeye göre (absolute === true veya iOS webkitCompassHeading) okumalar kabul edilir.
+  if (useAbsolute && !_orientHandler2) {
+    clearTimeout(_orientFallbackTimer);
+    _orientFallbackTimer = setTimeout(() => {
+      if (_orientHandler2 || !_orientHandler) return;
+      if (__hdg.lastCompassTs) return;                // pusula zaten çalışıyor
+      _orientHandler2 = (e) => _orientReading(e, false);
+      try { window.addEventListener('deviceorientation', _orientHandler2, true); } catch {}
+    }, 2500);
+  }
 }
 
 // iOS 13+ yön (pusula) izni YALNIZCA bir kullanıcı hareketi (tap/click) içinde istenebilir.
@@ -9732,11 +9776,17 @@ function disableDeviceHeading(){
   // Diğer canlı konum akışı hâlâ çalışıyorsa pusulayı KAPATMA (eskiden bir overlay
   // kapatıldığında standalone canlı konumun konisi donuyordu).
   if (__slWatch !== null || liveWatchId !== null) return;
+  clearTimeout(_orientFallbackTimer);
   if (_orientHandler) {
     try { window.removeEventListener(_orientEventName, _orientHandler, true); } catch {}
     _orientHandler = null;
   }
+  if (_orientHandler2) {
+    try { window.removeEventListener('deviceorientation', _orientHandler2, true); } catch {}
+    _orientHandler2 = null;
+  }
   __hdg.unwrapped = null;
+  __hdg.lastCompassTs = 0;
 }
 
 function _pushGpsCourse(coords){
@@ -10052,16 +10102,19 @@ function toggleStandaloneLive(){
   } catch {}
 })();
 
-// Haritaya ilk dokunuşlar: iOS pusula izni + izin penceresini ancak kullanıcı
-// hareketiyle gösteren tarayıcılar için bekleyen konum isteğini bir kez yenile.
+// Sayfadaki İLK kullanıcı dokunuşu: iOS pusula (hareket) izni + izin penceresini
+// ancak kullanıcı hareketiyle gösteren tarayıcılar için bekleyen konum isteğini
+// bir kez yenile. Pusula izni yalnızca haritaya değil, sayfanın HERHANGİ bir
+// yerine dokunulduğunda istenir — böylece "konum izni verdim ama yön konisi yok"
+// durumu oluşmaz (iOS bu izni yalnızca bir dokunuş içinde sorabiliyor).
 (function _installLocationGestureHooks(){
   const handler = (e) => {
     const tg = e && e.target;
+    if (__slWatch === null && liveWatchId === null) return;
+    requestOrientationFromGesture();
     if (!tg || !tg.closest) return;
     if (tg.closest('#btn-live-location')) return; // butonun kendi handler'ı var
     if (!tg.closest('#map')) return;
-    if (__slWatch === null && liveWatchId === null) return;
-    requestOrientationFromGesture();
     if (__slWatch !== null && !__slLastFix && !__slDenied && !__slGestureRetried &&
         __slPermState === 'prompt' && (Date.now() - __slReqStartedAt) > 6000) {
       __slGestureRetried = true;
@@ -11100,6 +11153,9 @@ async function login(){
   // ÖNCE tekrar istiyoruz; bazı tarayıcılar (Safari vb.) izin penceresini yalnızca
   // bir kullanıcı hareketi içinde gösteriyor. Rol user değilse reflectAuth() durdurur.
   try {
+    // Hareket/pusula izni de tam burada (dokunuşun içinde) istenir: konum izniyle
+    // birlikte sorulur, böylece giriş sonrası yön konisi ilk seferde çalışır.
+    requestOrientationFromGesture();
     if (__slWatch === null || !__slLastFix) {
       startStandaloneLive({ center: true, warnAfterAuth: true });
     }
@@ -12594,6 +12650,8 @@ async function updateUIWithNewLanguage() {
   setMediaButtonsAsIcons();
 
   // Lejant kaldırıldığı için dil değişiminde yeniden çizilecek bir lejant yok.
+  // Şirket pop-up'larındaki indirim metni dile bağlı → tazele.
+  try { refreshCompanyPopupTexts(); } catch (e) { console.warn('company popup i18n', e); }
 
   // Update layer panel headers and re-render layer lists for i18n
   try {

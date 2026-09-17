@@ -3590,7 +3590,7 @@ th:has(#btn-add-type){
   position:absolute; top:0; left:0; right:0; bottom:0;
   opacity:0;
   transform-origin:50% 50%;
-  transition: transform .18s linear, opacity .25s ease;
+  transition: transform .12s linear, opacity .25s ease;
   will-change: transform;
 }
 .gps-beam svg{ display:block; width:100%; height:100%; overflow:visible; }
@@ -3817,7 +3817,25 @@ th:has(#btn-add-type){
   border-left:7px solid transparent; border-right:7px solid transparent;
   border-top:9px solid var(--primary, #2563eb);
 }
-.company-marker-popup{ font-weight:700; font-size:14px; color:var(--text, #111); }
+.company-marker-popup{ font-weight:700; font-size:14px; color:var(--text, #111); min-width:150px; }
+.company-marker-popup .company-marker-name{ font-weight:800; font-size:14px; line-height:1.3; }
+.company-marker-popup .company-marker-discount{
+  margin-top:6px;
+  padding:4px 8px;
+  border-radius:8px;
+  background:rgba(37,99,235,.10);
+  color:var(--primary, #2563eb);
+  font-weight:700;
+  font-size:12.5px;
+  line-height:1.35;
+}
+.company-marker-popup .company-marker-discount.is-none{
+  background:rgba(107,114,128,.12);
+  color:var(--muted, #6b7280);
+  font-weight:600;
+}
+:root.theme-dark .company-marker-popup .company-marker-discount{ background:rgba(59,130,246,.18); color:#93c5fd; }
+:root.theme-dark .company-marker-popup .company-marker-discount.is-none{ background:rgba(148,163,184,.18); color:#cbd5e1; }
 
 /* ===================== Company detail: users & orders ===================== */
 .cd-user-form{ display:flex; flex-direction:column; gap:8px; margin-bottom:16px; }

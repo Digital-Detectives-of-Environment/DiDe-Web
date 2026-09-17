@@ -250,6 +250,8 @@ window.i18nLangs.it = {
     pointsInfoFooter: 'In breve: pochi post davvero validi fanno guadagnare più punti di molti post casuali.',
     downloadMyData: 'Scarica i miei dati (ZIP)',
     myDataDownloaded: 'I tuoi dati sono stati scaricati.',
+    companyDiscountLine: 'Sconto del {{percent}}% con {{threshold}} punti',
+    companyNoDiscount: 'Nessuno sconto definito',
     pointsRuleSolverClose: 'Puoi chiudere i post creati da tipi di evento a tempo; i post che chiudi compaiono nell\'elenco "Eliminati" del tuo profilo.',
     pointsRuleSolverNoPoint: 'Chiudere un post non fa guadagnare né perdere punti; i punti derivano solo dall\'aggiunta di post e dalle adesioni che ricevono.',
     pointsRuleSolverAgree: 'Puoi aderire ai post di altre persone; ogni adesione dà +2 punti al proprietario del post.',

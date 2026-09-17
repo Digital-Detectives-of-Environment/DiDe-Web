@@ -255,6 +255,8 @@ window.i18nLangs.en = {
     pointsInfoFooter: 'In short: a few genuinely valuable posts earn more points than many random ones.',
     downloadMyData: 'Download my data (ZIP)',
     myDataDownloaded: 'Your data has been downloaded.',
+    companyDiscountLine: '{{percent}}% discount for {{threshold}} points',
+    companyNoDiscount: 'No discount defined yet',
     pointsRuleSolverClose: 'You can close posts created from time-dependent event types; the posts you close appear in the "Deleted" list in your profile.',
     pointsRuleSolverNoPoint: 'Closing a post neither earns nor costs points; points come only from adding posts and from the agreements those posts receive.',
     pointsRuleSolverAgree: 'You can agree with other people\'s posts; each agreement gives the post owner +2 points.',

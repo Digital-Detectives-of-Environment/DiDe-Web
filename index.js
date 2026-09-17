@@ -4856,6 +4856,10 @@ async function ensureOrdersSchema() {
       order_date timestamptz NOT NULL DEFAULT now()
     )
   `);
+  // companies tablosu daha eski bir yapıyla oluşmuş olabilir → indirim kolonlarını tamamla
+  // (harita pop-up'ında "kaç puana yüzde kaç indirim" bilgisi bu kolonlardan okunur).
+  try { await pool.query(`ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS discount_percentage integer`); } catch (e) {}
+  try { await pool.query(`ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS discount_threshold_point integer`); } catch (e) {}
   try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS company_id integer`); } catch (e) {}
   try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS points_spent integer NOT NULL DEFAULT 0`); } catch (e) {}
   // Siparişler panelinde (Companies > Siparişler) gösterilen sütunlar: tablo daha önce
@@ -5008,7 +5012,8 @@ app.get('/api/companies', tryAuth, async (req, res) => {
   try {
     if (!(await companiesTableExists())) return res.json([]);
     const r = await pool.query(
-      `SELECT company_id, company_name, logo_url, latitude, longitude
+      `SELECT company_id, company_name, logo_url, latitude, longitude,
+              discount_percentage, discount_threshold_point
        FROM public.companies
        WHERE COALESCE(active,true)=true AND latitude IS NOT NULL AND longitude IS NOT NULL`
     );

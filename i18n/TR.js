@@ -255,6 +255,8 @@ window.i18nLangs.tr = {
     pointsInfoFooter: 'Kısacası: az sayıda ama gerçekten değerli gönderi, çok sayıda gelişigüzel gönderiden daha fazla puan kazandırır.',
     downloadMyData: 'Verilerimi indir (ZIP)',
     myDataDownloaded: 'Verileriniz indirildi.',
+    companyDiscountLine: '{{threshold}} puan ile %{{percent}} indirim',
+    companyNoDiscount: 'Henüz indirim tanımlanmadı',
     pointsRuleSolverClose: 'Zamana bağlı olay türlerinden eklenmiş gönderileri kapatabilirsin; kapattığın gönderiler profilindeki "Silinenler" listesinde görünür.',
     pointsRuleSolverNoPoint: 'Gönderi kapatmak puan kazandırmaz ya da kaybettirmez; puan yalnızca gönderi eklemekten ve gönderilere gelen katılımlardan kazanılır.',
     pointsRuleSolverAgree: 'Başkalarının gönderilerine katılabilirsin; her katılımın gönderi sahibine +2 puan kazandırır.',
