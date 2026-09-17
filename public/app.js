@@ -9526,9 +9526,9 @@ function geoFindMeToggle(){
 }
 
 function geoFindMeStart() {
-  if (!("geolocation" in navigator)) return;
+  if (!_geoAvailable()) { showGridWarning(_locText('unsupported'), 7000); return; }
   setLocateUI(true);
-  enableDeviceHeading();
+  requestOrientationFromGesture();
   navigator.geolocation.getCurrentPosition(
     (position) => {
       const { latitude, longitude } = position.coords;
@@ -9553,7 +9553,7 @@ function geoFindMeWithPolygonFlow() {
   if (!("geolocation" in navigator)) { showGridWarning(t('locationUnavailable')); return; }
 
   setWorking(true);
-  enableDeviceHeading();
+  requestOrientationFromGesture();
   navigator.geolocation.getCurrentPosition(
     (position) => {
       const { latitude, longitude } = position.coords;
@@ -9592,55 +9592,511 @@ function geoFindMeWithPolygonFlow() {
 }
 window.geoFindMeWithPolygonFlow = geoFindMeWithPolygonFlow;
 
-/* Google Maps benzeri canlı konum: mavi nokta + doğruluk çemberi + yönelim oku */
+/* ==================== GOOGLE MAPS BENZERİ CANLI KONUM ====================
+   - Mavi nokta (beyaz kenarlı, gölgeli) + Google Maps'teki gibi yarı saydam,
+     uca doğru solan yön konisi (beam) + doğruluk çemberi.
+   - Yön kaynağı (öncelik sırasıyla):
+       1) iOS Safari: webkitCompassHeading (kuzeye göre gerçek pusula)
+       2) Chrome/Samsung Internet (Android): 'deviceorientationabsolute'
+       3) Firefox vb.: 'deviceorientation' içinde absolute === true
+       4) Pusula yoksa / izin verilmediyse: hareket halinde GPS rotası (coords.heading)
+     NOT: Eski kod Android'de 'deviceorientation' alpha değerini (kuzeye göre DEĞİL,
+     sayfa açıldığı andaki telefon yönüne göre) kullanıyordu; bu yüzden koni bazı
+     telefonlarda yanlış yöne bakıyordu. Göreli (relative) alpha artık kullanılmıyor.
+   - Ekran yatay çevrildiğinde (screen.orientation.angle) yön düzeltilir.
+   - 359° → 1° geçişinde koninin ters yönde tam tur dönmemesi için açı "unwrap" edilir. */
+
+let __slWatch = null, __slMarker = null, __slCircle = null, __slCenterPending = false;
+let __slOutsideWarned = false;
+let __slLastFix = null;            // { lat, lng, acc, ts }
+let __slFixTimer = null;
+let __slDenied = false;
+let __slWarnOnDeny = false;        // izin reddedilirse hemen uyarı göster
+let __slDeniedNeedsWarn = false;   // giriş sırasında reddedildiyse, rol belli olunca uyar
+let __slPermState = null;          // Permissions API: 'granted' | 'prompt' | 'denied' | null
+let __slReqStartedAt = 0;
+let __slGestureRetried = false;
+let __slAutoCentered = false;
+const __slFollow = { active: false, until: 0, count: 0, userMoved: false, busy: false };
+let __slHooksMap = null;
+
+const __hdg = { unwrapped: null, lastCompassTs: 0, raf: 0 };
+let _orientHandler = null, _orientEventName = null;
+let __orientPerm = (typeof DeviceOrientationEvent !== 'undefined' &&
+                    typeof DeviceOrientationEvent.requestPermission === 'function') ? 'unknown' : 'granted';
+
+let __gpsIconSeq = 0;
 function blueDotIcon(){
+  const id = 'gpsBeamGrad' + (++__gpsIconSeq);
+  // Koni: merkezden yukarı doğru ±35° açılı, 44px yarıçaplı dilim; radyal gradyanla uca doğru solar.
+  const svg =
+    '<svg viewBox="0 0 96 96" width="96" height="96" aria-hidden="true" focusable="false">' +
+      '<defs>' +
+        '<radialGradient id="' + id + '" gradientUnits="userSpaceOnUse" cx="48" cy="48" r="44">' +
+          '<stop offset="0" stop-color="#4285F4" stop-opacity="0.65"/>' +
+          '<stop offset="0.3" stop-color="#4285F4" stop-opacity="0.45"/>' +
+          '<stop offset="1" stop-color="#4285F4" stop-opacity="0"/>' +
+        '</radialGradient>' +
+      '</defs>' +
+      '<path d="M48 48 L22.76 11.96 A44 44 0 0 1 73.24 11.96 Z" fill="url(#' + id + ')"/>' +
+    '</svg>';
   return L.divIcon({
     className: 'gps-live-icon',
-    html: '<div class="gps-live"><div class="gps-heading"></div><div class="gps-dot"></div></div>',
-    iconSize: [26, 26],
-    iconAnchor: [13, 13]
+    html: '<div class="gps-live"><div class="gps-beam">' + svg + '</div><div class="gps-dot"></div></div>',
+    iconSize: [96, 96],
+    iconAnchor: [48, 48]
   });
 }
 
-function _setLiveHeading(deg){
-  const mk = (typeof __slMarker !== 'undefined' && __slMarker) ? __slMarker : liveMarker;
-  if (deg == null || !mk || !mk.getElement) return;
-  const el = mk.getElement();
-  if (!el) return;
-  const h = el.querySelector('.gps-heading');
-  if (h) {
-    h.style.display = 'block';
-    h.style.transform = 'translateX(-50%) rotate(' + deg + 'deg)';
+function _accuracyCircleOpts(radius){
+  return { radius: radius, color: '#4285F4', weight: 1, opacity: 0.35, fillColor: '#4285F4', fillOpacity: 0.14, interactive: false };
+}
+
+function _normDeg(d){ d = d % 360; return d < 0 ? d + 360 : d; }
+function _screenAngle(){
+  try { if (screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle; } catch {}
+  if (typeof window.orientation === 'number') return window.orientation;
+  return 0;
+}
+
+function _pushHeading(deg, source){
+  if (deg == null || !Number.isFinite(deg)) return;
+  deg = _normDeg(deg);
+  if (__hdg.unwrapped == null) {
+    __hdg.unwrapped = deg;
+  } else {
+    const delta = ((deg - _normDeg(__hdg.unwrapped)) + 540) % 360 - 180;
+    if (source === 'compass' && Math.abs(delta) < 0.8) return; // mikro titreşimleri yut
+    __hdg.unwrapped += delta;
+  }
+  if (source === 'compass') __hdg.lastCompassTs = Date.now();
+  if (!__hdg.raf) {
+    const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
+    __hdg.raf = raf(() => { __hdg.raf = 0; _applyHeadingToMarkers(); });
   }
 }
 
-let _orientHandler = null;
-function enableDeviceHeading(){
-  if (_orientHandler) return;
-  const attach = () => {
-    _orientHandler = (e) => {
-      let heading = null;
-      if (typeof e.webkitCompassHeading === 'number') heading = e.webkitCompassHeading;
-      else if (e.alpha != null) heading = 360 - e.alpha;
-      if (heading != null && Number.isFinite(heading)) _setLiveHeading(heading);
-    };
-    window.addEventListener('deviceorientation', _orientHandler, true);
-  };
-  try {
-    if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
-      DeviceOrientationEvent.requestPermission().then(state => { if (state === 'granted') attach(); }).catch(() => {});
-    } else {
-      attach();
-    }
-  } catch { try { attach(); } catch {} }
-}
-function disableDeviceHeading(){
-  if (_orientHandler){ try { window.removeEventListener('deviceorientation', _orientHandler, true); } catch {} _orientHandler = null; }
+function _applyHeadingToMarkers(){
+  [__slMarker, liveMarker].forEach((mk) => {
+    if (!mk || !mk.getElement) return;
+    const el = mk.getElement();
+    if (!el) return;
+    const wrap = el.querySelector('.gps-live');
+    const beam = el.querySelector('.gps-beam');
+    if (!wrap || !beam) return;
+    if (__hdg.unwrapped == null) { wrap.classList.remove('has-heading'); return; }
+    beam.style.transform = 'rotate(' + __hdg.unwrapped.toFixed(1) + 'deg)';
+    wrap.classList.add('has-heading');
+  });
 }
 
+// Geriye dönük uyumluluk (başka yerlerden çağrılırsa)
+function _setLiveHeading(deg){ _pushHeading(deg, 'compass'); }
+
+function _attachOrientation(){
+  if (_orientHandler) return;
+  const useAbsolute = ('ondeviceorientationabsolute' in window);
+  _orientEventName = useAbsolute ? 'deviceorientationabsolute' : 'deviceorientation';
+  _orientHandler = (e) => {
+    let h = null;
+    if (typeof e.webkitCompassHeading === 'number' && e.webkitCompassHeading >= 0 &&
+        !(typeof e.webkitCompassAccuracy === 'number' && e.webkitCompassAccuracy < 0)) {
+      h = e.webkitCompassHeading;                       // iOS: zaten kuzeye göre, saat yönünde
+    } else if (e.alpha != null && (useAbsolute || e.absolute === true)) {
+      h = 360 - e.alpha;                                // alpha saat yönünün tersine artar
+    } else {
+      return;                                           // göreli alpha → kuzeye göre değil, kullanma
+    }
+    _pushHeading(h + _screenAngle(), 'compass');
+  };
+  try { window.addEventListener(_orientEventName, _orientHandler, true); } catch {}
+}
+
+// iOS 13+ yön (pusula) izni YALNIZCA bir kullanıcı hareketi (tap/click) içinde istenebilir.
+function requestOrientationFromGesture(){
+  if (__orientPerm === 'granted') { _attachOrientation(); return; }
+  if (__orientPerm === 'denied' || __orientPerm === 'pending') return;
+  try {
+    __orientPerm = 'pending';
+    DeviceOrientationEvent.requestPermission()
+      .then((st) => {
+        __orientPerm = (st === 'granted') ? 'granted' : 'denied';
+        if (__orientPerm === 'granted') _attachOrientation();
+      })
+      .catch(() => { __orientPerm = 'unknown'; });
+  } catch { __orientPerm = 'unknown'; }
+}
+
+// Gesture DIŞINDAN çağrılabilen sürüm: izin gerekmiyorsa bağlar; iOS'ta izin daha önce
+// verildiyse sessizce bağlanmayı dener (verilmediyse sonraki dokunuşta istenir).
+function enableDeviceHeading(){
+  if (__orientPerm === 'granted') { _attachOrientation(); return; }
+  if (__orientPerm !== 'unknown') return;
+  try {
+    DeviceOrientationEvent.requestPermission()
+      .then((st) => { if (st === 'granted') { __orientPerm = 'granted'; _attachOrientation(); } })
+      .catch(() => {});
+  } catch {}
+}
+
+function disableDeviceHeading(){
+  // Diğer canlı konum akışı hâlâ çalışıyorsa pusulayı KAPATMA (eskiden bir overlay
+  // kapatıldığında standalone canlı konumun konisi donuyordu).
+  if (__slWatch !== null || liveWatchId !== null) return;
+  if (_orientHandler) {
+    try { window.removeEventListener(_orientEventName, _orientHandler, true); } catch {}
+    _orientHandler = null;
+  }
+  __hdg.unwrapped = null;
+}
+
+function _pushGpsCourse(coords){
+  if (!coords) return;
+  const { heading, speed } = coords;
+  if (Number.isFinite(heading) && Number.isFinite(speed) && speed > 0.8 &&
+      (Date.now() - __hdg.lastCompassTs) > 2500) {
+    _pushHeading(heading, 'gps');
+  }
+}
+
+function _locText(kind){
+  const lang = (typeof getLanguage === 'function' ? String(getLanguage() || 'en') : 'en').toLowerCase();
+  const T = {
+    denied: {
+      tr: 'Konum izni kapalı. Konumunuzu haritada gösterebilmemiz için tarayıcı / telefon ayarlarından bu siteye konum izni verin ve canlı konum butonuna tekrar dokunun.',
+      en: 'Location permission is off. To show your position on the map, allow location access for this site in your browser / phone settings and tap the live location button again.',
+      it: 'L\'autorizzazione alla posizione è disattivata. Per mostrare la tua posizione sulla mappa, consenti l\'accesso alla posizione per questo sito nelle impostazioni del browser / telefono e tocca di nuovo il pulsante della posizione in tempo reale.'
+    },
+    unsupported: {
+      tr: 'Bu tarayıcıda konum özelliği kullanılamıyor (tarayıcı desteklemiyor ya da bağlantı güvenli/https değil).',
+      en: 'Location is not available in this browser (not supported, or the connection is not secure/https).',
+      it: 'La posizione non è disponibile in questo browser (non supportata o connessione non sicura/https).'
+    }
+  };
+  const row = T[kind] || {};
+  return row[lang] || row.en || '';
+}
+
+function _geoAvailable(){
+  return ('geolocation' in navigator) && (window.isSecureContext !== false);
+}
+
+function _slIsCentered(){
+  if (!map || !__slLastFix) return false;
+  try {
+    const p = map.latLngToContainerPoint(L.latLng(__slLastFix.lat, __slLastFix.lng));
+    const sz = map.getSize();
+    return Math.abs(p.x - sz.x / 2) <= 40 && Math.abs(p.y - sz.y / 2) <= 40;
+  } catch { return false; }
+}
+
+function _slCenterOnFix(animate){
+  if (!map || !__slLastFix) return;
+  const ll = L.latLng(__slLastFix.lat, __slLastFix.lng);
+  let z = Math.max(map.getZoom() || 0, 17);
+  try { z = Math.min(z, map.getMaxZoom()); } catch {}
+  __slFollow.busy = true;
+  try { map.setView(ll, z, { animate: !!animate }); } catch {}
+  __slFollow.busy = false;
+  __slAutoCentered = true;
+}
+
+// Açılışta / girişte haritayı sonradan başka görünüme atan (config görünümü, sınır
+// fitBounds, olay fitBounds vb.) asenkron işlemler, kullanıcıyı konumuna götüren
+// yakınlaştırmayı eziyordu. Kullanıcı haritaya dokunana kadar kısa bir süre boyunca
+// programatik görünüm değişikliklerinden sonra tekrar konuma dönüyoruz.
+function _slArmFollow(ms){
+  __slFollow.active = true;
+  __slFollow.userMoved = false;
+  __slFollow.count = 0;
+  __slFollow.until = Date.now() + (ms || 15000);
+  _slInstallMapHooks();
+}
+
+function _slInstallMapHooks(){
+  if (!map || __slHooksMap === map) return;
+  __slHooksMap = map;
+  const cont = map.getContainer();
+  const markUser = () => { __slFollow.userMoved = true; __slFollow.active = false; };
+  ['touchstart', 'pointerdown', 'mousedown', 'wheel'].forEach((ev) => {
+    try { cont.addEventListener(ev, markUser, { passive: true, capture: true }); } catch {}
+  });
+  map.on('moveend', () => {
+    const f = __slFollow;
+    if (!f.active || f.busy || f.userMoved || !__slLastFix || !__slMarker) return;
+    if (Date.now() > f.until || f.count >= 10) { f.active = false; return; }
+    if (_slIsCentered() && map.getZoom() >= 15) return;
+    f.count++;
+    setTimeout(() => { if (f.active && !f.userMoved && __slMarker) _slCenterOnFix(false); }, 0);
+  });
+}
+
+// Görünüm kodla sıfırlandıktan hemen sonra çağrılır (login / açılış sonu).
+function liveLocationRecenterAfterViewReset(){
+  if (__slWatch === null) return;
+  if (__slMarker && __slLastFix && (__slAutoCentered || __slCenterPending)) {
+    __slCenterPending = false;
+    _slCenterOnFix(false);
+    _slArmFollow(6000);
+  }
+}
+
+function _slRender(){
+  if (!map || !__slLastFix || __slWatch === null) return;
+  const { lat, lng, acc } = __slLastFix;
+
+  // "Sınır dışındasınız" uyarısı SADECE yeterince güvenilir (<=300 m) ölçümle verilir.
+  const accOk = !Number.isFinite(acc) || acc <= 300;
+  if (accOk && _liveLocationOutsideBoundary(lng, lat)) {
+    const already = __slOutsideWarned;
+    stopStandaloneLive();
+    if (!already) {
+      __slOutsideWarned = true;
+      showGridWarning(t('liveLocationOutsideBoundary'));
+    }
+    return;
+  }
+
+  const ll = L.latLng(lat, lng);
+  if (__slMarker) {
+    __slMarker.setLatLng(ll);
+  } else {
+    __slMarker = L.marker(ll, { icon: blueDotIcon(), interactive: false, keyboard: false, zIndexOffset: 500 }).addTo(map);
+    _applyHeadingToMarkers();
+  }
+  if (Number.isFinite(acc)) {
+    if (__slCircle) __slCircle.setLatLng(ll).setRadius(acc);
+    else __slCircle = L.circle(ll, _accuracyCircleOpts(acc)).addTo(map);
+  }
+  updateLiveLocBtn();
+  if (__slCenterPending) {
+    __slCenterPending = false;
+    _slCenterOnFix(true);
+    _slArmFollow(15000);
+  }
+}
+
+function _slHandlePosition(position){
+  if (__slWatch === null) return;
+  const c = position && position.coords;
+  if (!c || !Number.isFinite(c.latitude) || !Number.isFinite(c.longitude)) return;
+  __slDenied = false;
+  __slDeniedNeedsWarn = false;
+  // Yakın zamanda çok daha iyi bir ölçüm varsa, kaba (hücre/Wi-Fi) ölçümle noktayı zıplatma.
+  if (__slLastFix && Number.isFinite(c.accuracy) && Number.isFinite(__slLastFix.acc) &&
+      c.accuracy > __slLastFix.acc * 3 && (Date.now() - __slLastFix.ts) < 10000) return;
+  __slLastFix = { lat: c.latitude, lng: c.longitude, acc: c.accuracy, ts: Date.now() };
+  _pushGpsCourse(c);
+  _slRender();
+}
+
+function _slHandleError(err){
+  if (__slWatch === null) return;
+  const code = err && err.code;
+  if (code === 1) { // PERMISSION_DENIED
+    __slDenied = true;
+    const warnNow = __slWarnOnDeny;
+    const warnLater = __slDeniedNeedsWarn;
+    stopStandaloneLive();
+    if (warnNow) {
+      showGridWarning(_locText('denied'), 9000);
+    } else if (warnLater) {
+      // Giriş sırasında reddedildi: rol "user" ise hemen, henüz belli değilse checkMe sonrası uyar.
+      if (currentUser && currentUser.role === 'user') { __slDeniedNeedsWarn = false; showGridWarning(_locText('denied'), 9000); }
+      else if (!currentUser) __slDeniedNeedsWarn = true;
+    }
+    return;
+  }
+  // TIMEOUT (3) / POSITION_UNAVAILABLE (2): izin VAR ama konum henüz gelmedi.
+  // Eskiden burada takip tamamen kapatılıyordu → özellikle iOS / kapalı alanda
+  // "butona basıyorum ama hiçbir şey olmuyor" sorunu. Artık takip açık kalır ve
+  // düşük hassasiyetli (hızlı) bir konum denenir.
+  if (!__slLastFix) {
+    try {
+      navigator.geolocation.getCurrentPosition(_slHandlePosition, () => {},
+        { enableHighAccuracy: false, maximumAge: 300000, timeout: 20000 });
+    } catch {}
+  }
+}
+
+function _slBeginRequests(){
+  __slReqStartedAt = Date.now();
+  __slGestureRetried = false;
+  try {
+    __slWatch = navigator.geolocation.watchPosition(_slHandlePosition, _slHandleError,
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 27000 });
+  } catch (e) {
+    __slWatch = null;
+    return;
+  }
+  // Bazı tarayıcılarda (iOS in-app WebView, bazı Android tarayıcıları) watchPosition
+  // ilk konumu çok geç veriyor. İzin zaten verilmişse hızlı bir tek seferlik konum iste.
+  clearTimeout(__slFixTimer);
+  __slFixTimer = setTimeout(() => {
+    if (__slWatch !== null && !__slLastFix && !__slDenied && __slPermState === 'granted') {
+      try {
+        navigator.geolocation.getCurrentPosition(_slHandlePosition, () => {},
+          { enableHighAccuracy: false, maximumAge: 120000, timeout: 20000 });
+      } catch {}
+    }
+  }, 4000);
+}
+
+function _slRestartRequests(){
+  if (__slWatch !== null) { try { navigator.geolocation.clearWatch(__slWatch); } catch {} __slWatch = null; }
+  clearTimeout(__slFixTimer);
+  _slBeginRequests();
+}
+
+/**
+ * Canlı konumu başlatır. Tekrar çağrılması güvenlidir (idempotent).
+ * opts.center        : ilk konumda haritayı kullanıcıya götür (varsayılan true)
+ * opts.userInitiated : bir tap/click içinden çağrıldı (izin reddinde anında uyarı gösterilir)
+ * opts.retryPending  : konum henüz hiç gelmediyse bekleyen isteği yeniden başlat
+ * opts.warnAfterAuth : izin reddedilirse, giriş rolü belli olunca uyar
+ */
+function startStandaloneLive(opts){
+  opts = opts || {};
+  const center = opts.center !== false;
+  if (!_geoAvailable()) {
+    if (opts.userInitiated) showGridWarning(_locText('unsupported'), 7000);
+    return;
+  }
+  enableDeviceHeading();
+  if (opts.warnAfterAuth) __slDeniedNeedsWarn = true;
+
+  if (__slWatch !== null) {
+    if (opts.userInitiated) __slWarnOnDeny = true;
+    if (center) __slCenterPending = true;
+    if (!__slLastFix && (opts.userInitiated || opts.retryPending)) _slRestartRequests();
+    _slRender();
+    updateLiveLocBtn();
+    return;
+  }
+
+  __slCenterPending = center;
+  __slOutsideWarned = false;
+  __slAutoCentered = false;
+  __slWarnOnDeny = !!opts.userInitiated;
+  __slLastFix = null;
+  _slBeginRequests();
+  updateLiveLocBtn();
+}
+
+function stopStandaloneLive(){
+  if (__slWatch !== null) { try { navigator.geolocation.clearWatch(__slWatch); } catch {} __slWatch = null; }
+  clearTimeout(__slFixTimer);
+  if (__slMarker) { try { map.removeLayer(__slMarker); } catch {} __slMarker = null; }
+  if (__slCircle) { try { map.removeLayer(__slCircle); } catch {} __slCircle = null; }
+  __slCenterPending = false;
+  __slAutoCentered = false;
+  __slLastFix = null;
+  __slFollow.active = false;
+  disableDeviceHeading();
+  updateLiveLocBtn();
+}
+
+// Header canlı konum butonu
+function updateLiveLocBtn(){
+  const b = qs('#btn-live-location');
+  if (!b) return;
+  // "active" (yeşil yanıp sönen): ekranda gerçekten canlı konum noktası var.
+  b.classList.toggle('active', __slWatch !== null && !!__slMarker);
+  // "pending": izin/konum bekleniyor (kullanıcı bir şey olduğunu görsün).
+  b.classList.toggle('pending', __slWatch !== null && !__slMarker);
+}
+
+// Butona basış: Google Maps davranışı
+//  - konum bekleniyorsa  → isteği bu dokunuş içinde yeniden başlat (izin penceresi çıksın)
+//  - konum açık ama harita başka yere kaydırılmış → konuma geri dön
+//  - konum açık ve ortada → canlı konumu kapat
+//  - kapalı → başlat
+function toggleStandaloneLive(){
+  requestOrientationFromGesture();
+  if (__slWatch !== null && __slMarker && __slLastFix) {
+    if (!_slIsCentered()) { _slCenterOnFix(true); _slArmFollow(4000); return; }
+    stopStandaloneLive();
+    return;
+  }
+  startStandaloneLive({ center: true, userInitiated: true });
+}
+
+// İzin durumu değişirse (ör. kullanıcı ayarlardan sonradan izin verirse) otomatik başlat.
+(function _watchGeoPermission(){
+  try {
+    if (!navigator.permissions || typeof navigator.permissions.query !== 'function') return;
+    navigator.permissions.query({ name: 'geolocation' }).then((st) => {
+      __slPermState = st.state;
+      const onChange = () => {
+        __slPermState = st.state;
+        if (st.state !== 'granted') return;
+        __slDenied = false;
+        const b = qs('#btn-live-location');
+        const visible = b && !b.classList.contains('hidden');
+        if (__slWatch === null) { if (visible) startStandaloneLive({ center: true }); }
+        else if (!__slLastFix) _slRestartRequests();
+      };
+      if (typeof st.addEventListener === 'function') st.addEventListener('change', onChange);
+      else st.onchange = onChange;
+    }).catch(() => {});
+  } catch {}
+})();
+
+// Haritaya ilk dokunuşlar: iOS pusula izni + izin penceresini ancak kullanıcı
+// hareketiyle gösteren tarayıcılar için bekleyen konum isteğini bir kez yenile.
+(function _installLocationGestureHooks(){
+  const handler = (e) => {
+    const tg = e && e.target;
+    if (!tg || !tg.closest) return;
+    if (tg.closest('#btn-live-location')) return; // butonun kendi handler'ı var
+    if (!tg.closest('#map')) return;
+    if (__slWatch === null && liveWatchId === null) return;
+    requestOrientationFromGesture();
+    if (__slWatch !== null && !__slLastFix && !__slDenied && !__slGestureRetried &&
+        __slPermState === 'prompt' && (Date.now() - __slReqStartedAt) > 6000) {
+      __slGestureRetried = true;
+      _slRestartRequests();
+    }
+  };
+  try {
+    document.addEventListener('touchend', handler, { capture: true, passive: true });
+    document.addEventListener('click', handler, true);
+  } catch {}
+})();
+
+// JWT içindeki rol ipucu (yalnızca sayfa açılışında konum isteğinin erken
+// tetiklenip tetiklenmeyeceğine karar vermek için; yetki kontrolü DEĞİLDİR).
+function _roleHintFromStoredToken(){
+  try {
+    const tok = localStorage.getItem(AUTH_KEY);
+    if (!tok) return null;
+    const part = tok.split('.')[1];
+    if (!part) return null;
+    const json = JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/')));
+    if (json && json.exp && json.exp * 1000 < Date.now()) return null;
+    return (json && json.role) || null;
+  } catch { return null; }
+}
+
+// Sayfa açılır açılmaz (config/sınır/harita yüklemesini BEKLEMEDEN) konum izni iste.
+// Harita henüz yoksa konum saklanır; harita hazır olunca startStandaloneLive tekrar
+// çağrıldığında çizilir ve harita konuma götürülür.
+function primeLiveLocationOnLoad(){
+  let fresh = true;
+  try { fresh = !sessionStorage.getItem(SESSION_ACTIVE_KEY); } catch {}
+  const role = (FORCE_DEFAULT_LOGIN_ON_LOAD && fresh) ? null : _roleHintFromStoredToken();
+  if (role === null || role === 'user') {
+    try { startStandaloneLive({ center: true }); } catch (e) { console.warn('primeLiveLocationOnLoad', e); }
+  }
+}
+
+qs('#btn-use-location')?.addEventListener('click', geoFindMeToggle);
+qs('#btn-stop-live')?.addEventListener('click', stopLiveLocation);
+qs('#btn-live-location')?.addEventListener('click', toggleStandaloneLive);
+
+/* Form akışı (#btn-use-location) için canlı konum — standalone akıştan bağımsız */
 function startLiveLocation(){
-  if (!("geolocation" in navigator)) return;
+  if (!_geoAvailable()) return;
   if (liveWatchId !== null) return;
   enableDeviceHeading();
   liveWatchId = navigator.geolocation.watchPosition(
@@ -9654,17 +10110,22 @@ function startLiveLocation(){
 
       const ll = L.latLng(latitude, longitude);
       if (liveMarker) liveMarker.setLatLng(ll);
-      else liveMarker = L.marker(ll, { icon: blueDotIcon(), interactive: false, zIndexOffset: 500 }).addTo(map);
+      else {
+        liveMarker = L.marker(ll, { icon: blueDotIcon(), interactive: false, keyboard: false, zIndexOffset: 500 }).addTo(map);
+        _applyHeadingToMarkers();
+      }
 
       if (Number.isFinite(accuracy)) {
         if (liveAccuracyCircle) liveAccuracyCircle.setLatLng(ll).setRadius(accuracy);
-        else liveAccuracyCircle = L.circle(ll, {
-          radius: accuracy, color:'#3b82f6', weight:1, opacity:.5, fillColor:'#3b82f6', fillOpacity:.15, interactive:false
-        }).addTo(map);
+        else liveAccuracyCircle = L.circle(ll, _accuracyCircleOpts(accuracy)).addTo(map);
       }
+      _pushGpsCourse(position.coords);
     },
-    () => { stopLiveLocation(); },
-    { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
+    (err) => {
+      // Yalnızca izin reddinde kapat; zaman aşımı / geçici konum yokluğunda takip sürsün.
+      if (err && err.code === 1) stopLiveLocation();
+    },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 27000 }
   );
   setLocateUI(true);
 }
@@ -9686,88 +10147,6 @@ function stopLiveLocation(){
   setLocateUI(false);
 }
 
-/* ===== Standalone canlı konum (header live butonu + girişte otomatik) =====
-   Form akışından TAMAMEN bağımsız: kendi watch/marker/circle durumunu tutar,
-   yalnızca #btn-live-location butonunu etkiler. */
-let __slWatch = null, __slMarker = null, __slCircle = null, __slCenterPending = false;
-let __slOutsideWarned = false;
-
-function startStandaloneLive(){
-  if (!("geolocation" in navigator)) return;
-  if (__slWatch !== null) return;
-  enableDeviceHeading();
-  __slCenterPending = true;
-  __slOutsideWarned = false;
-  __slWatch = navigator.geolocation.watchPosition(
-    (position) => {
-      const { latitude, longitude, accuracy } = position.coords;
-
-      // "Sınır dışındasınız" uyarısı SADECE yeterince güvenilir (<=300 m) bir
-      // ölçümle verilir; kaba ölçümler (özellikle mobilde ilk hücre/Wi-Fi
-      // tabanlı fixler) yanlış uyarıya yol açmasın. ANCAK bu kontrol SADECE
-      // uyarıyı geciktirir — mavi noktanın çizilmesini, butonun yanıp
-      // sönmesini veya haritanın konuma yakınlaşmasını ENGELLEMEZ; aksi
-      // halde mobilde "butona basıyorum ama hiçbir şey olmuyor" durumu
-      // ortaya çıkıyordu.
-      const accOk = !Number.isFinite(accuracy) || accuracy <= 300;
-      if (accOk && _liveLocationOutsideBoundary(longitude, latitude)) {
-        stopStandaloneLive();
-        if (!__slOutsideWarned){
-          __slOutsideWarned = true;
-          showGridWarning(t('liveLocationOutsideBoundary'));
-        }
-        return;
-      }
-
-      const ll = L.latLng(latitude, longitude);
-      if (__slMarker) __slMarker.setLatLng(ll);
-      else __slMarker = L.marker(ll, { icon: blueDotIcon(), interactive:false, zIndexOffset: 500 }).addTo(map);
-      if (Number.isFinite(accuracy)) {
-        if (__slCircle) __slCircle.setLatLng(ll).setRadius(accuracy);
-        else __slCircle = L.circle(ll, { radius: accuracy, color:'#3b82f6', weight:1, opacity:.5, fillColor:'#3b82f6', fillOpacity:.15, interactive:false }).addTo(map);
-      }
-      // Buton, İLK konum geldiği anda (hassasiyet ne olursa olsun) yanıp
-      // sönmeye başlar; kullanıcı "bastım ama hiçbir şey olmuyor" hissine
-      // kapılmasın. Haritanın konuma yakınlaşması da AYNI ilk ölçümde olur —
-      // "belli bir eşikten sonra zoom yap" isteği, "gerçek bir konum fix'i
-      // gelene kadar bekle" eşiğiyle karşılanır (rastgele/önbellek konumuna
-      // değil, tarayıcının döndürdüğü ilk GERÇEK ölçüme göre).
-      updateLiveLocBtn();
-      if (__slCenterPending){ __slCenterPending = false; try { map.setView(ll, Math.max(map.getZoom(), 17), { animate:true }); } catch {} }
-    },
-    () => { stopStandaloneLive(); },
-    { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
-  );
-  updateLiveLocBtn();
-}
-
-function stopStandaloneLive(){
-  if (__slWatch !== null){ try { navigator.geolocation.clearWatch(__slWatch); } catch {} __slWatch = null; }
-  if (__slMarker){ try { map.removeLayer(__slMarker); } catch {} __slMarker = null; }
-  if (__slCircle){ try { map.removeLayer(__slCircle); } catch {} __slCircle = null; }
-  __slCenterPending = false;
-  disableDeviceHeading();
-  updateLiveLocBtn();
-}
-
-// Header canlı konum butonu: yalnızca standalone durumuna göre yeşil yanıp söner
-function updateLiveLocBtn(){
-  const b = qs('#btn-live-location');
-  // "active" (yeşil yanıp sönen) durum, takibin başlatılmış OLMASINA değil, ekranda
-  // gerçekten bir canlı konum noktası bulunmasına bağlıdır. Aksi halde izin/konum
-  // hiç gelmese bile buton bir an yanıp hemen sönüyordu.
-  if (b) b.classList.toggle('active', __slWatch !== null && !!__slMarker);
-}
-
-// Standalone canlı konum toggle (formdan bağımsız)
-function toggleStandaloneLive(){
-  if (__slWatch !== null) stopStandaloneLive();
-  else startStandaloneLive();
-}
-
-qs('#btn-use-location')?.addEventListener('click', geoFindMeToggle);
-qs('#btn-stop-live')?.addEventListener('click', stopLiveLocation);
-qs('#btn-live-location')?.addEventListener('click', toggleStandaloneLive);
 
 /* ==================== MEDIA UPLOAD ==================== */
 
@@ -10275,7 +10654,13 @@ function goDefaultScreen(){
     hide(qs('#login-card')); 
     hide(qs('#register-card')); 
     hide(qs('#forgot-card'));
-    show(qs('#olay-card'));
+    // Olay formu (#olay-card) SADECE admin için varsayılan ekranda açık durur.
+    // Opener/solver (role 'user') için bu kart tam ekran bir overlay'dir; sayfa
+    // yenilendiğinde burada açılması "yenileyince olay bildirim formu açılıyor ve
+    // geri tuşuna basmadan kapanmıyor" hatasına yol açıyordu. Company için gizli,
+    // supervisor için görünürlüğü setSupervisorMode() (reflectAuth içinde) belirler.
+    if (currentUser.role === 'admin') show(qs('#olay-card'));
+    else if (currentUser.role === 'user' || currentUser.role === 'company') hide(qs('#olay-card'));
   } else {
     hide(qs('#login-card'));
     hide(qs('#register-card')); 
@@ -10397,7 +10782,7 @@ function reflectAuth(){
   if (liveBtn) {
     const showLive = !currentUser || currentUser.role === 'user';
     liveBtn.classList.toggle('hidden', !showLive);
-    if (!showLive) { try { stopStandaloneLive(); } catch {} }
+    if (!showLive) { __slDeniedNeedsWarn = false; try { stopStandaloneLive(); } catch {} }
     try { updateLiveLocBtn(); } catch {}
   }
 
@@ -10464,6 +10849,10 @@ function reflectAuth(){
   }
 
   try { ensureMapLegend(map); } catch (e) {}
+
+  // Oturum durumu artık belli: yenileme sırasında içeriği gizleyen (login formu /
+  // yanlış panel flaşını önleyen) 'auth-pending' sınıfını kaldır. Bkz. index.html <head>.
+  try { document.documentElement.classList.remove('auth-pending'); } catch (e) {}
 }
 
 const SUP_MODE_KEY = 'sup_mode';
@@ -10668,7 +11057,8 @@ async function checkMe(){
     // Sınır verisinin yüklenmesini BEKLEMEDEN tetiklenir (bkz. yukarıdaki not).
     try {
       if (currentUser && currentUser.role === 'user') {
-        startStandaloneLive();
+        startStandaloneLive({ center: true });
+        if (__slDeniedNeedsWarn) { __slDeniedNeedsWarn = false; showGridWarning(_locText('denied'), 9000); }
       }
     } catch {}
     try { await loadBoundary(); } catch (e) { console.warn('boundary load', e); }
@@ -10681,7 +11071,7 @@ async function checkMe(){
     // sınır verisinin gelmesini BEKLEMEDEN, sayfa açılır açılmaz tetikliyoruz —
     // aksi halde mobilde yavaş bağlantıda izin isteği gecikiyor ya da hiç
     // görünmüyordu ("bazen izin istemiyor" şikâyeti buradandı).
-    try { startStandaloneLive(); } catch {}
+    try { startStandaloneLive({ center: true }); } catch {}
     try { await loadBoundary(); } catch (e) { console.warn('boundary load', e); }
   }
 }
@@ -10692,6 +11082,16 @@ async function login(){
   const password = qs('#login-pass')?.value;
   const totp = (qs('#login-totp')?.value.trim() || undefined);
   if (!usernameOrEmail || !password) return setError(qs('#login-error'), t('usernamePasswordRequired'));
+
+  // "Giriş" tıklaması bir kullanıcı hareketidir. Konum izni ilk açılışta verilmediyse
+  // (reddedildi / pencere kapatıldı / hiç gösterilemedi) izni BURADA, await'lerden
+  // ÖNCE tekrar istiyoruz; bazı tarayıcılar (Safari vb.) izin penceresini yalnızca
+  // bir kullanıcı hareketi içinde gösteriyor. Rol user değilse reflectAuth() durdurur.
+  try {
+    if (__slWatch === null || !__slLastFix) {
+      startStandaloneLive({ center: true, warnAfterAuth: true });
+    }
+  } catch (e) { console.warn('login live location', e); }
 
   const btn = qs('#btn-login'); 
   if (btn) btn.disabled = true;
@@ -10755,6 +11155,10 @@ async function login(){
     } catch(e) {
       console.warn('[LOGIN] Map could not be centered to config:', e);
     }
+    // Opener/solver: canlı konum varsa config görünümü yerine kullanıcının konumuna git.
+    try {
+      if (currentUser && currentUser.role === 'user') liveLocationRecenterAfterViewReset();
+    } catch {}
 
     toast(t('loginSuccessful'), 'success');
   } catch(e) {
@@ -11638,6 +12042,9 @@ function importWizardBack() {
 
 /* ==================== INITIALIZATION ==================== */
 (async function init(){
+  // Konum izni: sayfa açılır açılmaz (i18n / config / harita yüklemelerini beklemeden) iste.
+  try { primeLiveLocationOnLoad(); } catch (e) { console.warn('primeLiveLocationOnLoad', e); }
+
   // Wait for i18n to fully initialize (load config + language files)
   if (window._i18nReady) {
     await window._i18nReady;
@@ -11751,7 +12158,7 @@ function importWizardBack() {
     // currentUser zaten null olduğuna göre anonim UI durumunu burada da
     // elle uygularız.
     try { reflectAuth(); } catch (e) { console.warn('reflectAuth (force login)', e); }
-    try { startStandaloneLive(); } catch (e) { console.warn('startStandaloneLive (force login)', e); }
+    try { startStandaloneLive({ center: true }); } catch (e) { console.warn('startStandaloneLive (force login)', e); }
   } else {
     // Aynı sekmede sayfa yenilendiyse (refresh) — localStorage'daki token
     // ile oturum /api/me üzerinden doğrulanır ve panel (admin/süpervizör/
@@ -11830,6 +12237,8 @@ function importWizardBack() {
           map.invalidateSize();
         }
       } catch {}
+      // Konum izni verildiyse, config görünümü yerine kullanıcının konumuna dön.
+      try { if (!currentUser) liveLocationRecenterAfterViewReset(); } catch {}
     }, 300);
   } else {
     goDefaultScreen();
@@ -11854,6 +12263,7 @@ function importWizardBack() {
     } catch(e) {
       console.warn('[INIT] User raster layers error:', e);
     }
+    try { liveLocationRecenterAfterViewReset(); } catch {}
   }
 
   if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'supervisor')) {

@@ -303,7 +303,27 @@
       color: #fff;
       border-color: var(--primary);
     }
+
+    /* Sayfa YENİLENİRKEN oturum (/api/me) doğrulanana kadar içerik gizlenir;
+       böylece login formu / olay formu / yanlış panel bir anlığına görünmez.
+       app.js reflectAuth() sonunda bu sınıfı kaldırır. */
+    html.auth-pending main,
+    html.auth-pending #btn-open-login,
+    html.auth-pending #btn-logout{ visibility:hidden !important; }
   </style>
+  <script>
+    (function(){
+      try {
+        var tok = localStorage.getItem('auth_token');
+        var isRefresh = sessionStorage.getItem('session_active');
+        if (tok && isRefresh) {
+          document.documentElement.classList.add('auth-pending');
+          // Güvenlik: bir hata olursa içerik sonsuza kadar gizli kalmasın.
+          setTimeout(function(){ document.documentElement.classList.remove('auth-pending'); }, 8000);
+        }
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
   <header>
@@ -342,7 +362,7 @@
 
     <aside class="stack">
       <!-- LOGIN -->
-      <section id="login-card" class="card">
+      <section id="login-card" class="card hidden">
         <div class="card-title-line">
           <button class="back-btn" type="button" data-i18n-title="back" onclick="if(typeof restoreMapViewFromOverlay==='function')restoreMapViewFromOverlay();">
             <img src="/back.svg" data-i18n-alt="back" />
