@@ -7225,8 +7225,8 @@ function showCompanyPanel() {
   el.classList.remove('hidden');
   initCompanyPanelUI();
   _setCompanyTop();
-  try { switchCompanySubtab('settings'); } catch {}
   loadCompanyPanel();
+  loadCompanyOrders();   // Siparişler tablosu artık panelin içinde (indirim ayarlarının altında)
   requestAnimationFrame(() => { _setCompanyTop(); });
 }
 
@@ -7266,6 +7266,12 @@ async function saveCompanyState(toastKey) {
 }
 
 // İndirim ayarları: tanımlıysa OBJE (salt görünüm + Update); değilse/Update'te düzenleme (input + Save)
+// İndirim ayarları bölümünün yüksekliği değiştiğinde siparişler tablosunu yeniden ölç:
+// tablo yukarı/aşağı kayar, sığan satır sayısı ve sayfalama otomatik güncellenir.
+function _companyLayoutChanged() {
+  requestAnimationFrame(() => { try { companyOrdersAutoFit(); } catch {} });
+}
+
 function renderDiscountView() {
   const c = __companyPanel.data && __companyPanel.data.company;
   const has = !!(c && c.discount_threshold_point != null && c.discount_percentage != null);
@@ -7282,6 +7288,7 @@ function renderDiscountView() {
     if (disp) disp.style.display = 'none';
     if (edit) edit.style.display = '';
   }
+  _companyLayoutChanged();
 }
 function editDiscount() {
   const c = __companyPanel.data && __companyPanel.data.company;
@@ -7291,6 +7298,7 @@ function editDiscount() {
   const disp = qs('#company-disc-display'), edit = qs('#company-disc-edit');
   if (disp) disp.style.display = 'none';
   if (edit) edit.style.display = '';
+  _companyLayoutChanged();
 }
 async function saveDiscount() {
   const c = __companyPanel.data && __companyPanel.data.company; if (!c) return;
@@ -7343,14 +7351,6 @@ function _cmpPagination(container, cur, pages, onGo) {
   _renderSmartPagination(container, cur, pages, onGo);
 }
 
-function switchCompanySubtab(which) {
-  document.querySelectorAll('.company-subtab').forEach(b => b.classList.toggle('active', b.getAttribute('data-cst') === which));
-  const s = qs('#company-view-settings'), o = qs('#company-view-orders');
-  if (s) s.classList.toggle('active', which === 'settings');
-  if (o) o.classList.toggle('active', which === 'orders');
-  if (which === 'orders') { loadCompanyOrders(); }
-}
-
 const __companyOrders = { data: [], page: 1, perPage: 6, _rz: null };
 async function loadCompanyOrders() {
   try { const r = await fetch('/api/company/orders'); __companyOrders.data = r.ok ? await r.json() : []; }
@@ -7387,9 +7387,13 @@ function renderCompanyOrders() {
 }
 // Ekrana sığacak satır sayısını GERÇEK ölçümle bul (profildeki pfAutoFit ile aynı mantık)
 function companyOrdersAutoFit() {
-  const view = qs('#company-view-orders'); if (!view || !view.classList.contains('active')) return;
+  // Siparişler tablosu panelin (ayarlar görünümünün) içinde, indirim ayarlarının altında.
+  // Ölçüm referansı görünümün kendisi: indirim ayarları büyüyüp küçüldükçe tabloya
+  // kalan boş yükseklik değişir, satır sayısı ve sayfalama buna göre yeniden hesaplanır.
+  const view = qs('#company-view-settings'); if (!view || !view.classList.contains('active')) return;
+  const block = qs('#company-view-orders'); if (!block) return;
   try { _setCompanyTop(); } catch {}
-  const tb = qs('#company-orders-tbody'); const wrap = view.querySelector('.company-table-wrap');
+  const tb = qs('#company-orders-tbody'); const wrap = block.querySelector('.company-table-wrap');
   if (!tb || !wrap || !__companyOrders.data.length) { renderCompanyOrders(); return; }
   try { view.scrollTop = 0; } catch {}
   const saved = __companyOrders.page || 1;
@@ -7547,7 +7551,6 @@ function initCompanyPanelUI() {
   __companyPanel.wired = true;
   const discSave = qs('#company-disc-save'); if (discSave) discSave.onclick = saveDiscount;
   const discUpd = qs('#company-disc-update'); if (discUpd) discUpd.onclick = editDiscount;
-  document.querySelectorAll('.company-subtab').forEach(b => b.onclick = () => switchCompanySubtab(b.getAttribute('data-cst')));
   const scanBtn = qs('#company-scan-btn'); if (scanBtn) scanBtn.onclick = openCompanyScan;
   const scanClose = qs('#company-scan-close'); if (scanClose) scanClose.onclick = closeCompanyScan;
   const scanVerify = qs('#company-scan-verify'); if (scanVerify) scanVerify.onclick = () => { const v = qs('#company-scan-token'); handleScanToken(v ? v.value : ''); };
@@ -7566,8 +7569,7 @@ function initCompanyPanelUI() {
       // sebep oluyordu. Düzenleme sürerken bu yeniden çizimi atlıyoruz ki
       // klavye açık kalsın; düzenleme bitince (kaydet/iptal) normal
       // render zaten devreye giriyor.
-      const ordersActive = qs('#company-view-orders') && qs('#company-view-orders').classList.contains('active');
-      if (ordersActive) companyOrdersAutoFit();
+      companyOrdersAutoFit();
     }, 160);
   });
 }

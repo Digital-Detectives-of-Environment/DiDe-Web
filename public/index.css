@@ -3962,9 +3962,21 @@ body.role-company #map { display:none !important; }
 .co-un{ font-size:clamp(15px,4.5vw,18px); font-weight:700; color:var(--text,#111); }
 .co-fn{ color:var(--muted,#6b7280); font-size:13px; }
 /* Sipariş ekranı: elle girilen hesap tutarı */
-.co-amount-field{ display:flex; flex-direction:column; gap:6px; margin-top:6px; }
-.co-amount-label{ font-size:clamp(12px, 3.4vw, 14px); font-weight:700; color:var(--muted,#6b7280); }
-.co-amount-input{ width:100%; box-sizing:border-box; font-size:clamp(16px, 4.6vw, 20px); font-weight:700; text-align:center; letter-spacing:.3px; }
+.co-amount-field{ display:flex; flex-direction:column; align-items:center; gap:8px; margin:10px 0 4px; }
+.co-amount-label{ align-self:flex-start; font-size:clamp(12px, 3.4vw, 14px); font-weight:700; color:var(--muted,#6b7280); }
+.co-amount-input{
+  /* .company-input'taki flex:1 1 160px dikey eksende 160px yükseklik veriyordu → sabitle */
+  flex:0 0 auto;
+  width:min(280px, 82%);
+  box-sizing:border-box;
+  padding:10px 14px;
+  font-size:clamp(20px, 6vw, 26px);
+  font-weight:800;
+  line-height:1.25;
+  text-align:center;
+  letter-spacing:.3px;
+}
+.co-amount-input::placeholder{ font-size:clamp(14px, 4.2vw, 18px); font-weight:600; }
 
 /* Hatalı form alanı (kullanıcı ekleme doğrulamaları) */
 .company-input.input-error, input.input-error{
@@ -4019,6 +4031,10 @@ body.role-company main{
   display: block;
   max-width: 100%;
 }
+/* Panelin beyaz zemini ekranı TAM kaplasın: gövde ve main de aynı yüzey rengini alır,
+   böylece kartın altında/yanında farklı tonda bir şerit kalmaz. */
+body.role-company{ background: var(--surface) !important; }
+body.role-company main{ background: var(--surface) !important; min-height: calc(100dvh - var(--company-top, var(--header-h))); }
 body.role-company #company-card{
   min-height: calc(100vh - var(--header-h));
   max-width: 680px;
@@ -4044,6 +4060,11 @@ body.role-company #company-card{
 .company-disc-update:disabled{ opacity:.6; cursor:not-allowed; }
 
 .company-orders-wrap{ display:flex; flex-direction:column; gap:10px; }
+
+/* Siparişler bloğu artık ayrı bir sekme değil; indirim ayarlarının hemen altında,
+   kalan dikey alanı kaplar. Ayarlar büyüyüp küçüldükçe blok yukarı/aşağı kayar. */
+.company-orders-block{ display:flex; flex-direction:column; min-height:0; flex:1 1 auto; margin-top:6px; }
+.company-orders-block .company-table-wrap{ flex:0 1 auto; min-height:0; }
 .company-orders-pagination{ margin-top:8px; }
 
 /* Discount kutuları kesin kompakt (yükseklik doğal, esnememeli) */
@@ -4119,7 +4140,9 @@ body.role-company #company-view-settings > .company-panel-section:first-child{ m
 /* Görünümler kaydırmasız; menü-satırları esnek alan olur, SAYFALAMA HER ZAMAN altta görünür kalır */
 body.role-company .company-view{ min-height:0; }
 body.role-company .company-view.active{ overflow:hidden !important; display:flex; flex-direction:column; }
+body.role-company #company-view-orders{ flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
 body.role-company #company-view-orders .company-table-wrap{ flex:0 1 auto; min-height:0; }
+body.role-company #company-view-settings.company-view.active{ overflow:hidden !important; }
 body.role-company #company-orders-pagination{ flex:0 0 auto; padding-top:6px; }
 
 /* ===================== Company panel — Grup 2 v6 (kart SABİT yükseklik → autofit + sayfalama çalışır) ===================== */

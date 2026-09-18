@@ -470,11 +470,6 @@
           </button>
         </div>
 
-        <div class="company-subtabs">
-          <button type="button" class="company-subtab active" data-cst="settings" data-i18n="companyPanelTitle">Panel</button>
-          <button type="button" class="company-subtab" data-cst="orders" data-i18n="orders">Orders</button>
-        </div>
-
         <div id="company-view-settings" class="company-view active">
           <div class="company-panel-section">
             <div class="company-panel-section-title" data-i18n="discountSettings">Discount settings</div>
@@ -498,23 +493,25 @@
             </div>
           </div>
 
-        </div>
-
-        <div id="company-view-orders" class="company-view">
-          <div class="company-table-wrap">
-            <table id="company-orders-table" class="company-orders-table">
-              <thead>
-                <tr>
-                  <th data-i18n="ordPerson">User</th>
-                  <th data-i18n="ordTotal">Total</th>
-                  <th data-i18n="ordDiscount">Disc. %</th>
-                  <th data-i18n="ordFinal">Paid</th>
-                </tr>
-              </thead>
-              <tbody id="company-orders-tbody"></tbody>
-            </table>
+          <!-- Siparişler: ayrı sekme yerine indirim ayarlarının hemen ALTINDA.
+               Tablo, sayfalama ve autofit mantığı aynı (id'ler korundu). -->
+          <div id="company-view-orders" class="company-orders-block">
+            <div class="company-panel-section-title" data-i18n="orders">Orders</div>
+            <div class="company-table-wrap">
+              <table id="company-orders-table" class="company-orders-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="ordPerson">User</th>
+                    <th data-i18n="ordTotal">Total</th>
+                    <th data-i18n="ordDiscount">Disc. %</th>
+                    <th data-i18n="ordFinal">Paid</th>
+                  </tr>
+                </thead>
+                <tbody id="company-orders-tbody"></tbody>
+              </table>
+            </div>
+            <div id="company-orders-pagination" class="company-orders-pagination"></div>
           </div>
-          <div id="company-orders-pagination" class="company-orders-pagination"></div>
         </div>
       </section>
 
