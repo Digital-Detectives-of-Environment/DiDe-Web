@@ -7085,12 +7085,46 @@ function switchCompanyDetailTab(which) {
 
 // Tüm haritalarda (public/user/supervisor) logolu şirket işaretleri — cluster yok
 let companyMarkersLayer = null;
+let __companyRepositionHooked = false;
+
+/* Şirket marker'larını mevcut harita durumuna göre yeniden konumlandırır.
+   NEDEN GEREKLİ: /api/companies yanıtı, harita bir yakınlaştırma/kaydırma
+   animasyonu sürerken gelebiliyor (açılışta canlı konuma gitme, sınıra
+   fitBounds vb.). Leaflet, animasyon sırasında eklenen marker'ı animasyon
+   öncesi projeksiyonla yerleştirdiği için logo gerçek koordinatının yaklaşık
+   bir ikon boyu altında/yanında kalıyor, kullanıcı zoom yapınca yerine
+   "zıplıyordu". Marker.update() konumu latlng'den yeniden hesaplar. */
+function repositionCompanyMarkers() {
+  if (!companyMarkersLayer || !map) return;
+  try {
+    companyMarkersLayer.eachLayer(m => { try { m.update(); } catch {} });
+  } catch {}
+}
+
+function hookCompanyMarkerReposition() {
+  if (__companyRepositionHooked || !map) return;
+  __companyRepositionHooked = true;
+  try {
+    map.on('zoomend', repositionCompanyMarkers);
+    map.on('moveend', repositionCompanyMarkers);
+    map.on('resize', repositionCompanyMarkers);   // invalidateSize sonrası
+    map.on('load', repositionCompanyMarkers);
+  } catch {}
+}
+
 async function refreshCompanyMarkers() {
   if (!map || typeof L === 'undefined') return;
   if (!companyMarkersLayer) companyMarkersLayer = L.layerGroup().addTo(map);
+  hookCompanyMarkerReposition();
   let list = [];
   try { const r = await fetch('/api/companies'); if (r.ok) list = await r.json(); } catch {}
   if (!Array.isArray(list)) list = [];
+
+  // Yakınlaştırma animasyonu sürerken marker eklenmesin; animasyon bitince eklenir.
+  if (map._animatingZoom) {
+    try { map.once('zoomend', () => { refreshCompanyMarkers(); }); return; } catch {}
+  }
+
   companyMarkersLayer.clearLayers();
   list.forEach(c => {
     const lat = Number(c.latitude), lng = Number(c.longitude);
@@ -7105,6 +7139,13 @@ async function refreshCompanyMarkers() {
     m.__companyData = c;   // dil değişiminde içeriği tazeleyebilmek için
     m.addTo(companyMarkersLayer);
   });
+
+  // Marker'lar eklendikten sonra konumlarını güvenceye al: bir sonraki karede ve
+  // kısa aralıklarla yeniden hesapla (açılıştaki animasyonlar/boyut değişimleri
+  // bittiğinde logo doğru koordinatta durur).
+  try { requestAnimationFrame(repositionCompanyMarkers); } catch { setTimeout(repositionCompanyMarkers, 16); }
+  setTimeout(repositionCompanyMarkers, 400);
+  setTimeout(repositionCompanyMarkers, 1500);
 }
 
 // Şirket marker'ının pop-up içeriği: şirket adı + indirim bilgisi (kaç puana yüzde kaç).
