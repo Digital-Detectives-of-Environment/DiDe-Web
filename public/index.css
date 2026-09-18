@@ -2346,6 +2346,23 @@ th:has(#btn-add-type){
   flex-direction: column;
   overflow: hidden;
 }
+/* Tampon akışı: olay türü süzgeci (kayıt panelinin üstünde) */
+.buffer-type-filter{
+  max-width:52%;
+  min-width:120px;
+  padding:6px 10px;
+  border:1px solid var(--border, #e5e7eb);
+  border-radius:10px;
+  background:var(--surface, #fff);
+  color:var(--text, #111);
+  font-size:clamp(11px, 3.2vw, 14px);
+  font-weight:600;
+  line-height:1.2;
+  max-height:38px;
+}
+.buffer-type-filter.hidden{ display:none; }
+:root.theme-dark .buffer-type-filter{ background:#1e293b; color:var(--text); border-color:var(--border); }
+
 #polygon-records-header {
   display: flex;
   justify-content: space-between;

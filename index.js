@@ -78,6 +78,28 @@ const RESTRICT_GNSS = RESTRICT_GNSS_NORM === 'true';
 //   EVENT_SUBMIT_INTERVAL_HOURS=0.5 -> 30 dakika
 //   EVENT_SUBMIT_INTERVAL_HOURS=    -> (boş) bekleme YOK; istenildiği zaman eklenir
 // Boş bırakılabilir; ama yazıldıysa SAYI olmak zorundadır (metin kabul edilmez).
+// ==================== BUFFER_RADIUS ====================
+// Olay ekleme akışında, seçilen konumun (siyah marker) çevresine çizilen tampon
+// bölgenin yarıçapı — METRE cinsinden ve TAM SAYI olmalıdır.
+//   BUFFER_RADIUS=10  -> 10 metre yarıçaplı tampon çizilir, içindeki kayıtlar gösterilir
+//   BUFFER_RADIUS=    -> (boş) tampon çizilmez; olay ekleme akışı eskisi gibi çalışır
+// Ondalıklı ya da metinsel değer kabul edilmez.
+const BUFFER_RADIUS_RAW = String(process.env.BUFFER_RADIUS ?? '').trim();
+let BUFFER_RADIUS = 0; // 0 = kapalı
+if (BUFFER_RADIUS_RAW !== '') {
+  const parsedBuf = Number(BUFFER_RADIUS_RAW);
+  if (!Number.isInteger(parsedBuf) || parsedBuf <= 0) {
+    console.error(`\n[FATAL] BUFFER_RADIUS is invalid in your .env file.`);
+    console.error(`        It must be a positive INTEGER value in METERS, or left empty.`);
+    console.error(`          BUFFER_RADIUS=10  -> 10 meter buffer around the selected location`);
+    console.error(`          BUFFER_RADIUS=    -> no buffer (classic event adding flow)`);
+    console.error(`        Decimal or text values are not allowed. Current value: "${BUFFER_RADIUS_RAW}".`);
+    console.error(`        System cannot start. Exiting.\n`);
+    process.exit(1);
+  }
+  BUFFER_RADIUS = parsedBuf;
+}
+
 const EVENT_SUBMIT_INTERVAL_RAW = String(process.env.EVENT_SUBMIT_INTERVAL_HOURS ?? '').trim();
 let EVENT_SUBMIT_INTERVAL_HOURS = 0; // 0 = sınır yok
 if (EVENT_SUBMIT_INTERVAL_RAW !== '') {
@@ -1063,6 +1085,58 @@ app.post('/api/polygon/records', async (req, res) => {
   } catch (e) {
     console.error('[polygon/records] error:', e.message);
     return res.status(500).json({ error: 'sunucu_hatasi' });
+  }
+});
+
+// POST /api/nearby/records – Seçilen konumun BUFFER_RADIUS metre çevresindeki aktif kayıtlar.
+// Yarıçap sunucudaki .env değerinden okunur (istemciden gelen değere güvenilmez).
+app.post('/api/nearby/records', requireAuth, async (req, res) => {
+  try {
+    if (!(BUFFER_RADIUS > 0)) return res.json({ ok: true, records: [], count: 0, radius: 0 });
+
+    const lat = parseFloat(req.body?.lat ?? req.body?.latitude);
+    const lng = parseFloat(req.body?.lng ?? req.body?.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
+    }
+
+    const q = `
+      SELECT
+        o.event_id,
+        o.event_type,
+        l.event_type_name AS event_type_name,
+        o.description,
+        o.photo_urls,
+        o.video_urls,
+        o.created_at,
+        o.created_by_name,
+        ROUND(ST_Distance(o.geom::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography)::numeric, 1) AS distance_m
+      FROM event o
+      LEFT JOIN event_type l ON l.event_type_id = o.event_type
+      WHERE COALESCE(o.active, true) = true
+        AND o.geom IS NOT NULL
+        AND ST_DWithin(o.geom::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
+      ORDER BY o.created_at DESC
+      LIMIT 200
+    `;
+    const { rows } = await pool.query(q, [lng, lat, BUFFER_RADIUS]);
+
+    const records = rows.map(r => ({
+      event_id: r.event_id,
+      event_type: r.event_type,
+      event_type_name: r.event_type_name,
+      description: r.description,
+      photo_urls: parseJsonText(r.photo_urls),
+      video_urls: parseJsonText(r.video_urls),
+      created_at: r.created_at,
+      created_by_name: r.created_by_name,
+      distance_m: r.distance_m != null ? Number(r.distance_m) : null
+    }));
+
+    return res.json({ ok: true, records, count: records.length, radius: BUFFER_RADIUS });
+  } catch (e) {
+    console.error('[nearby/records] error:', e.message);
+    return res.status(500).json({ error: 'sunucu_hatasi', message: getErrorMessage(req, 'sunucu_hatasi') });
   }
 });
 /* ===================== HELPERS ===================== */
@@ -2581,6 +2655,8 @@ app.get('/api/config', (_req, res) => {
     zoomLevelBoundary: String(process.env.ZOOM_LEVEL_BOUNDARY || '').trim().toLowerCase(),
     // İki gönderi arasındaki bekleme süresi (saat). 0 => sınır yok.
     eventSubmitIntervalHours: EVENT_SUBMIT_INTERVAL_HOURS > 0 ? EVENT_SUBMIT_INTERVAL_HOURS : 0,
+    // Olay ekleme akışındaki tampon yarıçapı (metre). 0 => tampon yok.
+    bufferRadius: BUFFER_RADIUS > 0 ? BUFFER_RADIUS : 0,
   });
 });
 /* ===================== AUTH ===================== */
