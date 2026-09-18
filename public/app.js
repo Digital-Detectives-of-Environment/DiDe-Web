@@ -7536,6 +7536,9 @@ async function submitOrder() {
     if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); if (paid) paid.disabled = false; return; }
     closeOrderResult(true);
     toast(t('orderSuccess'), 'success');
+    // Yeni sipariş, sayfa yenilenmeden siparişler tablosuna düşsün:
+    // listeyi yeniden çek, ilk sayfaya dön, satır sayısını/sayfalamayı yeniden ölç.
+    try { await loadCompanyOrders(); } catch (e) { console.warn('loadCompanyOrders (after order)', e); }
   } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); if (paid) paid.disabled = false; }
 }
 function closeOrderResult(skipConfirm) {
