@@ -1360,8 +1360,7 @@ function showPolygonRecordsCard(records, count) {
   if (!card) return;
 
   __recordsMode = 'polygon';
-  const filterEl = qs('#buffer-type-filter');
-  if (filterEl) filterEl.classList.add('hidden');
+  hideBufferTypeRow();
 
   const countEl = qs('#polygon-records-count');
   if (countEl) countEl.textContent = t('existingRecordCount', { count: count });
@@ -1764,7 +1763,6 @@ function polygonRecordsContinue() {
 let __bufferCircle = null;
 let __bufferRecordsAll = [];
 let __bufferLat = null, __bufferLng = null;
-let __bufferTypeList = null;
 let __pendingPreselectEventType = null;
 
 function bufferRadiusMeters(){
@@ -1773,9 +1771,13 @@ function bufferRadiusMeters(){
 }
 
 // Tampon akışı yalnızca olay ekleyen (opener) hesaplarda çalışır.
+// ÖNEMLİ: Aggregation layer (polygon tablosu) tanımlıysa tampon akışı HİÇ çalışmaz —
+// BUFFER_RADIUS dolu olsa bile tanımsızmış gibi davranılır ve mevcut grid (aggregation)
+// akışı kullanılır.
 function bufferFlowEnabled(){
   if (!currentUser || currentUser.role !== 'user') return false;
   try { if (isSolverUser()) return false; } catch {}
+  if (APP_CONFIG.polygonTable) return false;
   return bufferRadiusMeters() > 0;
 }
 
@@ -1807,31 +1809,65 @@ function clearBufferCircle(){
   if (__bufferCircle) { try { map.removeLayer(__bufferCircle); } catch {} __bufferCircle = null; }
 }
 
-async function bufferEventTypes(){
-  if (Array.isArray(__bufferTypeList)) return __bufferTypeList;
-  try {
-    const r = await fetch('/api/event_types');
-    if (r.ok) __bufferTypeList = await r.json();
-  } catch {}
-  if (!Array.isArray(__bufferTypeList)) __bufferTypeList = [];
-  return __bufferTypeList;
+/* Tür süzgeci satırı: kart içinde, kayıt sayfalarının hemen üstünde.
+   HTML'de yoksa burada oluşturulur (eski index.html ile de çalışsın diye). */
+function ensureBufferTypeRow(){
+  const card = qs('#polygon-records-card');
+  if (!card) return null;
+  let row = qs('#buffer-type-row');
+  if (!row) {
+    row = document.createElement('div');
+    row.id = 'buffer-type-row';
+    row.className = 'buffer-type-row';
+    row.innerHTML = `<label id="buffer-type-label" for="buffer-type-filter"></label>`;
+    let sel = qs('#buffer-type-filter');
+    if (!sel) {
+      sel = document.createElement('select');
+      sel.id = 'buffer-type-filter';
+      sel.className = 'buffer-type-filter';
+    }
+    row.appendChild(sel);
+    const swiper = qs('#polygon-records-swiper');
+    if (swiper && swiper.parentNode) swiper.parentNode.insertBefore(row, swiper);
+    else card.appendChild(row);
+  }
+  return row;
 }
 
-async function fillBufferTypeFilter(){
+function hideBufferTypeRow(){
+  const row = qs('#buffer-type-row');
+  if (row) row.style.display = 'none';
+}
+
+/* Süzgeç seçenekleri YALNIZCA tamponun içindeki kayıtların olay türlerinden üretilir. */
+function fillBufferTypeFilter(){
+  const row = ensureBufferTypeRow();
+  if (!row) return;
   const sel = qs('#buffer-type-filter');
+  const label = qs('#buffer-type-label');
   if (!sel) return;
-  const list = await bufferEventTypes();
-  const prev = sel.value;
+  if (label) label.textContent = t('eventType');
+
+  const seen = new Map();
+  (__bufferRecordsAll || []).forEach(r => {
+    if (r.event_type == null) return;
+    const id = String(r.event_type);
+    if (!seen.has(id)) seen.set(id, r.event_type_name || id);
+  });
+
   let collator;
   try {
     const lang = (typeof window.getLanguage === 'function') ? window.getLanguage() : undefined;
     collator = new Intl.Collator(lang, { sensitivity: 'base', numeric: true });
   } catch { collator = { compare: (a, b) => String(a).localeCompare(String(b)) }; }
-  const sorted = [...list].sort((a, b) => collator.compare(a.event_type_name || '', b.event_type_name || ''));
-  sel.innerHTML = `<option value="">${escapeHtml(t('allEventTypes'))}</option>` +
-    sorted.map(x => `<option value="${escapeHtml(String(x.event_type_id))}">${escapeHtml(x.event_type_name || '')}</option>`).join('');
-  if (prev && sel.querySelector(`option[value="${CSS.escape(String(prev))}"]`)) sel.value = prev;
-  sel.classList.remove('hidden');
+  const opts = [...seen.entries()].sort((a, b) => collator.compare(a[1], b[1]));
+
+  const prev = sel.value;
+  sel.innerHTML = `<option value="">-- ${escapeHtml(t('pleaseSelect'))} --</option>` +
+    opts.map(([id, name]) => `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`).join('');
+  if (prev && opts.some(([id]) => id === prev)) sel.value = prev;
+
+  row.style.display = '';
   sel.onchange = () => { if (__recordsMode === 'buffer') renderBufferRecords(); };
 }
 
@@ -1870,10 +1906,19 @@ async function startBufferFlow(lat, lng){
     console.warn('[buffer] nearby/records error:', e);
   }
 
+  // Tamponun içinde HİÇ kayıt yoksa: kayıt paneli hiç açılmaz, doğrudan olay
+  // bildirim formu gelir (kullanıcı boş bir panelle uğraşmaz).
+  if (!__bufferRecordsAll.length) {
+    __recordsMode = 'polygon';
+    clearBufferCircle();
+    openEventFormDirectly(lat, lng);
+    return;
+  }
+
   const card = qs('#polygon-records-card');
   if (!card) { bufferRecordsContinue(); return; }
 
-  await fillBufferTypeFilter();
+  fillBufferTypeFilter();
   renderBufferRecords();
 
   hide(qs('#polygon-confirm-card'));
@@ -1887,6 +1932,7 @@ async function startBufferFlow(lat, lng){
 function bufferRecordsContinue(){
   const sel = qs('#buffer-type-filter');
   __pendingPreselectEventType = (sel && sel.value) ? String(sel.value) : null;
+  hideBufferTypeRow();
 
   const lat = __bufferLat, lng = __bufferLng;
   __recordsMode = 'polygon';
@@ -1904,6 +1950,7 @@ function bufferRecordsContinue(){
 /* Çarpı: akışı iptal et (marker + tampon kaldırılır) */
 function bufferRecordsCancel(){
   __recordsMode = 'polygon';
+  hideBufferTypeRow();
   __pendingPreselectEventType = null;
   clearBufferCircle();
   __bufferLat = __bufferLng = null;
@@ -10890,6 +10937,7 @@ function restoreMapViewFromOverlay(){
   // Tampon (buffer) çemberi de kapanışta temizlenir
   if (typeof clearBufferCircle === 'function') {
     try { clearBufferCircle(); } catch {}
+    try { hideBufferTypeRow(); } catch {}
     __recordsMode = 'polygon';
     __pendingPreselectEventType = null;
   }

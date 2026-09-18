@@ -2346,10 +2346,27 @@ th:has(#btn-add-type){
   flex-direction: column;
   overflow: hidden;
 }
-/* Tampon akışı: olay türü süzgeci (kayıt panelinin üstünde) */
+/* Tampon akışı: olay türü süzgeci (kayıt sayfalarının hemen üstünde, kendi satırında) */
+.buffer-type-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 16px;
+  border-bottom:1px solid var(--border, #e5e5e5);
+  background:var(--surface, #fff);
+  flex:0 0 auto;
+}
+.buffer-type-row label{
+  font-size:clamp(11px, 3.2vw, 14px);
+  font-weight:700;
+  color:var(--muted, #6b7280);
+  white-space:nowrap;
+}
+:root.theme-dark .buffer-type-row{ background:var(--surface); }
 .buffer-type-filter{
-  max-width:52%;
-  min-width:120px;
+  flex:1 1 auto;
+  max-width:100%;
+  min-width:0;
   padding:6px 10px;
   border:1px solid var(--border, #e5e7eb);
   border-radius:10px;
