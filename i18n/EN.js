@@ -474,6 +474,13 @@ window.i18nLangs.en = {
 
     // Auth error messages (localized)
     usernameTaken: 'Username is already registered. Please choose a different username.',
+    base32_gecersiz: 'The Base32 code is not valid. Only the letters A–Z and the digits 2–7 are allowed, with a length of 16–64 characters. You can also use the "Generate Base32" button.',
+    invalidAmount: 'Please enter a valid amount (e.g. 200.50).',
+    billAmount: 'Bill amount',
+    billAmountPlaceholder: 'e.g. 200.50',
+    usernameTakenWarn: 'This username is already registered. Please choose a different username.',
+    passwordRuleWarn: 'The password does not meet the rules. It must be at least 8 characters and contain a lowercase letter, an uppercase letter and a punctuation mark.',
+    base32RuleWarn: 'The Base32 code is not valid. Only the letters A–Z and the digits 2–7 are allowed, with a length of 16–64 characters. You can use the "Generate Base32" button instead.',
     emailTaken: 'Email address is already registered. Please use a different email.',
     bothTaken: 'Both the username and email address are already registered.',
     wrongPassword: 'Incorrect password.',

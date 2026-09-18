@@ -468,6 +468,13 @@ window.i18nLangs.it = {
 
     // Messaggi di errore auth (localizzati)
     usernameTaken: 'Il nome utente è già registrato. Scegli un nome utente diverso.',
+    base32_gecersiz: 'Il codice Base32 non è valido. Sono ammesse solo le lettere A–Z e le cifre 2–7, con una lunghezza di 16–64 caratteri. Puoi anche usare il pulsante "Genera Base32".',
+    invalidAmount: 'Inserisci un importo valido (es. 200,50).',
+    billAmount: 'Importo del conto',
+    billAmountPlaceholder: 'es. 200,50',
+    usernameTakenWarn: 'Questo nome utente è già registrato. Scegli un nome utente diverso.',
+    passwordRuleWarn: 'La password non rispetta le regole. Deve contenere almeno 8 caratteri, una lettera minuscola, una maiuscola e un segno di punteggiatura.',
+    base32RuleWarn: 'Il codice Base32 non è valido. Sono ammesse solo le lettere A–Z e le cifre 2–7, con una lunghezza di 16–64 caratteri. Puoi usare il pulsante "Genera Base32".',
     emailTaken: "L'indirizzo email è già registrato. Usa un'email diversa.",
     bothTaken: 'Sia il nome utente che l\'email sono già registrati.',
     wrongPassword: 'Password errata.',

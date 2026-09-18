@@ -3926,18 +3926,10 @@ body.role-company #map { display:none !important; }
 .company-panel-section-title{ font-weight:700; margin-bottom:8px; color:var(--text,#111); }
 .company-field{ display:flex; flex-direction:column; gap:4px; flex:1 1 140px; }
 .company-field span{ font-size:12px; color:var(--muted,#6b7280); }
-.company-menu-rows{ display:flex; flex-direction:column; gap:8px; }
-.company-menu-row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-.company-menu-row .cm-name{ flex:2 1 140px; }
-.company-menu-row .cm-price{ flex:1 1 90px; }
-.cm-dis{ display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--text,#111); white-space:nowrap; }
-.cm-del{ flex:0 0 auto; width:34px; height:34px; border-radius:8px; border:1px solid var(--border,#e5e7eb); background:transparent; color:var(--danger,#b91c1c); font-size:18px; cursor:pointer; }
-.company-menu-add{ margin-top:10px; }
 .company-panel-actions{ margin-top:16px; display:flex; justify-content:flex-end; }
 .company-save-btn{ background:var(--primary,#2563eb); color:#fff; border:none; padding:12px 22px; border-radius:12px; font-weight:700; cursor:pointer; }
 .company-save-btn:hover{ filter:brightness(1.06); }
 @media (max-width:640px){
-  .company-menu-row .cm-name, .company-menu-row .cm-price{ flex:1 1 100%; }
   .company-panel-actions{ justify-content:stretch; }
   .company-save-btn{ width:100%; }
 }
@@ -3969,12 +3961,21 @@ body.role-company #map { display:none !important; }
 .co-title{ font-weight:700; }
 .co-un{ font-size:clamp(15px,4.5vw,18px); font-weight:700; color:var(--text,#111); }
 .co-fn{ color:var(--muted,#6b7280); font-size:13px; }
-.co-products{ display:flex; flex-direction:column; gap:8px; }
-.co-prod-row{ display:flex; gap:8px; align-items:center; }
-.co-prod-sel{ flex:1 1 auto; }
-.co-prod-del{ flex:0 0 auto; width:34px; height:34px; border-radius:8px; border:1px solid var(--border,#e5e7eb); background:transparent; color:var(--danger,#b91c1c); font-size:18px; cursor:pointer; }
-.co-add{ margin-top:10px; background:transparent; border:1px dashed var(--border,#cbd5e1); color:var(--primary,#2563eb); padding:8px 14px; border-radius:10px; cursor:pointer; }
-.co-add:disabled{ opacity:.5; cursor:not-allowed; }
+/* Sipariş ekranı: elle girilen hesap tutarı */
+.co-amount-field{ display:flex; flex-direction:column; gap:6px; margin-top:6px; }
+.co-amount-label{ font-size:clamp(12px, 3.4vw, 14px); font-weight:700; color:var(--muted,#6b7280); }
+.co-amount-input{ width:100%; box-sizing:border-box; font-size:clamp(16px, 4.6vw, 20px); font-weight:700; text-align:center; letter-spacing:.3px; }
+
+/* Hatalı form alanı (kullanıcı ekleme doğrulamaları) */
+.company-input.input-error, input.input-error{
+  border-color:#dc2626 !important;
+  background:#fef2f2 !important;
+  box-shadow:0 0 0 2px rgba(220,38,38,.12);
+}
+:root.theme-dark .company-input.input-error, :root.theme-dark input.input-error{
+  background:rgba(220,38,38,.12) !important;
+}
+
 .co-totals{ margin:14px 0; }
 .co-line{ display:flex; justify-content:space-between; padding:4px 0; }
 .co-line span{ color:var(--muted,#6b7280); }
@@ -4005,30 +4006,10 @@ body.role-company .company-card{ max-width:640px; }
 .company-disc-save:hover{ filter:brightness(1.06); }
 .company-disc-save:disabled{ opacity:.6; cursor:not-allowed; }
 
-.company-menu-add-form{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px; padding:10px; border:1px dashed var(--border,#cbd5e1); border-radius:12px; }
-.company-menu-add-form .cm-name{ flex:2 1 140px; }
-.company-menu-add-form .cm-price{ flex:1 1 90px; }
-.company-menu-add{ flex:0 0 auto; background:var(--primary,#2563eb); color:#fff; border:none; padding:9px 14px; border-radius:10px; font-weight:700; cursor:pointer; }
-.company-menu-add:hover{ filter:brightness(1.06); }
-.company-menu-add:disabled{ opacity:.6; cursor:not-allowed; }
 
-.company-menu-rows{ display:flex; flex-direction:column; gap:6px; }
-.company-menu-row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:6px 10px; border:1px solid var(--border-soft,#eef2f7); border-radius:10px; background:var(--bg,#fff); }
-.cm-name-txt{ flex:2 1 120px; font-weight:600; color:var(--text,#111); word-break:break-word; }
-.cm-price-txt{ flex:0 1 70px; color:var(--text,#111); }
-.company-menu-row .cm-name{ flex:2 1 120px; }
-.company-menu-row .cm-price{ flex:1 1 80px; }
-.cm-dis{ display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--text,#111); white-space:nowrap; }
-.cm-upd{ flex:0 0 auto; background:transparent; border:1px solid var(--primary,#2563eb); color:var(--primary,#2563eb); padding:5px 12px; border-radius:8px; font-weight:600; cursor:pointer; font-size:13px; }
-.cm-upd:hover{ background:color-mix(in srgb,var(--primary,#2563eb) 8%, transparent); }
-.cm-ok{ flex:0 0 auto; width:34px; height:34px; border-radius:8px; border:1px solid #16a34a; background:transparent; color:#16a34a; font-size:16px; cursor:pointer; }
-.company-menu-pagination{ margin-top:8px; }
 @media (max-width:640px){
   .company-field-sm{ flex:1 1 44%; }
   .company-input-sm{ max-width:none; }
-  .company-menu-add-form .cm-name, .company-menu-add-form .cm-price{ flex:1 1 100%; }
-  .company-menu-add{ width:100%; }
-  .cm-name-txt{ flex:1 1 100%; }
 }
 
 /* ===================== Company panel — Grup 2 layout & subtabs ===================== */
@@ -4113,7 +4094,6 @@ body.role-company .company-panel-head{ margin:0; padding:10px 0 8px; border-bott
 .company-orders-empty{ text-align:center; color:var(--muted,#6b7280); padding:18px 8px; }
 
 /* Menü + sipariş sayfalama (profil pf-page-btn ile aynı görünüm) */
-.company-menu-pagination, .company-orders-pagination{ display:flex; justify-content:center; gap:6px; flex-wrap:wrap; margin-top:10px; flex:0 0 auto; }
 
 /* ===================== Company panel — Grup 2 v4 fixes ===================== */
 /* Harita kartı company modunda tamamen gizlensin → header ile panel bitişik (boşluk yok) */
@@ -4139,11 +4119,6 @@ body.role-company #company-view-settings > .company-panel-section:first-child{ m
 /* Görünümler kaydırmasız; menü-satırları esnek alan olur, SAYFALAMA HER ZAMAN altta görünür kalır */
 body.role-company .company-view{ min-height:0; }
 body.role-company .company-view.active{ overflow:hidden !important; display:flex; flex-direction:column; }
-body.role-company .company-menu-section{ flex:1 1 auto; display:flex; flex-direction:column; min-height:0; }
-/* Satırlar İÇERİĞİ KADAR yer kaplasın (flex-grow YOK): böylece az sayıda ürün varken
-   satırlarla sayfalama arasında boş alan oluşmaz, sayfalama içeriğin hemen altında durur. */
-body.role-company .company-menu-rows{ flex:0 1 auto; min-height:0; overflow:visible; }
-body.role-company #company-menu-pagination{ flex:0 0 auto; padding-top:6px; }
 body.role-company #company-view-orders .company-table-wrap{ flex:0 1 auto; min-height:0; }
 body.role-company #company-orders-pagination{ flex:0 0 auto; padding-top:6px; }
 
@@ -4160,25 +4135,9 @@ body.role-company #company-card{
 }
 
 /* ===================== Menu "add item" — sade artı logosu (tema-uyumlu) ===================== */
-.company-menu-add-icon{
-  background:none !important; border:none !important; box-shadow:none !important; padding:2px;
-  display:inline-flex; align-items:center; justify-content:center; cursor:pointer;
-  color:var(--primary,#2563eb); transition:transform .1s ease, color .15s ease;
-  flex:1 1 100%; margin-top:2px;   /* on discount'un ALT satırı, sayfada ORTALI, hemen bitişik */
-}
-.company-menu-add-icon:hover{ transform:scale(1.1); color:#1d4ed8; }
-.company-menu-add-icon:active{ transform:scale(.94); }
-.company-menu-add-icon:disabled{ opacity:.5; cursor:not-allowed; }
-.company-menu-add-icon svg{ display:block; }
-:root.theme-dark .company-menu-add-icon{ color:#60a5fa; }
-:root.theme-dark .company-menu-add-icon:hover{ color:#93c5fd; }
 /* Ekleme formunda ikon sağa yaslı, dikey ortalı dursun */
-.company-menu-add-form{ align-items:center; }
 
 /* Menü ekleme: artı ikonu on-discount'un ALT satırında, ortalı */
-.company-menu-add-form{ flex-wrap:wrap; }
-.company-menu-add-form .cm-dis{ flex:1 1 100%; }
-.company-menu-add-form .company-menu-add-icon{ flex:1 1 100%; justify-content:center; margin-top:2px; }
 
 /* ===================== Company detail (supervisor) — orders table scroll fix =====================
    .cd-orders-table de tıpkı .profile-posts-table ve .company-orders-table gibi:

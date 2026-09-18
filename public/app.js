@@ -6890,13 +6890,14 @@ async function loadCompanyUsers(companyId) {
   pane.innerHTML = '';
   const form = document.createElement('div'); form.className = 'cd-user-form';
   const mk = (id, ph, type) => { const i = document.createElement('input'); i.id = id; i.className = 'company-input'; i.type = type || 'text'; i.placeholder = ph; i.autocomplete = 'off'; return i; };
+  // company rolündeki kullanıcılarda e-posta ve soyad İSTENMEZ (veritabanına NULL yazılır).
   const uname = mk('cd-user-username', t('usernamePlaceholder'));
   const nm = mk('cd-user-name', t('firstNamePlaceholder'));
-  const sn = mk('cd-user-surname', t('lastNamePlaceholder'));
-  const em = mk('cd-user-email', t('emailPlaceholder'), 'email');
   const pw = mk('cd-user-password', t('passwordPlaceholder'), 'password');
   const b32 = mk('cd-user-base32', t('base32Placeholder'));
-  [uname, nm, sn, em, pw].forEach(el => { const row = document.createElement('div'); row.className = 'company-form-row'; row.appendChild(el); form.appendChild(row); });
+  [uname, nm, pw].forEach(el => { const row = document.createElement('div'); row.className = 'company-form-row'; row.appendChild(el); form.appendChild(row); });
+  // Hatalı alanın kırmızı çerçevesi, kullanıcı yazmaya başlayınca kalkar
+  [uname, nm, pw, b32].forEach(el => { el.addEventListener('input', () => el.classList.remove('input-error')); });
   const b32Row = document.createElement('div'); b32Row.className = 'company-form-row cd-user-base32-row';
   const b32GenBtn = document.createElement('button'); b32GenBtn.type = 'button'; b32GenBtn.className = 'btn cd-user-base32-gen'; b32GenBtn.textContent = t('generateBase32');
   b32GenBtn.onclick = async () => {
@@ -6912,7 +6913,7 @@ async function loadCompanyUsers(companyId) {
   b32Row.appendChild(b32); b32Row.appendChild(b32GenBtn); form.appendChild(b32Row);
   const addBtn = document.createElement('button'); addBtn.type = 'button'; addBtn.className = 'btn cd-user-add'; addBtn.textContent = t('addCompanyUser');
   const btnRow = document.createElement('div'); btnRow.className = 'company-form-row'; btnRow.appendChild(addBtn); form.appendChild(btnRow);
-  addBtn.onclick = () => submitCompanyUser(companyId, { uname, nm, sn, em, pw, b32, addBtn });
+  addBtn.onclick = () => submitCompanyUser(companyId, { uname, nm, pw, b32, addBtn });
   const title = document.createElement('div'); title.className = 'cd-section-title'; title.textContent = t('companyUsers');
   pane.appendChild(form);
   pane.appendChild(title);
@@ -6931,29 +6932,64 @@ async function refreshCompanyUsersList(companyId) {
   list.forEach(u => {
     const row = document.createElement('div'); row.className = 'cd-user-row';
     const nm = [u.name, u.surname].filter(Boolean).join(' ');
-    row.innerHTML = `<span class="cd-user-uname">${escapeHtml(u.username || '')}</span>${nm ? `<span class="cd-user-fn">${escapeHtml(nm)}</span>` : ''}<span class="cd-user-em">${escapeHtml(u.email || '')}</span>`;
+    row.innerHTML = `<span class="cd-user-uname">${escapeHtml(u.username || '')}</span>${nm ? `<span class="cd-user-fn">${escapeHtml(nm)}</span>` : ''}`;
     wrap.appendChild(row);
   });
 }
 
+/* Şifre kuralı (sunucudaki PW_REGEX ile birebir aynı):
+   en az 8 karakter + bir küçük harf + bir büyük harf + bir noktalama işareti */
+const CD_PW_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[^\w\s]).{8,}$/;
+
+/* Base32 (TOTP) kuralı: yalnızca A–Z ve 2–7; 16–64 karakter */
+function _isValidBase32(raw) {
+  const cleaned = String(raw || '').toUpperCase().replace(/[\s-]/g, '').replace(/=+$/, '');
+  return /^[A-Z2-7]+$/.test(cleaned) && cleaned.length >= 16 && cleaned.length <= 64;
+}
+
+// Hatalı alanı kırmızı çerçeveyle işaretler + üstten kırmızı uyarı bandı gösterir
+function _cdUserFieldError(el, messageKey) {
+  if (el) { el.classList.add('input-error'); try { el.focus(); } catch {} }
+  showGridWarning(t(messageKey), 8000);
+}
+
 async function submitCompanyUser(companyId, els) {
   const username = (els.uname.value || '').trim();
-  const email = (els.em.value || '').trim();
   const password = els.pw.value || '';
   const base32 = (els.b32.value || '').trim();
-  if (!username || !email || !password || !base32) { toast(t('fillRequiredFields'), 'error', 4000); return; }
+
+  [els.uname, els.nm, els.pw, els.b32].forEach(el => el && el.classList.remove('input-error'));
+
+  if (!username || !password || !base32) {
+    if (!username) els.uname.classList.add('input-error');
+    if (!password) els.pw.classList.add('input-error');
+    if (!base32) els.b32.classList.add('input-error');
+    showGridWarning(t('fillRequiredFields'), 6000);
+    return;
+  }
+  if (!CD_PW_REGEX.test(password)) { _cdUserFieldError(els.pw, 'passwordRuleWarn'); return; }
+  if (!_isValidBase32(base32)) { _cdUserFieldError(els.b32, 'base32RuleWarn'); return; }
+
   els.addBtn.disabled = true;
   try {
     const r = await fetch(`/api/admin/companies/${companyId}/users`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, email, password, name: els.nm.value || null, surname: els.sn.value || null, BASE32Code: base32 })
+      // company kullanıcılarında e-posta ve soyad gönderilmez → sunucu NULL kaydeder
+      body: JSON.stringify({ username, password, name: els.nm.value || null, BASE32Code: base32 })
     });
     const d = await r.json().catch(() => ({}));
-    if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); return; }
+    if (!r.ok || !d.ok) {
+      if (r.status === 409 || d.error === 'usernameTaken') { _cdUserFieldError(els.uname, 'usernameTakenWarn'); return; }
+      if (d.error === 'zayif_sifre') { _cdUserFieldError(els.pw, 'passwordRuleWarn'); return; }
+      if (d.error === 'base32_gecersiz') { _cdUserFieldError(els.b32, 'base32RuleWarn'); return; }
+      if (d.error === 'base32_cakisma') { els.b32.classList.add('input-error'); showGridWarning(d.message || t('unknownError'), 8000); return; }
+      showGridWarning(d.message || d.error || t('unknownError'), 7000);
+      return;
+    }
     toast(t('userAdded'), 'success');
-    els.uname.value = ''; els.nm.value = ''; els.sn.value = ''; els.em.value = ''; els.pw.value = ''; els.b32.value = '';
+    els.uname.value = ''; els.nm.value = ''; els.pw.value = ''; els.b32.value = '';
     await refreshCompanyUsersList(companyId);
-  } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); }
+  } catch (e) { showGridWarning((e && e.message) || t('unknownError'), 6000); }
   finally { els.addBtn.disabled = false; }
 }
 
@@ -7200,7 +7236,8 @@ async function loadCompanyPanel() {
   renderCompanyPanel();
 }
 
-const __companyMenu = { page: 1, editIndex: -1, perPage: 5, _rz: null };
+// Menü/ürün özelliği kaldırıldı; yalnızca pencere yeniden boyutlanma zamanlayıcısı kaldı.
+const __companyMenu = { _rz: null };
 
 function renderCompanyPanel() {
   const d = __companyPanel.data, c = d && d.company;
@@ -7208,26 +7245,21 @@ function renderCompanyPanel() {
   if (nameEl) nameEl.textContent = c ? (c.company_name || '') : '';
   if (userEl) userEl.textContent = d ? (d.username || '') : '';
   if (logoEl) logoEl.src = c ? (c.logo_url || '') : '';
-  if (c && !Array.isArray(c.menu)) c.menu = [];
-  __companyMenu.editIndex = -1;
-  __companyMenu.page = 1;
   renderDiscountView();
-  renderCompanyMenu();
-  requestAnimationFrame(() => { try { companyMenuAutoFit(); } catch {} });
 }
 
-// Menü + eşik + indirim'in TAMAMINI sunucuya yazar (mevcut PATCH ucu tümünü değiştirir)
+// Eşik + indirim ayarlarını sunucuya yazar
 async function saveCompanyState(toastKey) {
   const c = __companyPanel.data && __companyPanel.data.company;
   if (!c) return false;
   try {
     const r = await fetch('/api/company/config', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ menu: c.menu || [], discount_threshold_point: c.discount_threshold_point, discount_percentage: c.discount_percentage })
+      body: JSON.stringify({ discount_threshold_point: c.discount_threshold_point, discount_percentage: c.discount_percentage })
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); return false; }
-    c.menu = d.menu; c.discount_percentage = d.discount_percentage; c.discount_threshold_point = d.discount_threshold_point;
+    c.discount_percentage = d.discount_percentage; c.discount_threshold_point = d.discount_threshold_point;
     if (toastKey) toast(t(toastKey), 'success');
     return true;
   } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); return false; }
@@ -7317,7 +7349,6 @@ function switchCompanySubtab(which) {
   if (s) s.classList.toggle('active', which === 'settings');
   if (o) o.classList.toggle('active', which === 'orders');
   if (which === 'orders') { loadCompanyOrders(); }
-  else { renderCompanyMenu(); requestAnimationFrame(() => { try { companyMenuAutoFit(); } catch {} }); }
 }
 
 const __companyOrders = { data: [], page: 1, perPage: 6, _rz: null };
@@ -7377,120 +7408,12 @@ function companyOrdersAutoFit() {
   renderCompanyOrders();
 }
 
-async function addMenuItem() {
-  const c = __companyPanel.data && __companyPanel.data.company; if (!c) return;
-  const nameEl = qs('#company-menu-new-name'), priceEl = qs('#company-menu-new-price'), disEl = qs('#company-menu-new-dis');
-  const name = (nameEl && nameEl.value || '').trim();
-  if (!name) { toast(t('fillRequiredFields'), 'error', 3500); if (nameEl) nameEl.focus(); return; }
-  const price = (priceEl && priceEl.value !== '' && Number.isFinite(Number(priceEl.value))) ? Number(priceEl.value) : null;
-  const discounted = !!(disEl && disEl.checked);
-  if (!Array.isArray(c.menu)) c.menu = [];
-  c.menu.push({ name, price, discounted });
-  const btn = qs('#company-menu-add'); if (btn) btn.disabled = true;
-  const ok = await saveCompanyState('menuItemAdded');
-  if (btn) btn.disabled = false;
-  if (ok) {
-    if (nameEl) nameEl.value = ''; if (priceEl) priceEl.value = ''; if (disEl) disEl.checked = false;
-    __companyMenu.page = 9999;
-    renderCompanyMenu();
-    requestAnimationFrame(() => { try { companyMenuAutoFit(); } catch {} });
-  }
-}
-
-function renderCompanyMenu() {
-  const c = __companyPanel.data && __companyPanel.data.company;
-  const menu = (c && Array.isArray(c.menu)) ? c.menu : [];
-  const wrap = qs('#company-menu-rows'); if (!wrap) return;
-  const per = __companyMenu.perPage || 5;
-  const pages = Math.max(1, Math.ceil(menu.length / per));
-  if (__companyMenu.page > pages) __companyMenu.page = pages;
-  if (__companyMenu.page < 1) __companyMenu.page = 1;
-  const start = (__companyMenu.page - 1) * per;
-  const pageItems = menu.slice(start, start + per);
-  wrap.innerHTML = '';
-  pageItems.forEach((it, i) => wrap.appendChild(buildMenuRow(it, start + i)));
-  _cmpPagination(qs('#company-menu-pagination'), __companyMenu.page, pages, (pg) => { __companyMenu.page = pg; renderCompanyMenu(); });
-}
-function companyMenuAutoFit() {
-  const view = qs('#company-view-settings'); if (!view || !view.classList.contains('active')) return;
-  try { _setCompanyTop(); } catch {}
-  const c = __companyPanel.data && __companyPanel.data.company; const menu = (c && Array.isArray(c.menu)) ? c.menu : [];
-  const wrap = qs('#company-menu-rows'); const pag = qs('#company-menu-pagination');
-  if (!wrap || !menu.length) { renderCompanyMenu(); return; }
-  try { view.scrollTop = 0; } catch {}
-  const saved = __companyMenu.page || 1;
-  __companyMenu.page = 1; __companyMenu.perPage = Math.min(menu.length, 40);
-  renderCompanyMenu();
-  const cs = getComputedStyle(view); const padB = parseFloat(cs.paddingBottom) || 0;
-  const viewBottom = view.getBoundingClientRect().bottom - padB;
-  const pagH = (pag && pag.getBoundingClientRect().height) || 0;
-  const limit = viewBottom - (Math.max(pagH, 52) + 16);
-  const rows = wrap.querySelectorAll('.company-menu-row');
-  let fit = 0; for (let i = 0; i < rows.length; i++) { if (rows[i].getBoundingClientRect().bottom <= limit) fit++; else break; }
-  if (fit < 1) fit = 1;
-  __companyMenu.perPage = fit;
-  const pages = Math.max(1, Math.ceil(menu.length / fit));
-  __companyMenu.page = Math.min(saved, pages);
-  renderCompanyMenu();
-}
-
-function buildMenuRow(it, idx) {
-  const editing = (__companyMenu.editIndex === idx);
-  const row = document.createElement('div'); row.className = 'company-menu-row';
-  const disLbl = document.createElement('label'); disLbl.className = 'cm-dis';
-  const dis = document.createElement('input'); dis.type = 'checkbox'; dis.className = 'cm-discounted'; dis.checked = !!it.discounted;
-  const dsp = document.createElement('span'); dsp.textContent = t('onDiscount');
-  disLbl.appendChild(dis); disLbl.appendChild(dsp);
-
-  if (editing) {
-    const name = document.createElement('input'); name.className = 'company-input cm-name'; name.value = it.name || ''; name.placeholder = t('menuItemName');
-    const price = document.createElement('input'); price.className = 'company-input cm-price'; price.type = 'number'; price.min = '0'; price.value = (it.price != null ? it.price : ''); price.placeholder = t('menuItemPrice');
-    const ok = document.createElement('button'); ok.type = 'button'; ok.className = 'cm-ok'; ok.textContent = '✓'; ok.onclick = () => confirmUpdateMenu(idx, name.value, price.value, dis.checked);
-    const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'cm-del'; cancel.textContent = '×'; cancel.onclick = () => { __companyMenu.editIndex = -1; renderCompanyMenu(); };
-    row.appendChild(name); row.appendChild(price); row.appendChild(disLbl); row.appendChild(ok); row.appendChild(cancel);
-  } else {
-    const nameTxt = document.createElement('span'); nameTxt.className = 'cm-name-txt'; nameTxt.textContent = it.name || '';
-    const priceTxt = document.createElement('span'); priceTxt.className = 'cm-price-txt'; priceTxt.textContent = (it.price != null ? String(it.price) : '-');
-    dis.onchange = () => toggleMenuDiscount(idx, dis.checked);
-    const upd = document.createElement('button'); upd.type = 'button'; upd.className = 'cm-upd'; upd.textContent = t('updateBtn'); upd.onclick = () => { __companyMenu.editIndex = idx; renderCompanyMenu(); };
-    const del = document.createElement('button'); del.type = 'button'; del.className = 'cm-del'; del.textContent = '×'; del.onclick = () => deleteMenuItem(idx);
-    row.appendChild(nameTxt); row.appendChild(priceTxt); row.appendChild(disLbl); row.appendChild(upd); row.appendChild(del);
-  }
-  return row;
-}
-
-async function confirmUpdateMenu(idx, name, priceRaw, discounted) {
-  const c = __companyPanel.data && __companyPanel.data.company; if (!c || !c.menu[idx]) return;
-  name = (name || '').trim();
-  if (!name) { toast(t('fillRequiredFields'), 'error', 3500); return; }
-  const price = (priceRaw !== '' && Number.isFinite(Number(priceRaw))) ? Number(priceRaw) : null;
-  c.menu[idx] = { name, price, discounted: !!discounted };
-  __companyMenu.editIndex = -1;
-  await saveCompanyState('menuItemUpdated');
-  renderCompanyMenu();
-}
-
-async function toggleMenuDiscount(idx, val) {
-  const c = __companyPanel.data && __companyPanel.data.company; if (!c || !c.menu[idx]) return;
-  c.menu[idx].discounted = !!val;
-  await saveCompanyState(null);
-}
-
-async function deleteMenuItem(idx) {
-  const c = __companyPanel.data && __companyPanel.data.company; if (!c || !Array.isArray(c.menu)) return;
-  c.menu.splice(idx, 1);
-  if (__companyMenu.editIndex === idx) __companyMenu.editIndex = -1;
-  await saveCompanyState(null);
-  renderCompanyMenu();
-  requestAnimationFrame(() => { try { companyMenuAutoFit(); } catch {} });
-}
-
 /* ---- QR okutma + sipariş (company) ---- */
 const __companyScan = { qr: null, running: false, token: null, result: null };
 
 function _companyParamsReady() {
   const c = __companyPanel.data && __companyPanel.data.company;
-  return !!(c && c.discount_threshold_point != null && c.discount_percentage != null && Array.isArray(c.menu) && c.menu.length);
+  return !!(c && c.discount_threshold_point != null && c.discount_percentage != null);
 }
 
 function openCompanyScan() {
@@ -7533,8 +7456,6 @@ async function handleScanToken(token) {
 
 function openOrderResult(data, token) {
   __companyScan.token = token; __companyScan.result = data;
-  // Ürün seçiminde YALNIZCA indirimli (on discount) ürünler gösterilsin
-  __companyScan.menu = ((data && data.menu) || []).filter(m => m && m.discounted);
   const ov = qs('#company-order-overlay'); if (!ov) return;
   const verdict = qs('#company-order-verdict'), userEl = qs('#company-order-user'), body = qs('#company-order-body');
   if (!data.eligible) {
@@ -7548,58 +7469,65 @@ function openOrderResult(data, token) {
   const nm = _maskFullName(data.name, data.surname);
   if (userEl) userEl.innerHTML = `<div class="co-title">${escapeHtml(t('eligibleTitle'))}</div><div class="co-un">@${escapeHtml(data.username || '')}</div>${nm ? `<div class="co-fn">${escapeHtml(nm)}</div>` : ''}`;
   if (body) {
+    // Ürün/menü seçimi kaldırıldı: hesap tutarı elle girilir, indirim anında hesaplanır.
     body.innerHTML = '';
-    const prods = document.createElement('div'); prods.className = 'co-products'; prods.id = 'co-products'; body.appendChild(prods);
-    const addBtn = document.createElement('button'); addBtn.type = 'button'; addBtn.className = 'btn co-add'; addBtn.id = 'co-add-btn'; addBtn.textContent = t('addProduct'); addBtn.onclick = () => addOrderProductRow();
-    body.appendChild(addBtn);
+    const field = document.createElement('div'); field.className = 'co-amount-field';
+    const lbl = document.createElement('label'); lbl.className = 'co-amount-label'; lbl.setAttribute('for', 'co-amount'); lbl.textContent = t('billAmount');
+    const inp = document.createElement('input');
+    inp.id = 'co-amount'; inp.className = 'company-input co-amount-input';
+    inp.type = 'text'; inp.inputMode = 'decimal'; inp.autocomplete = 'off';
+    inp.placeholder = t('billAmountPlaceholder');
+    // Yalnızca sayı ve tek bir ondalık ayırıcı (virgül veya nokta) kabul edilir.
+    inp.oninput = () => {
+      let v = inp.value.replace(/[^0-9.,]/g, '');
+      const firstSep = v.search(/[.,]/);
+      if (firstSep !== -1) v = v.slice(0, firstSep + 1) + v.slice(firstSep + 1).replace(/[.,]/g, '');
+      inp.value = v;
+      recomputeOrderTotals();
+    };
+    field.appendChild(lbl); field.appendChild(inp);
+    body.appendChild(field);
     const totals = document.createElement('div'); totals.className = 'co-totals'; totals.id = 'co-totals'; body.appendChild(totals);
     const paid = document.createElement('button'); paid.type = 'button'; paid.className = 'btn co-paid'; paid.id = 'co-paid-btn'; paid.textContent = t('markPaid'); paid.disabled = true; paid.onclick = () => submitOrder();
     body.appendChild(paid);
-    addOrderProductRow();
+    setTimeout(() => { try { inp.focus(); } catch {} }, 60);
   }
   ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false');
 }
-function addOrderProductRow() {
-  const wrap = qs('#co-products'); if (!wrap) return;
-  if (wrap.querySelectorAll('.co-prod-row').length >= 3) return;
-  const menu = __companyScan.menu || [];
-  const row = document.createElement('div'); row.className = 'co-prod-row';
-  const sel = document.createElement('select'); sel.className = 'company-input co-prod-sel';
-  const ph = document.createElement('option'); ph.value = ''; ph.textContent = t('selectProduct'); sel.appendChild(ph);
-  menu.forEach((m, idx) => { const o = document.createElement('option'); o.value = String(idx); o.textContent = m.name + (m.price != null ? ' — ' + m.price : ''); sel.appendChild(o); });
-  sel.onchange = () => recomputeOrderTotals();
-  const del = document.createElement('button'); del.type = 'button'; del.className = 'co-prod-del'; del.textContent = '×'; del.onclick = () => { row.remove(); recomputeOrderTotals(); updateOrderAddBtn(); };
-  row.appendChild(sel); row.appendChild(del);
-  wrap.appendChild(row);
-  updateOrderAddBtn();
+// Girilen tutarı sayıya çevirir: "200,5" ve "200.5" aynı değerdir.
+function _orderAmountValue() {
+  const el = qs('#co-amount');
+  const raw = (el && el.value != null) ? String(el.value).trim().replace(',', '.') : '';
+  if (!raw) return null;
+  const n = Number(raw);
+  return (Number.isFinite(n) && n > 0) ? Math.round(n * 100) / 100 : null;
 }
-function updateOrderAddBtn() {
-  const wrap = qs('#co-products'), addBtn = qs('#co-add-btn'); if (!wrap || !addBtn) return;
-  addBtn.disabled = wrap.querySelectorAll('.co-prod-row').length >= 3;
-}
-function _selectedOrderItems() {
-  const menu = __companyScan.menu || [];
-  const items = [];
-  qsa('#co-products .co-prod-sel').forEach(sel => { const v = sel.value; if (v !== '') { const m = menu[+v]; if (m) items.push({ name: m.name, price: (m.price != null ? Number(m.price) : 0) }); } });
-  return items;
-}
+
 function recomputeOrderTotals() {
-  const items = _selectedOrderItems();
+  const amount = _orderAmountValue();
   const dp = (__companyScan.result && __companyScan.result.discount_percentage) || 0;
-  const before = Math.round(items.reduce((s, it) => s + (Number(it.price) || 0), 0) * 100) / 100;
-  const after = Math.round(before * (1 - dp / 100) * 100) / 100;
   const el = qs('#co-totals');
-  if (el) el.innerHTML = items.length
-    ? `<div class="co-line"><span>${escapeHtml(t('totalBefore'))}</span><b>${before}</b></div><div class="co-line"><span>${escapeHtml(t('discountPct'))}</span><b>${dp}%</b></div><div class="co-line co-strong"><span>${escapeHtml(t('totalAfter'))}</span><b>${after}</b></div>`
-    : '';
-  const paid = qs('#co-paid-btn'); if (paid) paid.disabled = items.length === 0;
+  if (el) {
+    if (amount == null) {
+      el.innerHTML = '';
+    } else {
+      const before = amount;
+      const after = Math.round(before * (1 - dp / 100) * 100) / 100;
+      el.innerHTML =
+        `<div class="co-line"><span>${escapeHtml(t('totalBefore'))}</span><b>${before}</b></div>` +
+        `<div class="co-line"><span>${escapeHtml(t('discountPct'))}</span><b>${dp}%</b></div>` +
+        `<div class="co-line co-strong"><span>${escapeHtml(t('totalAfter'))}</span><b>${after}</b></div>`;
+    }
+  }
+  const paid = qs('#co-paid-btn'); if (paid) paid.disabled = (amount == null);
 }
+
 async function submitOrder() {
-  const items = _selectedOrderItems();
-  if (!items.length) return;
+  const amount = _orderAmountValue();
+  if (amount == null) { toast(t('invalidAmount'), 'error', 3500); return; }
   const paid = qs('#co-paid-btn'); if (paid) paid.disabled = true;
   try {
-    const r = await fetch('/api/company/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: __companyScan.token, items }) });
+    const r = await fetch('/api/company/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: __companyScan.token, amount }) });
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); if (paid) paid.disabled = false; return; }
     closeOrderResult(true);
@@ -7617,7 +7545,6 @@ function closeOrderResult(skipConfirm) {
 function initCompanyPanelUI() {
   if (__companyPanel.wired) return;
   __companyPanel.wired = true;
-  const addItem = qs('#company-menu-add'); if (addItem) addItem.onclick = addMenuItem;
   const discSave = qs('#company-disc-save'); if (discSave) discSave.onclick = saveDiscount;
   const discUpd = qs('#company-disc-update'); if (discUpd) discUpd.onclick = editDiscount;
   document.querySelectorAll('.company-subtab').forEach(b => b.onclick = () => switchCompanySubtab(b.getAttribute('data-cst')));
@@ -7639,12 +7566,8 @@ function initCompanyPanelUI() {
       // sebep oluyordu. Düzenleme sürerken bu yeniden çizimi atlıyoruz ki
       // klavye açık kalsın; düzenleme bitince (kaydet/iptal) normal
       // render zaten devreye giriyor.
-      const activeEl = document.activeElement;
-      const editingMenuRow = __companyMenu.editIndex !== -1 ||
-        (activeEl && activeEl.closest && activeEl.closest('#company-menu-rows'));
-      if (editingMenuRow) return;
       const ordersActive = qs('#company-view-orders') && qs('#company-view-orders').classList.contains('active');
-      if (ordersActive) companyOrdersAutoFit(); else companyMenuAutoFit();
+      if (ordersActive) companyOrdersAutoFit();
     }, 160);
   });
 }

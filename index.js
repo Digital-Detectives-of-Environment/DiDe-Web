@@ -1538,6 +1538,16 @@ function decSecret(stored) {
 function normalizeBase32(s) {
   return String(s || '').toUpperCase().replace(/[^A-Z2-7]/g, '');
 }
+// Base32 (TOTP) biçim denetimi: yalnızca A-Z ve 2-7; boşluk/tire/padding yok sayılır.
+// Uzunluk 16–64 karakter olmalı (standart TOTP gizli anahtarları 16/26/32 karakterdir).
+function isValidBase32Secret(raw) {
+  const cleaned = String(raw || '').toUpperCase().replace(/[\s-]/g, '').replace(/=+$/, '');
+  if (!cleaned) return false;
+  if (!/^[A-Z2-7]+$/.test(cleaned)) return false;
+  if (cleaned.length < 16 || cleaned.length > 64) return false;
+  return true;
+}
+
 function padBase32(b32) {
   const clean = String(b32 || '');
   const rem = clean.length % 8;
@@ -4894,7 +4904,6 @@ async function ensureCompaniesSchema() {
       logo_url text,
       latitude double precision,
       longitude double precision,
-      menu jsonb NOT NULL DEFAULT '[]'::jsonb,
       discount_percentage integer,
       discount_threshold_point integer,
       active boolean NOT NULL DEFAULT true,
@@ -4904,6 +4913,8 @@ async function ensureCompaniesSchema() {
       deactivated_by_name text
     )
   `);
+  // Menü özelliği kaldırıldı → eski kurulumlarda kolon düşürülür.
+  try { await pool.query(`ALTER TABLE public.companies DROP COLUMN IF EXISTS menu`); } catch (e) {}
 }
 
 // users.dependent_company: ilk şirket kullanıcısı eklendiğinde oluşur (companies FK)
@@ -4927,7 +4938,6 @@ async function ensureOrdersSchema() {
       order_amount_before_discount numeric(12,2),
       order_amount_after_discount numeric(12,2),
       discount_percentage integer,
-      items jsonb NOT NULL DEFAULT '[]'::jsonb,
       points_spent integer NOT NULL DEFAULT 0,
       order_date timestamptz NOT NULL DEFAULT now()
     )
@@ -4944,8 +4954,9 @@ async function ensureOrdersSchema() {
   try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS order_amount_before_discount numeric(12,2)`); } catch (e) {}
   try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS order_amount_after_discount numeric(12,2)`); } catch (e) {}
   try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS discount_percentage integer`); } catch (e) {}
-  try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS items jsonb NOT NULL DEFAULT '[]'::jsonb`); } catch (e) {}
   try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS order_date timestamptz NOT NULL DEFAULT now()`); } catch (e) {}
+  // Ürün/menü seçimi kaldırıldı (tutar elle giriliyor) → items kolonu düşürülür.
+  try { await pool.query(`ALTER TABLE public.orders DROP COLUMN IF EXISTS items`); } catch (e) {}
   try {
     await pool.query(`ALTER TABLE public.orders ADD CONSTRAINT orders_company_fk
       FOREIGN KEY (company_id) REFERENCES public.companies(company_id) ON DELETE SET NULL`);
@@ -5069,7 +5080,7 @@ app.get('/api/admin/companies/:id', requireAuth, requireAnyRole(['supervisor', '
   try {
     if (!(await companiesTableExists())) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
     const r = await pool.query(
-      `SELECT company_id, company_name, logo_url, latitude, longitude, menu,
+      `SELECT company_id, company_name, logo_url, latitude, longitude,
               discount_percentage, discount_threshold_point, COALESCE(active,true) AS active,
               created_at, created_by_name
        FROM public.companies WHERE company_id=$1`,
@@ -5126,13 +5137,14 @@ app.post('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
   const username = norm(req.body?.username);
   const password = req.body?.password;
   const name = req.body?.name || null;
-  const surname = req.body?.surname || null;
-  const email = norm(req.body?.email);
+  // company rolündeki kullanıcılarda e-posta ve soyad İSTENMEZ → her zaman NULL kaydedilir.
+  const surname = null;
+  const email = null;
   const base32Raw = norm(req.body?.BASE32Code || req.body?.base32 || req.body?.base32Code || req.body?.totp || '');
 
-  if (!username || !password || !email || !base32Raw) return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
+  if (!username || !password || !base32Raw) return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
   if (!isStrongPassword(password)) return res.status(400).json({ error: 'zayif_sifre', message: getErrorMessage(req, 'zayif_sifre') });
-  if (!isEmailAllowed(email)) return res.status(400).json({ error: 'gecersiz_eposta', message: getErrorMessage(req, 'gecersiz_eposta') });
+  if (!isValidBase32Secret(base32Raw)) return res.status(400).json({ error: 'base32_gecersiz', message: getErrorMessage(req, 'base32_gecersiz') });
 
   try {
     if (!(await companiesTableExists())) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
@@ -5142,16 +5154,17 @@ app.post('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
     return res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 
+  // E-posta alınmadığı için yalnızca kullanıcı adı çakışması denetlenir.
   try {
-    await failIfAnyDuplicate(username, email);
+    const uq = await pool.query(`SELECT 1 FROM users WHERE lower(btrim(username))=lower($1) LIMIT 1`, [username]);
+    if (uq.rowCount) return res.status(409).json({ error: 'usernameTaken', message: getErrorMessage(req, 'usernameTaken') });
   } catch (e) {
-    if (e.code === 'USERNAME_DUP') return res.status(409).json({ error: 'usernameTaken', message: getErrorMessage(req, 'usernameTaken') });
-    if (e.code === 'EMAIL_DUP') return res.status(409).json({ error: 'emailTaken', message: getErrorMessage(req, 'emailTaken') });
-    if (e.code === 'BOTH_DUP') return res.status(409).json({ error: 'bothTaken', message: getErrorMessage(req, 'bothTaken') });
     return res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 
   await ensureUsersDependentCompany();
+  // E-posta NULL kaydedilebilsin diye (eski kurulumlarda NOT NULL olabilir)
+  try { await pool.query(`ALTER TABLE public.users ALTER COLUMN email DROP NOT NULL`); } catch (e) {}
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -5185,7 +5198,7 @@ app.get('/api/admin/companies/:id/orders', adminOnly, async (req, res) => {
     await ensureOrdersSchema();
     const r = await pool.query(
       `SELECT order_id, person_placing_order, order_amount_before_discount, order_amount_after_discount,
-              discount_percentage, items, points_spent, order_date
+              discount_percentage, points_spent, order_date
          FROM public.orders WHERE company_id=$1 ORDER BY order_date DESC`,
       [req.params.id]
     );
@@ -5203,7 +5216,7 @@ app.get('/api/company/me', requireAuth, requireAnyRole(['company']), async (req,
     const cid = u.rows[0] && u.rows[0].dependent_company;
     if (!cid) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
     const c = await pool.query(
-      `SELECT company_id, company_name, logo_url, menu, discount_percentage, discount_threshold_point
+      `SELECT company_id, company_name, logo_url, discount_percentage, discount_threshold_point
          FROM public.companies WHERE company_id=$1`, [cid]);
     if (!c.rows.length) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
     res.json({ username: req.user.username, company: c.rows[0] });
@@ -5222,7 +5235,7 @@ app.get('/api/company/orders', requireAuth, requireAnyRole(['company']), async (
     await ensureOrdersSchema();
     const r = await pool.query(
       `SELECT order_id, person_placing_order, order_amount_before_discount, order_amount_after_discount,
-              discount_percentage, items, order_date
+              discount_percentage, order_date
          FROM public.orders WHERE company_id=$1 ORDER BY order_date DESC`,
       [cid]
     );
@@ -5239,25 +5252,15 @@ app.patch('/api/company/config', requireAuth, requireAnyRole(['company']), async
     const u = await pool.query(`SELECT dependent_company FROM users WHERE id=$1`, [req.user.id]);
     const cid = u.rows[0] && u.rows[0].dependent_company;
     if (!cid) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
-    let menu = req.body && req.body.menu;
-    if (!Array.isArray(menu)) menu = [];
-    menu = menu
-      .filter(x => x && typeof x.name === 'string' && x.name.trim())
-      .slice(0, 100)
-      .map(x => ({
-        name: String(x.name).trim().slice(0, 160),
-        price: (x.price != null && x.price !== '' && Number.isFinite(Number(x.price))) ? Number(x.price) : null,
-        discounted: !!x.discounted
-      }));
     let dp = req.body && req.body.discount_percentage;
     dp = (dp != null && dp !== '' && Number.isFinite(Number(dp))) ? Math.max(0, Math.min(100, Math.round(Number(dp)))) : null;
     let thr = req.body && req.body.discount_threshold_point;
     thr = (thr != null && thr !== '' && Number.isFinite(Number(thr))) ? Math.max(0, Math.round(Number(thr))) : null;
     await pool.query(
-      `UPDATE public.companies SET menu=$1::jsonb, discount_percentage=$2, discount_threshold_point=$3 WHERE company_id=$4`,
-      [JSON.stringify(menu), dp, thr, cid]
+      `UPDATE public.companies SET discount_percentage=$1, discount_threshold_point=$2 WHERE company_id=$3`,
+      [dp, thr, cid]
     );
-    res.json({ ok: true, menu, discount_percentage: dp, discount_threshold_point: thr });
+    res.json({ ok: true, discount_percentage: dp, discount_threshold_point: thr });
   } catch (e) {
     console.error('PATCH /api/company/config error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
@@ -5318,11 +5321,9 @@ async function _companyCfgFor(userId) {
   const cu = await pool.query(`SELECT dependent_company FROM users WHERE id=$1`, [userId]);
   const cid = cu.rows[0] && cu.rows[0].dependent_company;
   if (!cid) return null;
-  const cc = await pool.query(`SELECT company_id, menu, discount_percentage, discount_threshold_point FROM companies WHERE company_id=$1`, [cid]);
+  const cc = await pool.query(`SELECT company_id, discount_percentage, discount_threshold_point FROM companies WHERE company_id=$1`, [cid]);
   if (!cc.rows.length) return null;
-  const c = cc.rows[0];
-  c.menu = Array.isArray(c.menu) ? c.menu : [];
-  return c;
+  return cc.rows[0];
 }
 
 // Company: QR okut → uygunluk + kullanıcı bilgisi + menü döner
@@ -5332,7 +5333,7 @@ app.post('/api/company/scan', requireAuth, requireAnyRole(['company']), async (r
     if (!payload || !payload.u) return res.status(400).json({ error: 'qr_invalid', message: getErrorMessage(req, 'qr_invalid') });
     const cfg = await _companyCfgFor(req.user.id);
     if (!cfg) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
-    if (cfg.discount_threshold_point == null || cfg.discount_percentage == null || !cfg.menu.length) {
+    if (cfg.discount_threshold_point == null || cfg.discount_percentage == null) {
       return res.status(400).json({ error: 'company_params_missing', message: getErrorMessage(req, 'company_params_missing') });
     }
     const eff = await userEffectivePoints(payload.u);
@@ -5342,7 +5343,7 @@ app.post('/api/company/scan', requireAuth, requireAnyRole(['company']), async (r
       eligible: eff.effective >= cfg.discount_threshold_point,
       username: eff.username, name: eff.name, surname: eff.surname,
       points: eff.effective, threshold: cfg.discount_threshold_point,
-      discount_percentage: cfg.discount_percentage, menu: cfg.menu
+      discount_percentage: cfg.discount_percentage
     });
   } catch (e) {
     console.error('POST /api/company/scan error:', e);
@@ -5354,13 +5355,13 @@ app.post('/api/company/scan', requireAuth, requireAnyRole(['company']), async (r
 app.post('/api/company/order', requireAuth, requireAnyRole(['company']), async (req, res) => {
   const payload = verifyQrToken(req.body && req.body.token);
   if (!payload || !payload.u || !payload.n) return res.status(400).json({ error: 'qr_invalid', message: getErrorMessage(req, 'qr_invalid') });
-  let items = req.body && req.body.items;
-  if (!Array.isArray(items) || !items.length || items.length > 3) return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
-  items = items
-    .filter(x => x && typeof x.name === 'string' && x.name.trim())
-    .slice(0, 3)
-    .map(x => ({ name: String(x.name).trim().slice(0, 160), price: (x.price != null && Number.isFinite(Number(x.price))) ? Number(x.price) : 0 }));
-  if (!items.length) return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
+  // Ürün/menü seçimi kaldırıldı: şirket kullanıcısı hesap tutarını elle girer.
+  // "200,5" ve "200.5" aynı değer olarak kabul edilir; metin değer reddedilir.
+  const amountRaw = (req.body && (req.body.amount ?? req.body.order_amount));
+  const amount = Number(String(amountRaw ?? '').trim().replace(',', '.'));
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) {
+    return res.status(400).json({ error: 'invalidAmount', message: getErrorMessage(req, 'invalidAmount') });
+  }
 
   let cfg;
   try {
@@ -5389,12 +5390,12 @@ app.post('/api/company/order', requireAuth, requireAnyRole(['company']), async (
     const sp = await client.query(`SELECT COALESCE(SUM(points_spent),0)::int AS s FROM public.orders WHERE person_placing_order=$1`, [uname]);
     const effective = Math.max(0, ur.rows[0].posts_point - (sp.rows[0].s || 0));
     if (effective < cfg.discount_threshold_point) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'not_eligible', message: getErrorMessage(req, 'not_eligible') }); }
-    const before = Math.round(items.reduce((s, it) => s + (Number(it.price) || 0), 0) * 100) / 100;
+    const before = Math.round(amount * 100) / 100;
     const after = Math.round(before * (1 - cfg.discount_percentage / 100) * 100) / 100;
     const ins = await client.query(
-      `INSERT INTO public.orders (company_id, person_placing_order, order_amount_before_discount, order_amount_after_discount, discount_percentage, items, points_spent)
-       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7) RETURNING order_id`,
-      [cfg.company_id, uname, before, after, cfg.discount_percentage, JSON.stringify(items), cfg.discount_threshold_point]
+      `INSERT INTO public.orders (company_id, person_placing_order, order_amount_before_discount, order_amount_after_discount, discount_percentage, points_spent)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING order_id`,
+      [cfg.company_id, uname, before, after, cfg.discount_percentage, cfg.discount_threshold_point]
     );
     await client.query('COMMIT');
     res.json({ ok: true, order_id: ins.rows[0].order_id, amount_before: before, amount_after: after, discount_percentage: cfg.discount_percentage, points_spent: cfg.discount_threshold_point, remaining_points: effective - cfg.discount_threshold_point });
@@ -5470,6 +5471,9 @@ async function ensureOlaylarSchema(){
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS attribute_column text`);
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS time_dependent boolean DEFAULT false`);
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS valid_time double precision`);
+    // Menü/ürün özelliği kaldırıldı → ilgili kolonlar açılışta düşürülür (varsa).
+    try { await client.query(`ALTER TABLE public.companies DROP COLUMN IF EXISTS menu`); } catch (e) {}
+    try { await client.query(`ALTER TABLE public.orders DROP COLUMN IF EXISTS items`); } catch (e) {}
   } catch(e) {
     console.error('[SCHEMA] event_type column ekleme hatası:', e.message);
   } finally {

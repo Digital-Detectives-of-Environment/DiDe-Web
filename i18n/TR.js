@@ -474,6 +474,13 @@ window.i18nLangs.tr = {
 
     // Auth hata mesajları (dil desteği)
     usernameTaken: 'Kullanıcı adı kayıtlı. Lütfen başka bir kullanıcı adı girin.',
+    base32_gecersiz: 'Base32 kodu kurallara uygun değil. Yalnızca A–Z harfleri ve 2–7 rakamları kullanılabilir; uzunluk 16–64 karakter olmalıdır. Dilerseniz "Base32 üret" düğmesiyle otomatik oluşturabilirsiniz.',
+    invalidAmount: 'Lütfen geçerli bir tutar girin (örn. 200,50).',
+    billAmount: 'Hesap tutarı',
+    billAmountPlaceholder: 'Örn. 200,50',
+    usernameTakenWarn: 'Bu kullanıcı adı zaten kayıtlı. Lütfen farklı bir kullanıcı adı girin.',
+    passwordRuleWarn: 'Şifre kurallara uygun değil. En az 8 karakter olmalı; en az bir küçük harf, bir büyük harf ve bir noktalama işareti içermelidir.',
+    base32RuleWarn: 'Base32 kodu kurallara uygun değil. Yalnızca A–Z harfleri ve 2–7 rakamları kullanılabilir; uzunluk 16–64 karakter olmalıdır. "Base32 üret" düğmesiyle otomatik oluşturabilirsiniz.',
     emailTaken: 'E-posta adresi kayıtlı. Lütfen başka bir e-posta adresi girin.',
     bothTaken: 'Kullanıcı adı ve e-posta adresi zaten kayıtlı.',
     wrongPassword: 'Parola hatalı.',
