@@ -3731,6 +3731,56 @@ function osrmSourceMapFile() {
   return null;
 }
 
+// map.osm / map.osm.pbf içinde gerçekten YOL verisi var mı? (Overpass'tan yalnızca
+// sınır/bina indirildiyse OSRM boş bir graf üretir ve hiçbir rota çıkmaz.)
+// XML (.osm) dosyalarında hızlıca 'k="highway"' aranır; .pbf ikili olduğu için atlanır.
+function checkRoutingMapFile() {
+  const file = osrmSourceMapFile();
+  if (!file) return { ok: false, reason: 'missing' };
+  if (file.endsWith('.pbf')) return { ok: true, reason: 'pbf' };
+  try {
+    const fd = fs.openSync(file, 'r');
+    const size = fs.statSync(file).size;
+    const buf = Buffer.alloc(Math.min(size, 8 * 1024 * 1024));
+    fs.readSync(fd, buf, 0, buf.length, 0);
+    fs.closeSync(fd);
+    const head = buf.toString('utf8');
+    const hasHighway = head.includes('k="highway"');
+    if (!hasHighway && size <= buf.length) return { ok: false, reason: 'no_highways', file, size };
+    if (!hasHighway) {
+      // Büyük dosyada baştaki 8 MB'ta yol yoksa büyük ihtimalle yol verisi yok; yine de engelleme
+      return { ok: true, reason: 'unknown', file, size };
+    }
+    return { ok: true, reason: 'ok', file, size };
+  } catch (e) {
+    return { ok: true, reason: 'unreadable', file };
+  }
+}
+
+function logRoutingMapStatus() {
+  const st = checkRoutingMapFile();
+  if (st.reason === 'missing') {
+    console.warn(`[ROUTE] Map file not found: ${path.join(EXISTING_DATA_DIR, 'map.osm')} (or map.osm.pbf).`);
+    console.warn('[ROUTE] Routing will not work until you place your OpenStreetMap export there.');
+    return st;
+  }
+  if (st.reason === 'no_highways') {
+    console.error('\n[ROUTE] WARNING: your map file contains NO ROAD DATA (no "highway" tags).');
+    console.error(`[ROUTE]   File: ${st.file}`);
+    console.error('[ROUTE]   It looks like a boundary/building export, so OSRM cannot build a road network');
+    console.error('[ROUTE]   and NO ROUTE can ever be produced.');
+    console.error('[ROUTE]   Export the ROADS of your area instead, e.g. with Overpass Turbo:');
+    console.error('[ROUTE]     [out:xml][timeout:60];');
+    console.error('[ROUTE]     (way["highway"]({{bbox}}););');
+    console.error('[ROUTE]     (._;>;);');
+    console.error('[ROUTE]     out body;');
+    console.error('[ROUTE]   then Export > "raw OSM data" and save it as map.osm\n');
+    return st;
+  }
+  console.log(`[ROUTE] Routing map source: ${st.file}`);
+  return st;
+}
+
 function autoStartOsrmContainers() {
   if (String(process.env.OSRM_AUTOSTART || 'true').toLowerCase() === 'false') {
     console.log('[ROUTE] OSRM autostart disabled (OSRM_AUTOSTART=false).');
@@ -3741,14 +3791,7 @@ function autoStartOsrmContainers() {
     console.warn('[ROUTE] docker-compose.yml not found → routing containers not started.');
     return;
   }
-  const mapFile = osrmSourceMapFile();
-  if (!mapFile) {
-    console.warn(`[ROUTE] Map file not found: ${path.join(EXISTING_DATA_DIR, 'map.osm')} (or map.osm.pbf).`);
-    console.warn('[ROUTE] Download your area from OpenStreetMap (Export) and save it there, then restart.');
-    console.warn('[ROUTE] Routing containers will start but stay idle until the file exists.');
-  } else {
-    console.log(`[ROUTE] Routing map source: ${mapFile}`);
-  }
+  logRoutingMapStatus();
   const run = (args, cb) => execFile('docker', args, { cwd: __dirname, timeout: 120000 }, cb);
   run(['compose', 'version'], (err) => {
     if (err) {
@@ -3834,14 +3877,18 @@ async function osrmFetch(baseUrl, profile, from, to) {
   const coords = `${from.lng.toFixed(6)},${from.lat.toFixed(6)};${to.lng.toFixed(6)},${to.lat.toFixed(6)}`;
   const url = `${baseUrl}/route/v1/${profile}/${coords}` +
               `?alternatives=3&overview=full&geometries=geojson&steps=false&annotations=false`;
+  // NOT: yanıttaki waypoints[].distance, verilen noktanın en yakın YOLA olan uzaklığıdır.
+  // Çok büyükse nokta, rotalama haritasının kapsadığı alanın dışındadır.
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 12000);
   try {
     const r = await fetch(url, { signal: ctrl.signal });
     if (!r.ok) return { error: 'service' };
     const d = await r.json();
-    if (!d || d.code !== 'Ok' || !Array.isArray(d.routes) || !d.routes.length) return { error: 'noroute' };
-    return { routes: d.routes };
+    if (!d || d.code !== 'Ok' || !Array.isArray(d.routes) || !d.routes.length) {
+      return { error: (d && d.code === 'NoSegment') ? 'offmap' : 'noroute' };
+    }
+    return { routes: d.routes, waypoints: Array.isArray(d.waypoints) ? d.waypoints : [] };
   } catch (e) {
     return { error: 'service' };
   } finally {
@@ -3894,8 +3941,24 @@ app.post('/api/route', tryAuth, async (req, res) => {
     if (osrm.error === 'service') {
       return res.status(503).json({ error: 'route_service_unavailable', message: getErrorMessage(req, 'route_service_unavailable') });
     }
+    if (osrm.error === 'offmap') {
+      return res.status(422).json({ error: 'route_off_map', message: getErrorMessage(req, 'route_off_map') });
+    }
     if (osrm.error || !osrm.routes) {
       return res.status(404).json({ error: 'route_not_found', message: getErrorMessage(req, 'route_not_found') });
+    }
+
+    // Noktalar rotalama haritasının kapsadığı alanın dışındaysa OSRM onları çok uzaktaki
+    // bir yola "yapıştırır". Böyle durumlarda anlamsız/sıfır uzunluklu rota yerine
+    // kullanıcıya açık bir mesaj döndürülür.
+    const maxSnap = Number(process.env.ROUTE_MAX_SNAP_DISTANCE || 500);
+    const snaps = (osrm.waypoints || []).map(w => Number(w && w.distance)).filter(Number.isFinite);
+    if (snaps.length && snaps.some(d => d > maxSnap)) {
+      return res.status(422).json({
+        error: 'route_off_map',
+        message: getErrorMessage(req, 'route_off_map'),
+        snap_distance: Math.round(Math.max(...snaps))
+      });
     }
 
     // OSRM rotaları en kısa/optimum olandan başlayarak gelir. Sınır varsa, sınırın
@@ -3903,6 +3966,8 @@ app.post('/api/route', tryAuth, async (req, res) => {
     for (const rt of osrm.routes) {
       const geom = rt && rt.geometry;
       if (!geom || geom.type !== 'LineString' || !Array.isArray(geom.coordinates) || geom.coordinates.length < 2) continue;
+      // Dejenere (sıfıra yakın) rota: başlangıç ve bitiş aynı yola yapışmış demektir
+      if (!(Number(rt.distance) > 5)) continue;
       const inside = await routeInsideBoundary(geom);
       if (!inside) continue;
       return res.json({
@@ -5761,6 +5826,8 @@ async function ensureOlaylarSchema(){
 ensureOlaylarSchema().then(() => {
   // Rotalama (OSRM) konteynerlerini Docker açıksa otomatik başlat
   try { autoStartOsrmContainers(); } catch (e) { console.warn('[ROUTE] autostart error:', e.message); }
+  // Harita dosyasının durumunu (yol verisi var mı?) konsola yaz
+  try { if (String(process.env.OSRM_AUTOSTART || 'true').toLowerCase() === 'false') logRoutingMapStatus(); } catch {}
 
   const server = app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
 

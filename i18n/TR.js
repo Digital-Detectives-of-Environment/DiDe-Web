@@ -270,6 +270,8 @@ window.i18nLangs.tr = {
     routeNeedsLocation: 'Rotalama için konumunuza erişmemiz gerekiyor. Lütfen konum iznini verin ya da telefonunuzun konum özelliğini açın, sonra tekrar deneyin.',
     routeServiceUnavailable: 'Rotalama servisine şu anda ulaşılamıyor. Lütfen daha sonra tekrar deneyin.',
     routeNotFound: 'Bu iki nokta arasında uygun bir yol bulunamadı.',
+    routeOffMap: 'Bu nokta ya da konumunuz, rotalama haritasının kapsadığı alanın dışında. Rotalama yalnızca map.osm dosyasındaki yolların bulunduğu alanda çalışır.',
+    route_off_map: 'Seçilen nokta ya da konum, rotalama haritasının kapsadığı alanın dışında.',
     routeOutsideBoundary: 'Sınırların içinde kalan bir rota bulunamadı. Hedefe sınır dışına çıkmadan ulaşılamıyor.',
     routeStartOutside: 'Konumunuz sınırların dışında olduğu için rota oluşturulamıyor.',
     navRemaining: 'Kalan',

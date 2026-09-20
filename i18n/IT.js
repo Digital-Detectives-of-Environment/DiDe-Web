@@ -265,6 +265,8 @@ window.i18nLangs.it = {
     routeNeedsLocation: 'Per il percorso serve accedere alla tua posizione. Consenti l\'accesso alla posizione o attiva la localizzazione del telefono, poi riprova.',
     routeServiceUnavailable: 'Il servizio di percorso non è al momento disponibile. Riprova più tardi.',
     routeNotFound: 'Non è stata trovata una strada adatta tra questi due punti.',
+    routeOffMap: 'Questo punto o la tua posizione è fuori dall\'area coperta dalla mappa di instradamento. Il percorso funziona solo dove esistono le strade in map.osm.',
+    route_off_map: 'Il punto o la posizione selezionata è fuori dall\'area coperta dalla mappa di instradamento.',
     routeOutsideBoundary: 'Non è stato trovato un percorso che resti entro i confini. La destinazione non è raggiungibile senza uscirne.',
     routeStartOutside: 'Non è possibile creare un percorso perché la tua posizione è fuori dai confini.',
     navRemaining: 'Rimanente',

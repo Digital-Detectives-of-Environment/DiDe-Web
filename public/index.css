@@ -3642,6 +3642,10 @@ th:has(#btn-add-type){
 .route-btn-bike:hover{ background:rgba(15,157,88,.10); }
 @media (max-width:380px){ .route-btn-label{ display:none; } .route-btn{ padding:9px 4px; } }
 
+/* Hedef noktası işareti (Google Maps tarzı kırmızı iğne) */
+.nav-dest-icon{ background:none !important; border:none !important; }
+.nav-dest-pin svg{ width:30px; height:42px; display:block; filter:drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
+
 /* Alt navigasyon çubuğu */
 .nav-bar{
   position:fixed; left:50%; transform:translateX(-50%);

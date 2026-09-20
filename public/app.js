@@ -1775,6 +1775,8 @@ const __nav = {
   follow: true,
   lastRouteAt: 0,
   offRouteHits: 0,
+  rerouteCount: 0,
+  lastRerouteFrom: null,
   arrived: false,
   routeDistance: 0,
   routeDuration: 0,
@@ -1930,7 +1932,8 @@ async function _navFetchRoute(mode, from, to){
       route_outside_boundary: 'routeOutsideBoundary',
       route_start_outside: 'routeStartOutside',
       route_service_unavailable: 'routeServiceUnavailable',
-      route_not_found: 'routeNotFound'
+      route_not_found: 'routeNotFound',
+      route_off_map: 'routeOffMap'
     }[d && d.error] || null;
     throw Object.assign(new Error(d.message || 'route error'), { i18nKey: key });
   }
@@ -1970,7 +1973,14 @@ async function startNavigation(mode, lat, lng){
     __nav.follow = true;
     __nav.offRouteHits = 0;
     __nav.lastRouteAt = Date.now();
-    _navApplyRoute(data);
+    if (!_navApplyRoute(data)) {
+      // Rota çizilemedi (kapsam dışı / sıfır uzunluklu) → navigasyonu başlatma
+      __nav.active = false;
+      showGridWarning(t('routeOffMap'), 10000);
+      return;
+    }
+    __nav.rerouteCount = 0;
+    __nav.lastRerouteFrom = { lat: fix.lat, lng: fix.lng };
     _navInstallHooks();
     _navShowBar(true);
     navOnPosition(null);   // ilk ölçümleri mevcut konumla hesapla
@@ -1983,25 +1993,51 @@ async function startNavigation(mode, lat, lng){
   }
 }
 
+function _navDestIcon(){
+  return L.divIcon({
+    className: 'nav-dest-icon',
+    html: '<div class="nav-dest-pin">' +
+            '<svg viewBox="0 0 24 34" aria-hidden="true">' +
+              '<path d="M12 33S1.6 19.9 1.6 12A10.4 10.4 0 0 1 22.4 12C22.4 19.9 12 33 12 33z" fill="#d93025" stroke="#ffffff" stroke-width="2"/>' +
+              '<circle cx="12" cy="12" r="4" fill="#ffffff"/>' +
+            '</svg>' +
+          '</div>',
+    iconSize: [30, 42],
+    iconAnchor: [15, 40]
+  });
+}
+
 function _navApplyRoute(data){
-  __nav.coords = (data.geometry.coordinates || []).map(c => [c[1], c[0]]);
+  const coords = (data && data.geometry && Array.isArray(data.geometry.coordinates))
+    ? data.geometry.coordinates.map(c => [c[1], c[0]]) : [];
+  // Geçerli bir rota mı? (tek noktaya yapışmış/sıfır uzunluklu rota çizilmez)
+  if (coords.length < 2 || !(Number(data.distance) > 5)) return false;
+
+  __nav.coords = coords;
   __nav.routeDistance = Number(data.distance) || 0;
   __nav.routeDuration = Number(data.duration) || 0;
   _navClearLayers();
-  if (!map || __nav.coords.length < 2) return;
+  if (!map) return false;
 
   const style = NAV_STYLES[__nav.mode] || NAV_STYLES.car;
-  if (__nav.mode === 'car') {
-    // Araç: Google Maps'teki gibi koyu konturlu kalın çizgi
-    __nav.lineCase = L.polyline(__nav.coords, { color: '#0b3d91', weight: 12, opacity: 0.35, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(map);
-  }
-  __nav.lineDone = L.polyline([], { color: '#9aa0a6', weight: (style.weight || 7) - 1, opacity: 0.55, dashArray: style.dashArray, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(map);
+  // Google Maps'teki gibi: her modda alt kontur + üstte renkli çizgi
+  __nav.lineCase = L.polyline(__nav.coords, {
+    color: (__nav.mode === 'bike') ? '#0a6b3d' : '#0b3d91',
+    weight: (style.weight || 7) + 5, opacity: 0.35,
+    lineCap: 'round', lineJoin: 'round', interactive: false
+  }).addTo(map);
+  __nav.lineDone = L.polyline([], {
+    color: '#9aa0a6', weight: (style.weight || 7) - 1, opacity: 0.55,
+    dashArray: style.dashArray, lineCap: 'round', lineJoin: 'round', interactive: false
+  }).addTo(map);
   __nav.line = L.polyline(__nav.coords, Object.assign({ interactive: false }, style)).addTo(map);
+  try { __nav.line.bringToFront(); } catch {}
 
   if (__nav.destMarker) { try { map.removeLayer(__nav.destMarker); } catch {} }
-  __nav.destMarker = L.circleMarker([__nav.dest.lat, __nav.dest.lng], {
-    radius: 8, color: '#ffffff', weight: 3, fillColor: '#d93025', fillOpacity: 1, interactive: false
+  __nav.destMarker = L.marker([__nav.dest.lat, __nav.dest.lng], {
+    icon: _navDestIcon(), interactive: false, keyboard: false, zIndexOffset: 1200
   }).addTo(map);
+  return true;
 }
 
 function _navClearLayers(){
@@ -2094,12 +2130,23 @@ function navOnPosition(coords){
     return;
   }
 
-  // Rotadan sapma → anlık konuma göre yeniden hesapla
+  // Rotadan sapma → anlık konuma göre yeniden hesapla.
+  // Yanlış alarmları önlemek için dört koşul birden aranır:
+  //  1) konum ölçümü yeterince hassas olmalı (kaba/masaüstü konumlarda tetiklenmesin)
+  //  2) rotaya uzaklık, ölçüm hatasından belirgin şekilde büyük olmalı
+  //  3) arka arkaya en az 3 ölçüm aynı şeyi söylemeli
+  //  4) son hesaplamadan bu yana kullanıcı gerçekten hareket etmiş olmalı
   if (near) {
-    const offLimit = Math.max(35, navArrivalThreshold() * 3);
-    if (near.dist > offLimit) {
+    const acc = Number(__slLastFix.acc);
+    const accOk = !Number.isFinite(acc) || acc <= 50;
+    const offLimit = Math.max(50, navArrivalThreshold() * 3, (Number.isFinite(acc) ? acc * 1.5 : 0));
+    const movedSinceReroute = !__nav.lastRerouteFrom ||
+      _navDistM(pos[0], pos[1], __nav.lastRerouteFrom.lat, __nav.lastRerouteFrom.lng) > 25;
+
+    if (accOk && near.dist > offLimit) {
       __nav.offRouteHits++;
-      if (__nav.offRouteHits >= 2 && (Date.now() - __nav.lastRouteAt) > 8000) {
+      if (__nav.offRouteHits >= 3 && movedSinceReroute &&
+          (Date.now() - __nav.lastRouteAt) > 15000 && (__nav.rerouteCount || 0) < 8) {
         __nav.offRouteHits = 0;
         _navReroute(pos);
       }
@@ -2113,11 +2160,13 @@ async function _navReroute(pos){
   if (!__nav.active || __nav.busy) return;
   __nav.busy = true;
   __nav.lastRouteAt = Date.now();
+  __nav.rerouteCount = (__nav.rerouteCount || 0) + 1;
+  __nav.lastRerouteFrom = { lat: pos[0], lng: pos[1] };
   showInfoBanner(t('routeRerouting'), 3000);
   try {
     const data = await _navFetchRoute(__nav.mode, { lat: pos[0], lng: pos[1] }, __nav.dest);
     if (!__nav.active) return;
-    _navApplyRoute(data);
+    if (!_navApplyRoute(data)) { showGridWarning(t('routeOffMap'), 8000); return; }
     navOnPosition(null);
   } catch (err) {
     showGridWarning(err.i18nKey ? t(err.i18nKey) : (err.message || t('unknownError')), 7000);
@@ -2146,6 +2195,9 @@ function closeArrivalOverlay(){
 function stopNavigation(){
   __nav.active = false;
   __nav.arrived = false;
+  __nav.offRouteHits = 0;
+  __nav.rerouteCount = 0;
+  __nav.lastRerouteFrom = null;
   __nav.coords = [];
   __nav.dest = null;
   __nav.lastPos = null;
