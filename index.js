@@ -100,6 +100,38 @@ if (BUFFER_RADIUS_RAW !== '') {
   BUFFER_RADIUS = parsedBuf;
 }
 
+// ==================== ROTALAMA (OSRM) ====================
+// Rotalama, Docker ile ayağa kalkan üç OSRM servisinden okunur (yaya / bisiklet / araç).
+// Adresler .env'den gelir; tarayıcıya ASLA açılmaz, istekler sunucu üzerinden proxy'lenir.
+// Varsayılanlar docker-compose.yml ile birebir uyumludur (yalnızca 127.0.0.1'e bağlıdır).
+const OSRM_URLS = {
+  foot: String(process.env.OSRM_FOOT_URL || 'http://127.0.0.1:5003').trim().replace(/\/+$/, ''),
+  bike: String(process.env.OSRM_BIKE_URL || 'http://127.0.0.1:5002').trim().replace(/\/+$/, ''),
+  car:  String(process.env.OSRM_CAR_URL  || 'http://127.0.0.1:5001').trim().replace(/\/+$/, '')
+};
+
+// Hedefe bu kadar metre yaklaşınca "konuma yaklaştınız" uyarısı verilir (tam sayı, metre).
+const ARRIVAL_THRESHOLD_RAW = String(process.env.ROUTE_ARRIVAL_THRESHOLD ?? '').trim();
+let ROUTE_ARRIVAL_THRESHOLD = 10;
+if (ARRIVAL_THRESHOLD_RAW !== '') {
+  const parsedArr = Number(ARRIVAL_THRESHOLD_RAW);
+  if (!Number.isInteger(parsedArr) || parsedArr <= 0) {
+    console.error(`\n[FATAL] ROUTE_ARRIVAL_THRESHOLD is invalid in your .env file.`);
+    console.error(`        It must be a positive INTEGER value in METERS (e.g. 10), or left empty (default 10).`);
+    console.error(`        Current value: "${ARRIVAL_THRESHOLD_RAW}".`);
+    console.error(`        System cannot start. Exiting.\n`);
+    process.exit(1);
+  }
+  ROUTE_ARRIVAL_THRESHOLD = parsedArr;
+}
+
+// Rota sınır denetiminde kullanılan tolerans (metre). Yol geometrisi sınır çizgisine
+// teğet geçtiğinde yanlışlıkla elenmesin diye sınır bu kadar genişletilerek kontrol edilir.
+const ROUTE_BOUNDARY_TOLERANCE = (() => {
+  const v = Number(String(process.env.ROUTE_BOUNDARY_TOLERANCE ?? '').trim());
+  return (Number.isFinite(v) && v >= 0 && v <= 500) ? v : 20;
+})();
+
 const EVENT_SUBMIT_INTERVAL_RAW = String(process.env.EVENT_SUBMIT_INTERVAL_HOURS ?? '').trim();
 let EVENT_SUBMIT_INTERVAL_HOURS = 0; // 0 = sınır yok
 if (EVENT_SUBMIT_INTERVAL_RAW !== '') {
@@ -2667,6 +2699,8 @@ app.get('/api/config', (_req, res) => {
     eventSubmitIntervalHours: EVENT_SUBMIT_INTERVAL_HOURS > 0 ? EVENT_SUBMIT_INTERVAL_HOURS : 0,
     // Olay ekleme akışındaki tampon yarıçapı (metre). 0 => tampon yok.
     bufferRadius: BUFFER_RADIUS > 0 ? BUFFER_RADIUS : 0,
+    // Rotalama: hedefe yaklaşma eşiği (metre). OSRM adresleri istemciye GÖNDERİLMEZ.
+    routeArrivalThreshold: ROUTE_ARRIVAL_THRESHOLD,
   });
 });
 /* ===================== AUTH ===================== */
@@ -3644,6 +3678,159 @@ app.get('/api/boundary', async (req, res) => {
   }
 });
 
+
+
+/* ===================== ROTALAMA (OSRM proxy + sınır kısıtı) =====================
+   Güvenlik notları:
+   - OSRM adresleri yalnızca sunucuda bilinir; tarayıcıya gönderilmez ve istemciden
+     gelen hiçbir veri URL'in host kısmına giremez (SSRF yok). İstemciden yalnızca
+     sayısal koordinatlar ve sabit bir mod anahtarı ('foot' | 'bike' | 'car') alınır.
+   - Basit hız sınırı uygulanır (IP başına dakikada N istek).
+   - docker-compose.yml içindeki OSRM portları yalnızca 127.0.0.1'e bağlanır. */
+
+const ROUTE_AREA_TABLE = 'dide_route_area';   // sınır/aggregation birleşiminin önbelleği
+let __routeAreaReady = null;
+
+// Rotaların içinde kalması gereken alanı (sınır ya da aggregation layer birleşimi)
+// bir kez hesaplayıp önbellek tablosuna yazar. Sınır yoksa null döner (serbest rota).
+async function ensureRouteArea() {
+  if (!BOUNDARY_MODE) return false;
+  if (__routeAreaReady) return __routeAreaReady;
+  __routeAreaReady = (async () => {
+    const srcTable = (BOUNDARY_MODE === 'aggregation')
+      ? assertSafeIdent(POLYGON_TABLE, 'table')
+      : BOUNDARY_DB_TABLE;
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.${ROUTE_AREA_TABLE} (
+        id integer PRIMARY KEY,
+        geom geometry(Geometry, 4326)
+      )`);
+    await pool.query(`
+      INSERT INTO public.${ROUTE_AREA_TABLE} (id, geom)
+      SELECT 1, ST_Buffer(ST_Union(geom)::geography, $1)::geometry
+        FROM public.${srcTable}
+      ON CONFLICT (id) DO UPDATE SET geom = EXCLUDED.geom`, [ROUTE_BOUNDARY_TOLERANCE]);
+    await pool.query(`CREATE INDEX IF NOT EXISTS ${ROUTE_AREA_TABLE}_gix ON public.${ROUTE_AREA_TABLE} USING GIST (geom)`);
+    return true;
+  })().catch((e) => {
+    console.warn('[ROUTE] boundary area cache error:', e.message);
+    return false;
+  });
+  return __routeAreaReady;
+}
+
+// Rota çizgisinin tamamı izin verilen alanın içinde mi?
+async function routeInsideBoundary(geometry) {
+  if (!BOUNDARY_MODE) return true;
+  const ok = await ensureRouteArea();
+  if (!ok) return true;   // alan hesaplanamadıysa engelleme (mevcut mantığı bozma)
+  try {
+    const r = await pool.query(
+      `SELECT ST_CoveredBy(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326), geom) AS ok
+         FROM public.${ROUTE_AREA_TABLE} WHERE id = 1`,
+      [JSON.stringify(geometry)]
+    );
+    return !!(r.rows[0] && r.rows[0].ok);
+  } catch (e) {
+    console.warn('[ROUTE] boundary check error:', e.message);
+    return true;
+  }
+}
+
+// Basit hız sınırı: IP başına dakikada 40 rota isteği
+const __routeHits = new Map();
+function routeRateLimited(ip) {
+  const now = Date.now();
+  const rec = __routeHits.get(ip) || { n: 0, until: now + 60000 };
+  if (now > rec.until) { rec.n = 0; rec.until = now + 60000; }
+  rec.n++;
+  __routeHits.set(ip, rec);
+  if (__routeHits.size > 5000) { for (const [k, v] of __routeHits) if (now > v.until) __routeHits.delete(k); }
+  return rec.n > 40;
+}
+
+async function osrmFetch(baseUrl, profile, from, to) {
+  // Koordinatlar sayıya çevrilip sabit formatla yazılır → URL'e istemci metni girmez.
+  const coords = `${from.lng.toFixed(6)},${from.lat.toFixed(6)};${to.lng.toFixed(6)},${to.lat.toFixed(6)}`;
+  const url = `${baseUrl}/route/v1/${profile}/${coords}` +
+              `?alternatives=3&overview=full&geometries=geojson&steps=false&annotations=false`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 12000);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal });
+    if (!r.ok) return { error: 'service' };
+    const d = await r.json();
+    if (!d || d.code !== 'Ok' || !Array.isArray(d.routes) || !d.routes.length) return { error: 'noroute' };
+    return { routes: d.routes };
+  } catch (e) {
+    return { error: 'service' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// POST /api/route  { mode: 'foot'|'bike'|'car', from:{lat,lng}, to:{lat,lng} }
+app.post('/api/route', tryAuth, async (req, res) => {
+  try {
+    const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').toString().split(',')[0].trim();
+    if (routeRateLimited(ip)) {
+      return res.status(429).json({ error: 'rate_limited', message: getErrorMessage(req, 'rate_limited') });
+    }
+
+    const modeKey = String(req.body?.mode || '').toLowerCase();
+    if (!Object.prototype.hasOwnProperty.call(OSRM_URLS, modeKey)) {
+      return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
+    }
+
+    const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : NaN; };
+    const from = { lat: num(req.body?.from?.lat), lng: num(req.body?.from?.lng) };
+    const to   = { lat: num(req.body?.to?.lat),   lng: num(req.body?.to?.lng) };
+    const valid = (p) => Number.isFinite(p.lat) && Number.isFinite(p.lng) &&
+                         p.lat >= -90 && p.lat <= 90 && p.lng >= -180 && p.lng <= 180;
+    if (!valid(from) || !valid(to)) {
+      return res.status(400).json({ error: 'gecersiz_koordinat', message: getErrorMessage(req, 'gecersiz_koordinat') });
+    }
+
+    // Sınır varsa: başlangıç noktası (kullanıcının konumu) sınırın dışındaysa rota verilmez.
+    if (BOUNDARY_MODE) {
+      const insideStart = await isInsideBoundary(from.lng, from.lat);
+      if (!insideStart) {
+        return res.status(422).json({ error: 'route_start_outside', message: getErrorMessage(req, 'route_start_outside') });
+      }
+    }
+
+    const profile = (modeKey === 'car') ? 'driving' : (modeKey === 'bike' ? 'cycling' : 'walking');
+    const osrm = await osrmFetch(OSRM_URLS[modeKey], profile, from, to);
+    if (osrm.error === 'service') {
+      return res.status(503).json({ error: 'route_service_unavailable', message: getErrorMessage(req, 'route_service_unavailable') });
+    }
+    if (osrm.error || !osrm.routes) {
+      return res.status(404).json({ error: 'route_not_found', message: getErrorMessage(req, 'route_not_found') });
+    }
+
+    // OSRM rotaları en kısa/optimum olandan başlayarak gelir. Sınır varsa, sınırın
+    // TAMAMEN içinde kalan ilk (yani en optimum) rota seçilir.
+    for (const rt of osrm.routes) {
+      const geom = rt && rt.geometry;
+      if (!geom || geom.type !== 'LineString' || !Array.isArray(geom.coordinates) || geom.coordinates.length < 2) continue;
+      const inside = await routeInsideBoundary(geom);
+      if (!inside) continue;
+      return res.json({
+        ok: true,
+        mode: modeKey,
+        distance: Math.round(Number(rt.distance) || 0),
+        duration: Math.round(Number(rt.duration) || 0),
+        geometry: geom,
+        arrival_threshold: ROUTE_ARRIVAL_THRESHOLD
+      });
+    }
+
+    return res.status(422).json({ error: 'route_outside_boundary', message: getErrorMessage(req, 'route_outside_boundary') });
+  } catch (e) {
+    console.error('POST /api/route error:', e);
+    res.status(500).json({ error: 'sunucu_hatasi', message: getErrorMessage(req, 'sunucu_hatasi') });
+  }
+});
 
 /* =============== QField: GeoJSON =============== */
 app.get('/api/qfield/events', tryAuth, async (req, res) => {

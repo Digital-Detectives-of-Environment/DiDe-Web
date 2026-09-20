@@ -1751,6 +1751,410 @@ function polygonRecordsContinue() {
 }
 
 
+/* ===================== ROTALAMA / CANLI NAVİGASYON =====================
+   Kullanıcı bir olay marker'ının pop-up'ındaki yaya / bisiklet / araç
+   butonuna bastığında, KENDİ KONUMUNDAN o noktaya rota çizilir.
+   - Rota sunucudaki /api/route ucundan gelir (OSRM proxy). OSRM adresleri
+     tarayıcıya hiç gönderilmez.
+   - Sınır (boundary) ya da aggregation layer tanımlıysa, sunucu yalnızca
+     tamamı sınırın içinde kalan en optimum rotayı döndürür.
+   - İlerledikçe geçilen kısım soluklaşır, kalan kısım parlak kalır; rotadan
+     çıkılırsa anlık konuma göre yeniden rota hesaplanır.
+   - Hedefe .env'deki ROUTE_ARRIVAL_THRESHOLD metre kadar yaklaşınca titreşimli
+     tam ekran uyarı gösterilir. */
+
+const __nav = {
+  active: false,
+  mode: null,
+  dest: null,            // { lat, lng }
+  coords: [],            // [[lat,lng], ...] kalan rota (tam rota)
+  line: null,            // kalan yol
+  lineCase: null,        // araç modunda alt (kontur) çizgi
+  lineDone: null,        // gidilen yol (soluk)
+  destMarker: null,
+  follow: true,
+  lastRouteAt: 0,
+  offRouteHits: 0,
+  arrived: false,
+  routeDistance: 0,
+  routeDuration: 0,
+  lastPos: null,
+  lastSpeed: 0,
+  busy: false,
+  _hooked: false
+};
+
+const NAV_STYLES = {
+  car:  { color: '#1a73e8', weight: 8, opacity: 0.95, lineCap: 'round', lineJoin: 'round' },
+  bike: { color: '#0f9d58', weight: 7, opacity: 0.95, dashArray: '14 9', lineCap: 'round', lineJoin: 'round' },
+  foot: { color: '#1a73e8', weight: 7, opacity: 0.95, dashArray: '1 14', lineCap: 'round', lineJoin: 'round' }
+};
+
+function navArrivalThreshold(){
+  const v = Number(APP_CONFIG.routeArrivalThreshold);
+  return (Number.isFinite(v) && v > 0) ? v : 10;
+}
+
+/* ---- Geometri yardımcıları (metre) ---- */
+function _navDistM(aLat, aLng, bLat, bLng){
+  const R = 6371000, toRad = Math.PI / 180;
+  const dLat = (bLat - aLat) * toRad;
+  const dLng = (bLng - aLng) * toRad;
+  const la1 = aLat * toRad, la2 = bLat * toRad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+// Noktanın [lat,lng] rota parçasına uzaklığı + parça üzerindeki izdüşümü
+function _navProjectOnSegment(p, a, b){
+  const toRad = Math.PI / 180, R = 6371000;
+  const latRef = (a[0] + b[0]) / 2 * toRad;
+  const x = (ll) => R * (ll[1] * toRad) * Math.cos(latRef);
+  const y = (ll) => R * (ll[0] * toRad);
+  const ax = x(a), ay = y(a), bx = x(b), by = y(b), px = x(p), py = y(p);
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  let tt = len2 ? (((px - ax) * dx + (py - ay) * dy) / len2) : 0;
+  tt = Math.max(0, Math.min(1, tt));
+  const projLat = a[0] + (b[0] - a[0]) * tt;
+  const projLng = a[1] + (b[1] - a[1]) * tt;
+  const d = _navDistM(p[0], p[1], projLat, projLng);
+  return { dist: d, t: tt, point: [projLat, projLng] };
+}
+
+// Rota üzerindeki en yakın nokta: { index, point, dist }
+function _navNearestOnRoute(pos){
+  const c = __nav.coords;
+  let best = null;
+  for (let i = 0; i < c.length - 1; i++){
+    const pr = _navProjectOnSegment(pos, c[i], c[i + 1]);
+    if (!best || pr.dist < best.dist) best = { index: i, point: pr.point, dist: pr.dist };
+  }
+  return best;
+}
+
+function _navRemainingDistance(fromIndex, fromPoint){
+  const c = __nav.coords;
+  if (!c.length) return 0;
+  let total = _navDistM(fromPoint[0], fromPoint[1], c[fromIndex + 1][0], c[fromIndex + 1][1]);
+  for (let i = fromIndex + 1; i < c.length - 1; i++){
+    total += _navDistM(c[i][0], c[i][1], c[i + 1][0], c[i + 1][1]);
+  }
+  return total;
+}
+
+/* ---- Pop-up'taki rota butonları ---- */
+function _navIcon(mode){
+  if (mode === 'foot') {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+      '<circle cx="13.2" cy="4.1" r="1.9" fill="currentColor"/>' +
+      '<path d="M12.4 8.2 9.6 9.9l-1.3 3.6M12.4 8.2l2.6 1.1 1.5 3.1 2.2 1M12.4 8.2l-.7 4.6 2.7 2.6.9 4.9M11.7 12.8l-3.1 3-1.8 4.2" ' +
+      'fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
+  if (mode === 'bike') {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+      '<circle cx="5.4" cy="17" r="3.4" fill="none" stroke="currentColor" stroke-width="1.8"/>' +
+      '<circle cx="18.6" cy="17" r="3.4" fill="none" stroke="currentColor" stroke-width="1.8"/>' +
+      '<circle cx="14.6" cy="4.4" r="1.5" fill="currentColor"/>' +
+      '<path d="M5.4 17 9.9 11.2h4.2l-2.6-3.1 3.1-1.5 2.4 3.2h2.3M12 8.1 10 17" ' +
+      'fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
+  return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+    '<path d="M4 16.5v2.2a.8.8 0 0 1-.8.8H2.4a.8.8 0 0 1-.8-.8V11l2.2-5.1A2 2 0 0 1 5.6 4.7h12.8a2 2 0 0 1 1.8 1.2L22.4 11v7.7a.8.8 0 0 1-.8.8h-.8a.8.8 0 0 1-.8-.8v-2.2z" ' +
+    'fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>' +
+    '<path d="M1.6 11h20.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
+    '<circle cx="6.1" cy="14.1" r="1.25" fill="currentColor"/><circle cx="17.9" cy="14.1" r="1.25" fill="currentColor"/></svg>';
+}
+
+// Her olay pop-up'ının altına yaya / bisiklet / araç rota butonlarını ekler.
+function addRouteButtonsToPopup(content, e){
+  try {
+    if (!content || !e) return;
+    const lat = parseFloat(e.latitude), lng = parseFloat(e.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    const row = document.createElement('div');
+    row.className = 'route-btn-row';
+    [['foot', 'routeWalk'], ['bike', 'routeBike'], ['car', 'routeCar']].forEach(([mode, key]) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'route-btn route-btn-' + mode;
+      b.title = t(key);
+      b.setAttribute('aria-label', t(key));
+      b.innerHTML = _navIcon(mode) + `<span class="route-btn-label">${escapeHtml(t(key))}</span>`;
+      b.onclick = (ev) => {
+        try { ev.preventDefault(); ev.stopPropagation(); } catch {}
+        startNavigation(mode, lat, lng);
+      };
+      row.appendChild(b);
+    });
+    content.appendChild(row);
+  } catch (err) { console.warn('addRouteButtonsToPopup', err); }
+}
+
+/* ---- Konum izni: rota kullanıcının kendi konumundan başlar ---- */
+async function _navEnsureFix(){
+  if (__slLastFix && (Date.now() - __slLastFix.ts) < 60000) return __slLastFix;
+  // Buton tıklaması bir kullanıcı hareketidir: izin penceresi burada istenebilir.
+  try { requestOrientationFromGesture(); } catch {}
+  try { startStandaloneLive({ center: false, userInitiated: true }); } catch {}
+  const started = Date.now();
+  while (Date.now() - started < 12000) {
+    if (__slLastFix) return __slLastFix;
+    if (__slDenied) return null;
+    await new Promise(r => setTimeout(r, 300));
+  }
+  return __slLastFix || null;
+}
+
+/* ---- Rota isteği ---- */
+async function _navFetchRoute(mode, from, to){
+  const r = await fetch('/api/route', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode, from: { lat: from.lat, lng: from.lng }, to: { lat: to.lat, lng: to.lng } })
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.ok) {
+    const key = {
+      route_outside_boundary: 'routeOutsideBoundary',
+      route_start_outside: 'routeStartOutside',
+      route_service_unavailable: 'routeServiceUnavailable',
+      route_not_found: 'routeNotFound'
+    }[d && d.error] || null;
+    throw Object.assign(new Error(d.message || 'route error'), { i18nKey: key });
+  }
+  return d;
+}
+
+/* ---- Navigasyonu başlat ---- */
+async function startNavigation(mode, lat, lng){
+  if (__nav.busy) return;
+  __nav.busy = true;
+  try {
+    const fix = await _navEnsureFix();
+    if (!fix) {
+      // Konum izni yoksa rotalama yapılamaz → kırmızı uyarı bandı
+      if (__slDenied) { try { showLocationHelpBanner(); } catch {} }
+      showGridWarning(t('routeNeedsLocation'), 9000);
+      return;
+    }
+
+    showInfoBanner(t('routeCalculating'), 3500);
+    let data;
+    try {
+      data = await _navFetchRoute(mode, { lat: fix.lat, lng: fix.lng }, { lat, lng });
+    } catch (err) {
+      showGridWarning(err.i18nKey ? t(err.i18nKey) : (err.message || t('unknownError')), 9000);
+      return;
+    }
+
+    try { map.closePopup(); } catch {}
+    __nav.active = true;
+    __nav.mode = mode;
+    __nav.dest = { lat, lng };
+    __nav.arrived = false;
+    __nav.follow = true;
+    __nav.offRouteHits = 0;
+    __nav.lastRouteAt = Date.now();
+    _navApplyRoute(data);
+    _navInstallHooks();
+    _navShowBar(true);
+    navOnPosition(null);   // ilk ölçümleri mevcut konumla hesapla
+    try {
+      const b = L.latLngBounds(__nav.coords.map(c => L.latLng(c[0], c[1])));
+      map.fitBounds(b.pad(0.25), { animate: true, maxZoom: 18 });
+    } catch {}
+  } finally {
+    __nav.busy = false;
+  }
+}
+
+function _navApplyRoute(data){
+  __nav.coords = (data.geometry.coordinates || []).map(c => [c[1], c[0]]);
+  __nav.routeDistance = Number(data.distance) || 0;
+  __nav.routeDuration = Number(data.duration) || 0;
+  _navClearLayers();
+  if (!map || __nav.coords.length < 2) return;
+
+  const style = NAV_STYLES[__nav.mode] || NAV_STYLES.car;
+  if (__nav.mode === 'car') {
+    // Araç: Google Maps'teki gibi koyu konturlu kalın çizgi
+    __nav.lineCase = L.polyline(__nav.coords, { color: '#0b3d91', weight: 12, opacity: 0.35, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(map);
+  }
+  __nav.lineDone = L.polyline([], { color: '#9aa0a6', weight: (style.weight || 7) - 1, opacity: 0.55, dashArray: style.dashArray, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(map);
+  __nav.line = L.polyline(__nav.coords, Object.assign({ interactive: false }, style)).addTo(map);
+
+  if (__nav.destMarker) { try { map.removeLayer(__nav.destMarker); } catch {} }
+  __nav.destMarker = L.circleMarker([__nav.dest.lat, __nav.dest.lng], {
+    radius: 8, color: '#ffffff', weight: 3, fillColor: '#d93025', fillOpacity: 1, interactive: false
+  }).addTo(map);
+}
+
+function _navClearLayers(){
+  ['line', 'lineCase', 'lineDone'].forEach(k => {
+    if (__nav[k]) { try { map.removeLayer(__nav[k]); } catch {} __nav[k] = null; }
+  });
+}
+
+function _navInstallHooks(){
+  if (__nav._hooked || !map) return;
+  __nav._hooked = true;
+  try {
+    const cont = map.getContainer();
+    const off = () => { if (__nav.active) { __nav.follow = false; _navUpdateRecenterBtn(); } };
+    ['touchstart', 'pointerdown', 'mousedown', 'wheel'].forEach(ev => cont.addEventListener(ev, off, { passive: true, capture: true }));
+  } catch {}
+}
+
+function _navUpdateRecenterBtn(){
+  const b = qs('#nav-recenter');
+  if (b) b.classList.toggle('active', !__nav.follow);
+}
+
+function _navShowBar(on){
+  const bar = qs('#nav-bar');
+  if (!bar) return;
+  bar.classList.toggle('hidden', !on);
+  bar.setAttribute('aria-hidden', on ? 'false' : 'true');
+  const icon = qs('#nav-mode-icon');
+  if (icon && on) icon.innerHTML = _navIcon(__nav.mode);
+  _navUpdateRecenterBtn();
+}
+
+function _navFormatDistance(m){
+  if (!Number.isFinite(m)) return '—';
+  return (m >= 1000) ? ((m / 1000).toFixed(m >= 10000 ? 0 : 1) + ' km') : (Math.round(m) + ' m');
+}
+
+function _navFormatDuration(sec){
+  if (!Number.isFinite(sec)) return '—';
+  const m = Math.round(sec / 60);
+  if (m < 60) return m + ' ' + t('durationMinutes', { count: '' }).replace(/^\s+/, '').trim();
+  const h = Math.floor(m / 60), r = m % 60;
+  return h + ':' + String(r).padStart(2, '0');
+}
+
+/* ---- Her yeni konum ölçümünde çalışır ---- */
+function navOnPosition(coords){
+  if (!__nav.active || !__slLastFix || !map) return;
+  const pos = [__slLastFix.lat, __slLastFix.lng];
+
+  // Hız (km/s): önce GPS'ten, yoksa ardışık iki ölçümden hesapla
+  let kmh = null;
+  if (coords && Number.isFinite(coords.speed) && coords.speed >= 0) kmh = coords.speed * 3.6;
+  else if (__nav.lastPos) {
+    const dt = (__slLastFix.ts - __nav.lastPos.ts) / 1000;
+    if (dt > 0.5 && dt < 30) kmh = (_navDistM(__nav.lastPos.lat, __nav.lastPos.lng, pos[0], pos[1]) / dt) * 3.6;
+  }
+  if (Number.isFinite(kmh)) __nav.lastSpeed = Math.max(0, Math.min(300, kmh));
+  __nav.lastPos = { lat: pos[0], lng: pos[1], ts: __slLastFix.ts };
+
+  const near = (__nav.coords.length >= 2) ? _navNearestOnRoute(pos) : null;
+  const destDist = _navDistM(pos[0], pos[1], __nav.dest.lat, __nav.dest.lng);
+
+  // Gidilen / kalan yolu güncelle (geçilen kısım soluk gösterilir)
+  if (near && __nav.line && __nav.lineDone) {
+    const done = __nav.coords.slice(0, near.index + 1).concat([near.point]);
+    const rest = [near.point].concat(__nav.coords.slice(near.index + 1));
+    try { __nav.lineDone.setLatLngs(done); } catch {}
+    try { __nav.line.setLatLngs(rest); } catch {}
+  }
+
+  const remaining = near ? Math.min(_navRemainingDistance(near.index, near.point), __nav.routeDistance || Infinity) : destDist;
+  const dv = qs('#nav-distance'); if (dv) dv.textContent = _navFormatDistance(remaining);
+  const sv = qs('#nav-speed'); if (sv) sv.textContent = String(Math.round(__nav.lastSpeed));
+  const ev = qs('#nav-eta');
+  if (ev) {
+    const ratio = (__nav.routeDistance > 0) ? (remaining / __nav.routeDistance) : 1;
+    ev.textContent = _navFormatDuration((__nav.routeDuration || 0) * ratio);
+  }
+
+  if (__nav.follow) {
+    try { map.setView(L.latLng(pos[0], pos[1]), Math.max(map.getZoom() || 0, 17), { animate: true }); } catch {}
+  }
+
+  // Hedefe yaklaşma
+  if (!__nav.arrived && destDist <= navArrivalThreshold()) {
+    __nav.arrived = true;
+    _navShowArrival(destDist);
+    return;
+  }
+
+  // Rotadan sapma → anlık konuma göre yeniden hesapla
+  if (near) {
+    const offLimit = Math.max(35, navArrivalThreshold() * 3);
+    if (near.dist > offLimit) {
+      __nav.offRouteHits++;
+      if (__nav.offRouteHits >= 2 && (Date.now() - __nav.lastRouteAt) > 8000) {
+        __nav.offRouteHits = 0;
+        _navReroute(pos);
+      }
+    } else {
+      __nav.offRouteHits = 0;
+    }
+  }
+}
+
+async function _navReroute(pos){
+  if (!__nav.active || __nav.busy) return;
+  __nav.busy = true;
+  __nav.lastRouteAt = Date.now();
+  showInfoBanner(t('routeRerouting'), 3000);
+  try {
+    const data = await _navFetchRoute(__nav.mode, { lat: pos[0], lng: pos[1] }, __nav.dest);
+    if (!__nav.active) return;
+    _navApplyRoute(data);
+    navOnPosition(null);
+  } catch (err) {
+    showGridWarning(err.i18nKey ? t(err.i18nKey) : (err.message || t('unknownError')), 7000);
+  } finally {
+    __nav.busy = false;
+  }
+}
+
+function _navShowArrival(distM){
+  const ov = qs('#nav-arrive-overlay');
+  try { if (navigator.vibrate) navigator.vibrate([220, 110, 220, 110, 320]); } catch {}
+  if (ov) {
+    const txt = qs('#nav-arrive-text');
+    if (txt) txt.textContent = t('arrivedText', { distance: Math.max(1, Math.round(distM)) });
+    ov.classList.remove('hidden');
+    ov.setAttribute('aria-hidden', 'false');
+  }
+}
+
+function closeArrivalOverlay(){
+  const ov = qs('#nav-arrive-overlay');
+  if (ov) { ov.classList.add('hidden'); ov.setAttribute('aria-hidden', 'true'); }
+  stopNavigation();
+}
+
+function stopNavigation(){
+  __nav.active = false;
+  __nav.arrived = false;
+  __nav.coords = [];
+  __nav.dest = null;
+  __nav.lastPos = null;
+  __nav.lastSpeed = 0;
+  _navClearLayers();
+  if (__nav.destMarker) { try { map.removeLayer(__nav.destMarker); } catch {} __nav.destMarker = null; }
+  _navShowBar(false);
+}
+
+(function wireNavButtons(){
+  document.addEventListener('click', (e) => {
+    const id = e.target && e.target.id;
+    if (id === 'nav-exit') stopNavigation();
+    else if (id === 'nav-arrive-ok') closeArrivalOverlay();
+    else if (id === 'nav-recenter') {
+      __nav.follow = true;
+      _navUpdateRecenterBtn();
+      if (__slLastFix) { try { map.setView(L.latLng(__slLastFix.lat, __slLastFix.lng), Math.max(map.getZoom() || 0, 17), { animate: true }); } catch {} }
+    }
+  });
+})();
+
 /* ===================== TAMPON (BUFFER) AKIŞI =====================
    .env → BUFFER_RADIUS (metre, tam sayı). Tanımlıysa: olay ekleme için konum
    seçildiğinde (GPS butonu ya da — restrictGNSS=false iken — haritaya tıklama)
@@ -5273,6 +5677,7 @@ function addEventMarkerToLayer(e){
 
   addSolverCloseButton(btnRow, e, { publicMode: false });
 
+  addRouteButtonsToPopup(content, e);
   m.bindPopup(content);
   m.on('popupopen', () => populateEventMedia(content, e));
 }
@@ -5442,6 +5847,7 @@ function syncEventsMapWithFilteredEvents(){
       btnRow.appendChild(db);
     }
 
+    addRouteButtonsToPopup(content, e);
     m.bindPopup(content);
     m.on('popupopen', () => populateEventMedia(content, e));
   });
@@ -5822,6 +6228,7 @@ function syncRegionsEventMarkers() {
       btnRow.appendChild(db);
     }
 
+    addRouteButtonsToPopup(content, e);
     m.bindPopup(content);
     m.on('popupopen', () => populateEventMedia(content, e));
     regionsMarkersLayer.addLayer(m);
@@ -6024,6 +6431,7 @@ function syncEventsMapWithSelection() {
       btnRow.appendChild(db);
     }
 
+    addRouteButtonsToPopup(content, e);
     m.bindPopup(content);
     m.on('popupopen', () => populateEventMedia(content, e));
     bounds.push([lat, lng]);
@@ -9328,6 +9736,9 @@ function recreatePopupContent(evt, marker, opts = {}) {
   // Salt-okunur modda (profil haritası) yalnızca like SAYISI gösterilir, kalp butonu yok.
   addLikeControl(content, evt, { publicMode: false, countOnly: readOnly });
 
+  // Rotalama butonları (yaya / bisiklet / araç) — salt-okunur profil haritasında yok
+  if (!readOnly) addRouteButtonsToPopup(content, evt);
+
   marker.setPopupContent(content);
   populateEventMedia(content, evt);
 }
@@ -9467,6 +9878,7 @@ async function loadExistingEvents(opts = {}) {
 
       addSolverCloseButton(btnRow, e2, { publicMode });
 
+      addRouteButtonsToPopup(content, e2);
       m.bindPopup(content);
       m.on('popupopen', () => {
       recreatePopupContent(e2, m);
@@ -10196,6 +10608,8 @@ function _slHandlePosition(position){
   __slLastFix = { lat: c.latitude, lng: c.longitude, acc: c.accuracy, ts: Date.now() };
   _pushGpsCourse(c);
   _slRender();
+  // Canlı navigasyon açıksa rotayı/ölçümleri bu konuma göre güncelle
+  try { if (typeof navOnPosition === 'function') navOnPosition(c); } catch (e) { console.warn('navOnPosition', e); }
 }
 
 function _slHandleError(err){

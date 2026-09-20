@@ -1025,6 +1025,41 @@
   </div>
 
   <!-- ============ PROFİL OVERLAY (tam ekran, mobil uyumlu) ============ -->
+  <!-- ROTALAMA: alt navigasyon çubuğu (canlı rota sırasında görünür) -->
+  <div id="nav-bar" class="nav-bar hidden" aria-hidden="true">
+    <div id="nav-mode-icon" class="nav-mode-icon" aria-hidden="true"></div>
+    <div class="nav-metrics">
+      <div class="nav-metric">
+        <span id="nav-distance" class="nav-metric-value">—</span>
+        <span class="nav-metric-label" data-i18n="navRemaining">Remaining</span>
+      </div>
+      <div class="nav-metric">
+        <span id="nav-eta" class="nav-metric-value">—</span>
+        <span class="nav-metric-label" data-i18n="navEta">ETA</span>
+      </div>
+      <div class="nav-metric">
+        <span id="nav-speed" class="nav-metric-value">0</span>
+        <span class="nav-metric-label" data-i18n="navSpeed">km/h</span>
+      </div>
+    </div>
+    <div class="nav-actions">
+      <button id="nav-recenter" class="nav-btn nav-btn-ghost" type="button" data-i18n="navRecenter">Recenter</button>
+      <button id="nav-exit" class="nav-btn nav-btn-exit" type="button" data-i18n="navExit">Exit</button>
+    </div>
+  </div>
+
+  <!-- ROTALAMA: hedefe yaklaşma uyarısı (tam ekran, titreşimli) -->
+  <div id="nav-arrive-overlay" class="nav-arrive-overlay hidden" aria-hidden="true">
+    <div class="nav-arrive-card">
+      <div class="nav-arrive-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false"><path d="M12 22s7-7.1 7-12a7 7 0 1 0-14 0c0 4.9 7 12 7 12z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.6" fill="currentColor"/></svg>
+      </div>
+      <h3 class="nav-arrive-title" data-i18n="arrivedTitle">You are near the location</h3>
+      <p id="nav-arrive-text" class="nav-arrive-text"></p>
+      <button id="nav-arrive-ok" class="btn nav-arrive-ok" type="button" data-i18n="navOk">OK</button>
+    </div>
+  </div>
+
   <!-- Puan sistemi bilgi ekranı (tam ekran, kaydırmasız) -->
   <div id="points-info-overlay" class="points-info-overlay hidden" aria-hidden="true">
     <div class="points-info-inner">

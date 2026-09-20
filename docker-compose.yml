@@ -1,0 +1,97 @@
+x-osrm-image: &osrm-image ghcr.io/project-osrm/osrm-backend:latest
+
+services:
+  # 1) Harita verisini indirir 
+  osrm-fetch:
+    image: curlimages/curl:latest
+    container_name: dide-osrm-fetch
+    restart: "no"
+    volumes:
+      - ./osrm-data:/data
+    environment:
+
+      OSRM_PBF_URL: ${OSRM_PBF_URL:-https://download.geofabrik.de/europe/turkey-latest.osm.pbf}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        if [ -f /data/map.osm.pbf ]; then
+          echo "[osrm-fetch] map.osm.pbf already exists, skipping download."
+        else
+          echo "[osrm-fetch] downloading $$OSRM_PBF_URL ..."
+          curl -L --fail --retry 3 -o /data/map.osm.pbf "$$OSRM_PBF_URL"
+          echo "[osrm-fetch] download complete."
+        fi
+
+
+  osrm-prepare:
+    image: *osrm-image
+    container_name: dide-osrm-prepare
+    restart: "no"
+    depends_on:
+      osrm-fetch:
+        condition: service_completed_successfully
+    volumes:
+      - ./osrm-data:/data
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        prepare () {
+          profile="$$1"; dir="$$2"
+          if [ -f "/data/$$dir/map.osrm.mldgr" ]; then
+            echo "[osrm-prepare] $$dir already prepared, skipping."
+            return 0
+          fi
+          echo "[osrm-prepare] preparing $$dir ..."
+          mkdir -p "/data/$$dir"
+          cp /data/map.osm.pbf "/data/$$dir/map.osm.pbf"
+          osrm-extract -p "/opt/$$profile.lua" "/data/$$dir/map.osm.pbf"
+          osrm-partition "/data/$$dir/map.osrm"
+          osrm-customize  "/data/$$dir/map.osrm"
+          rm -f "/data/$$dir/map.osm.pbf"
+          echo "[osrm-prepare] $$dir ready."
+        }
+        prepare car car
+        prepare bicycle bike
+        prepare foot foot
+        echo "[osrm-prepare] all profiles ready."
+
+  osrm-car:
+    image: *osrm-image
+    container_name: dide-osrm-car
+    restart: unless-stopped
+    depends_on:
+      osrm-prepare:
+        condition: service_completed_successfully
+    volumes:
+      - ./osrm-data:/data
+    command: osrm-routed --algorithm mld --max-matching-size 0 --max-trip-size 0 /data/car/map.osrm
+    ports:
+      - "127.0.0.1:5001:5000"
+
+  osrm-bike:
+    image: *osrm-image
+    container_name: dide-osrm-bike
+    restart: unless-stopped
+    depends_on:
+      osrm-prepare:
+        condition: service_completed_successfully
+    volumes:
+      - ./osrm-data:/data
+    command: osrm-routed --algorithm mld --max-matching-size 0 --max-trip-size 0 /data/bike/map.osrm
+    ports:
+      - "127.0.0.1:5002:5000"
+
+  osrm-foot:
+    image: *osrm-image
+    container_name: dide-osrm-foot
+    restart: unless-stopped
+    depends_on:
+      osrm-prepare:
+        condition: service_completed_successfully
+    volumes:
+      - ./osrm-data:/data
+    command: osrm-routed --algorithm mld --max-matching-size 0 --max-trip-size 0 /data/foot/map.osrm
+    ports:
+      - "127.0.0.1:5003:5000"
