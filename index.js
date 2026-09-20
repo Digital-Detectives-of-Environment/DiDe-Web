@@ -366,7 +366,16 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // CASE_STUDY: .env'de tanımlı klasör adı (örn: Milano).
 // Tam path: <proje_kökü>/case_study/<CASE_STUDY>/raw_data/Raster
-const CASE_STUDY_NAME = process.env.CASE_STUDY || 'Milano';
+const CASE_STUDY_RAW = String(process.env.CASE_STUDY ?? '').trim();
+if (!CASE_STUDY_RAW) {
+  console.error(`\n[FATAL] CASE_STUDY is not set in your .env file.`);
+  console.error(`        Routing needs it: the OpenStreetMap file you downloaded must be placed at`);
+  console.error(`          case_study/<CASE_STUDY>/existing_data/map.osm      (or map.osm.pbf)`);
+  console.error(`        Example: CASE_STUDY=Hacettepe  ->  case_study/Hacettepe/existing_data/map.osm`);
+  console.error(`        System cannot start. Exiting.\n`);
+  process.exit(1);
+}
+const CASE_STUDY_NAME = CASE_STUDY_RAW;
 const RASTER_DIR = path.join(__dirname, 'case_study', CASE_STUDY_NAME, 'raw_data', 'Raster');
 
 // ==================== BOUNDARY (sınır) ====================
@@ -3713,6 +3722,15 @@ async function refreshOsrmStatus() {
 // Docker açıksa rotalama konteynerlerini uygulamayla birlikte ayağa kaldırır.
 // Sabit komut çalıştırılır; hiçbir kullanıcı girdisi komuta karışmaz.
 // .env'de OSRM_AUTOSTART=false yazılarak kapatılabilir.
+// Rotalama için gereken harita dosyası: case_study/<CASE_STUDY>/existing_data/map.osm(.pbf)
+function osrmSourceMapFile() {
+  const pbf = path.join(EXISTING_DATA_DIR, 'map.osm.pbf');
+  const osm = path.join(EXISTING_DATA_DIR, 'map.osm');
+  if (_fileExists(pbf)) return pbf;
+  if (_fileExists(osm)) return osm;
+  return null;
+}
+
 function autoStartOsrmContainers() {
   if (String(process.env.OSRM_AUTOSTART || 'true').toLowerCase() === 'false') {
     console.log('[ROUTE] OSRM autostart disabled (OSRM_AUTOSTART=false).');
@@ -3722,6 +3740,14 @@ function autoStartOsrmContainers() {
   if (!_fileExists(composeFile)) {
     console.warn('[ROUTE] docker-compose.yml not found → routing containers not started.');
     return;
+  }
+  const mapFile = osrmSourceMapFile();
+  if (!mapFile) {
+    console.warn(`[ROUTE] Map file not found: ${path.join(EXISTING_DATA_DIR, 'map.osm')} (or map.osm.pbf).`);
+    console.warn('[ROUTE] Download your area from OpenStreetMap (Export) and save it there, then restart.');
+    console.warn('[ROUTE] Routing containers will start but stay idle until the file exists.');
+  } else {
+    console.log(`[ROUTE] Routing map source: ${mapFile}`);
   }
   const run = (args, cb) => execFile('docker', args, { cwd: __dirname, timeout: 120000 }, cb);
   run(['compose', 'version'], (err) => {

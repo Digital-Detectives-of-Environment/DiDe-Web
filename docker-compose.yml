@@ -1,53 +1,48 @@
 services:
-  osrm-fetch:
-    image: curlimages/curl:latest
-    container_name: dide-osrm-fetch
-    user: root
-    restart: "no"
-    volumes:
-      - ./osrm-data:/data
-    environment:
-      OSRM_PBF_URL: ${OSRM_PBF_URL:-https://download.geofabrik.de/europe/turkey-latest.osm.pbf}
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        set -e
-        if [ -s /data/map.osm.pbf ]; then
-          echo "[osrm-fetch] map.osm.pbf already exists, skipping download."
-        else
-          echo "[osrm-fetch] downloading $$OSRM_PBF_URL ..."
-          curl -L --fail --retry 3 -o /data/map.osm.pbf.part "$$OSRM_PBF_URL"
-          mv /data/map.osm.pbf.part /data/map.osm.pbf
-          echo "[osrm-fetch] download complete."
-        fi
-
+  # 1) Rotalama verisini SENİN dosyandan hazırlar (indirme yok)
   osrm-prepare:
     image: ghcr.io/project-osrm/osrm-backend:latest
     container_name: dide-osrm-prepare
     restart: "no"
-    depends_on:
-      osrm-fetch:
-        condition: service_completed_successfully
     volumes:
+      # Kaynak: case_study/<CASE_STUDY>/existing_data  (salt okunur)
+      - ./case_study/${CASE_STUDY:?CASE_STUDY is not set in .env. Routing needs case_study/<CASE_STUDY>/existing_data/map.osm}/existing_data:/input:ro
+      # Hedef: işlenmiş rotalama verisi
       - ./osrm-data:/data
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
         set -e
+        SRC=""
+        if   [ -s /input/map.osm.pbf ]; then SRC=/input/map.osm.pbf
+        elif [ -s /input/map.osm ];     then SRC=/input/map.osm
+        fi
+        if [ -z "$$SRC" ]; then
+          echo "[osrm-prepare] ERROR: no map file found."
+          echo "[osrm-prepare] Put your OpenStreetMap export at:"
+          echo "[osrm-prepare]   case_study/<CASE_STUDY>/existing_data/map.osm   (or map.osm.pbf)"
+          exit 1
+        fi
+        STAMP="$$(stat -c '%s-%Y' "$$SRC")"
+        echo "[osrm-prepare] source: $$SRC  (stamp $$STAMP)"
         prepare () {
           profile="$$1"; dir="$$2"
-          if [ -f "/data/$$dir/map.osrm.mldgr" ]; then
-            echo "[osrm-prepare] $$dir already prepared, skipping."
+          if [ -f "/data/$$dir/map.osrm.mldgr" ] && [ "$$(cat /data/$$dir/.source-stamp 2>/dev/null)" = "$$STAMP" ]; then
+            echo "[osrm-prepare] $$dir already prepared for this file, skipping."
             return 0
           fi
-          echo "[osrm-prepare] preparing $$dir (this can take a while) ..."
+          echo "[osrm-prepare] preparing $$dir ..."
           rm -rf "/data/$$dir"
           mkdir -p "/data/$$dir"
-          cp /data/map.osm.pbf "/data/$$dir/map.osm.pbf"
-          osrm-extract -p "/opt/$$profile.lua" "/data/$$dir/map.osm.pbf"
+          # Dosya adı her zaman map.osm / map.osm.pbf olur → çıktı her zaman map.osrm
+          NAME="map.osm"
+          case "$$SRC" in *.pbf) NAME="map.osm.pbf";; esac
+          cp "$$SRC" "/data/$$dir/$$NAME"
+          osrm-extract -p "/opt/$$profile.lua" "/data/$$dir/$$NAME"
+          rm -f "/data/$$dir/$$NAME"
           osrm-partition "/data/$$dir/map.osrm"
-          osrm-customize  "/data/$$dir/map.osrm"
-          rm -f "/data/$$dir/map.osm.pbf"
+          osrm-customize "/data/$$dir/map.osrm"
+          echo "$$STAMP" > "/data/$$dir/.source-stamp"
           echo "[osrm-prepare] $$dir ready."
         }
         prepare car car
@@ -55,6 +50,7 @@ services:
         prepare foot foot
         echo "[osrm-prepare] all profiles ready."
 
+  # 2) Rotalama servisleri — hemen başlar, veri hazır olunca servise girer
   osrm-car:
     image: ghcr.io/project-osrm/osrm-backend:latest
     container_name: dide-osrm-car
@@ -65,7 +61,7 @@ services:
     command:
       - |
         while [ ! -f /data/car/map.osrm.mldgr ]; do
-          echo "[osrm-car] waiting for map data (osrm-prepare still running?) ..."
+          echo "[osrm-car] waiting for map data (is osrm-prepare running? check: docker compose logs osrm-prepare)"
           sleep 10
         done
         echo "[osrm-car] data ready, starting router."
@@ -83,7 +79,7 @@ services:
     command:
       - |
         while [ ! -f /data/bike/map.osrm.mldgr ]; do
-          echo "[osrm-bike] waiting for map data (osrm-prepare still running?) ..."
+          echo "[osrm-bike] waiting for map data (is osrm-prepare running? check: docker compose logs osrm-prepare)"
           sleep 10
         done
         echo "[osrm-bike] data ready, starting router."
@@ -101,7 +97,7 @@ services:
     command:
       - |
         while [ ! -f /data/foot/map.osrm.mldgr ]; do
-          echo "[osrm-foot] waiting for map data (osrm-prepare still running?) ..."
+          echo "[osrm-foot] waiting for map data (is osrm-prepare running? check: docker compose logs osrm-prepare)"
           sleep 10
         done
         echo "[osrm-foot] data ready, starting router."
