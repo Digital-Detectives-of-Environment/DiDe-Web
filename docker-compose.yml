@@ -60,12 +60,31 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
-        while [ ! -f /data/car/map.osrm.mldgr ]; do
-          echo "[osrm-car] waiting for map data (is osrm-prepare running? check: docker compose logs osrm-prepare)"
-          sleep 10
+        # Veri hazır olana kadar bekler; hazır olunca servise girer.
+        # Harita dosyasını değiştirip yeniden hazırlarsan (.source-stamp değişir)
+        # bu döngü router'ı KENDİLİĞİNDEN yeniden başlatır — yoksa eski veriyle
+        # çalışmaya devam eder ve hiçbir rota bulunamaz.
+        while true; do
+          while [ ! -f /data/car/map.osrm.mldgr ] || [ ! -f /data/car/.source-stamp ]; do
+            echo "[osrm-car] waiting for map data (check: docker compose logs osrm-prepare)"
+            sleep 10
+          done
+          STAMP="$$(cat /data/car/.source-stamp)"
+          echo "[osrm-car] data ready (stamp $$STAMP), starting router."
+          osrm-routed --algorithm mld /data/car/map.osrm &
+          PID=$$!
+          while kill -0 $$PID 2>/dev/null; do
+            sleep 10
+            NEW="$$(cat /data/car/.source-stamp 2>/dev/null || echo '')"
+            if [ "$$NEW" != "$$STAMP" ]; then
+              echo "[osrm-car] map data changed → restarting router with the new data."
+              kill $$PID 2>/dev/null || true
+              wait $$PID 2>/dev/null || true
+              break
+            fi
+          done
+          sleep 2
         done
-        echo "[osrm-car] data ready, starting router."
-        exec osrm-routed --algorithm mld /data/car/map.osrm
     ports:
       - "127.0.0.1:5001:5000"
 
@@ -78,12 +97,31 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
-        while [ ! -f /data/bike/map.osrm.mldgr ]; do
-          echo "[osrm-bike] waiting for map data (is osrm-prepare running? check: docker compose logs osrm-prepare)"
-          sleep 10
+        # Veri hazır olana kadar bekler; hazır olunca servise girer.
+        # Harita dosyasını değiştirip yeniden hazırlarsan (.source-stamp değişir)
+        # bu döngü router'ı KENDİLİĞİNDEN yeniden başlatır — yoksa eski veriyle
+        # çalışmaya devam eder ve hiçbir rota bulunamaz.
+        while true; do
+          while [ ! -f /data/bike/map.osrm.mldgr ] || [ ! -f /data/bike/.source-stamp ]; do
+            echo "[osrm-bike] waiting for map data (check: docker compose logs osrm-prepare)"
+            sleep 10
+          done
+          STAMP="$$(cat /data/bike/.source-stamp)"
+          echo "[osrm-bike] data ready (stamp $$STAMP), starting router."
+          osrm-routed --algorithm mld /data/bike/map.osrm &
+          PID=$$!
+          while kill -0 $$PID 2>/dev/null; do
+            sleep 10
+            NEW="$$(cat /data/bike/.source-stamp 2>/dev/null || echo '')"
+            if [ "$$NEW" != "$$STAMP" ]; then
+              echo "[osrm-bike] map data changed → restarting router with the new data."
+              kill $$PID 2>/dev/null || true
+              wait $$PID 2>/dev/null || true
+              break
+            fi
+          done
+          sleep 2
         done
-        echo "[osrm-bike] data ready, starting router."
-        exec osrm-routed --algorithm mld /data/bike/map.osrm
     ports:
       - "127.0.0.1:5002:5000"
 
@@ -96,11 +134,30 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
-        while [ ! -f /data/foot/map.osrm.mldgr ]; do
-          echo "[osrm-foot] waiting for map data (is osrm-prepare running? check: docker compose logs osrm-prepare)"
-          sleep 10
+        # Veri hazır olana kadar bekler; hazır olunca servise girer.
+        # Harita dosyasını değiştirip yeniden hazırlarsan (.source-stamp değişir)
+        # bu döngü router'ı KENDİLİĞİNDEN yeniden başlatır — yoksa eski veriyle
+        # çalışmaya devam eder ve hiçbir rota bulunamaz.
+        while true; do
+          while [ ! -f /data/foot/map.osrm.mldgr ] || [ ! -f /data/foot/.source-stamp ]; do
+            echo "[osrm-foot] waiting for map data (check: docker compose logs osrm-prepare)"
+            sleep 10
+          done
+          STAMP="$$(cat /data/foot/.source-stamp)"
+          echo "[osrm-foot] data ready (stamp $$STAMP), starting router."
+          osrm-routed --algorithm mld /data/foot/map.osrm &
+          PID=$$!
+          while kill -0 $$PID 2>/dev/null; do
+            sleep 10
+            NEW="$$(cat /data/foot/.source-stamp 2>/dev/null || echo '')"
+            if [ "$$NEW" != "$$STAMP" ]; then
+              echo "[osrm-foot] map data changed → restarting router with the new data."
+              kill $$PID 2>/dev/null || true
+              wait $$PID 2>/dev/null || true
+              break
+            fi
+          done
+          sleep 2
         done
-        echo "[osrm-foot] data ready, starting router."
-        exec osrm-routed --algorithm mld /data/foot/map.osrm
     ports:
       - "127.0.0.1:5003:5000"

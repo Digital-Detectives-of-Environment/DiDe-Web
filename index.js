@@ -3896,11 +3896,21 @@ async function osrmFetch(baseUrl, profile, from, to) {
   }
 }
 
-// GET /api/route/status — hangi rotalama profillerinin ayakta olduğunu bildirir
+// GET /api/route/status — profillerin durumu + harita dosyası teşhisi
+// Tarayıcıdan açıp rotalamanın neden çalışmadığını görebilirsiniz.
 app.get('/api/route/status', async (req, res) => {
   try {
     if (Date.now() - __osrmStatus.checkedAt > 20000) await refreshOsrmStatus();
-    res.json({ ok: true, foot: __osrmStatus.foot, bike: __osrmStatus.bike, car: __osrmStatus.car });
+    const mapCheck = checkRoutingMapFile();
+    res.json({
+      ok: true,
+      services: { foot: __osrmStatus.foot, bike: __osrmStatus.bike, car: __osrmStatus.car },
+      // geriye dönük uyumluluk
+      foot: __osrmStatus.foot, bike: __osrmStatus.bike, car: __osrmStatus.car,
+      map_file: mapCheck.file || null,
+      map_ok: mapCheck.ok,
+      map_reason: mapCheck.reason
+    });
   } catch (e) {
     res.json({ ok: false, foot: false, bike: false, car: false });
   }
