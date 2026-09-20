@@ -256,6 +256,8 @@ window.i18nLangs.it = {
     bufferRecordCount: '{{count}} record entro {{radius}} m',
     noRecordsInBuffer: 'Nessun record in quest\'area',
     routeWalk: 'A piedi',
+    routeTo: 'Vai qui',
+    routeUnavailableHint: 'Il servizio di percorso sembra spento (i container Docker potrebbero non essere in esecuzione).',
     routeBike: 'In bici',
     routeCar: 'In auto',
     routeCalculating: 'Calcolo del percorso…',

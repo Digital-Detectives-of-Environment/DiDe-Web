@@ -1875,6 +1875,13 @@ function addRouteButtonsToPopup(content, e){
 
     const row = document.createElement('div');
     row.className = 'route-btn-row';
+    const head = document.createElement('div');
+    head.className = 'route-btn-head';
+    head.textContent = t('routeTo');
+    row.appendChild(head);
+    const btns = document.createElement('div');
+    btns.className = 'route-btn-list';
+    row.appendChild(btns);
     [['foot', 'routeWalk'], ['bike', 'routeBike'], ['car', 'routeCar']].forEach(([mode, key]) => {
       const b = document.createElement('button');
       b.type = 'button';
@@ -1886,9 +1893,12 @@ function addRouteButtonsToPopup(content, e){
         try { ev.preventDefault(); ev.stopPropagation(); } catch {}
         startNavigation(mode, lat, lng);
       };
-      row.appendChild(b);
+      btns.appendChild(b);
     });
-    content.appendChild(row);
+    // Butonlar pop-up'ın EN ÜSTÜNE konur: fotoğraf/video bölümleri uzun olduğunda
+    // aşağıda kalıp görünmez olmasınlar (önceki sürümde en alttaydılar).
+    if (content.firstChild) content.insertBefore(row, content.firstChild);
+    else content.appendChild(row);
   } catch (err) { console.warn('addRouteButtonsToPopup', err); }
 }
 
@@ -1945,7 +1955,10 @@ async function startNavigation(mode, lat, lng){
     try {
       data = await _navFetchRoute(mode, { lat: fix.lat, lng: fix.lng }, { lat, lng });
     } catch (err) {
-      showGridWarning(err.i18nKey ? t(err.i18nKey) : (err.message || t('unknownError')), 9000);
+      let msg = err.i18nKey ? t(err.i18nKey) : (err.message || t('unknownError'));
+      // Servis kapalıysa nedenini de söyle (Docker konteynerleri çalışmıyor olabilir)
+      if (err.i18nKey === 'routeServiceUnavailable') msg += ' ' + t('routeUnavailableHint');
+      showGridWarning(msg, 10000);
       return;
     }
 

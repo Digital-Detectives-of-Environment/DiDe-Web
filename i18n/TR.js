@@ -261,6 +261,8 @@ window.i18nLangs.tr = {
     bufferRecordCount: '{{radius}} m çevresinde {{count}} kayıt',
     noRecordsInBuffer: 'Bu alanda kayıt yok',
     routeWalk: 'Yürüyerek',
+    routeTo: 'Buraya git',
+    routeUnavailableHint: 'Rotalama servisi kapalı görünüyor (Docker konteynerleri çalışmıyor olabilir).',
     routeBike: 'Bisikletle',
     routeCar: 'Arabayla',
     routeCalculating: 'Rota hesaplanıyor…',

@@ -1,31 +1,28 @@
-x-osrm-image: &osrm-image ghcr.io/project-osrm/osrm-backend:latest
-
 services:
-  # 1) Harita verisini indirir 
   osrm-fetch:
     image: curlimages/curl:latest
     container_name: dide-osrm-fetch
+    user: root
     restart: "no"
     volumes:
       - ./osrm-data:/data
     environment:
-
       OSRM_PBF_URL: ${OSRM_PBF_URL:-https://download.geofabrik.de/europe/turkey-latest.osm.pbf}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         set -e
-        if [ -f /data/map.osm.pbf ]; then
+        if [ -s /data/map.osm.pbf ]; then
           echo "[osrm-fetch] map.osm.pbf already exists, skipping download."
         else
           echo "[osrm-fetch] downloading $$OSRM_PBF_URL ..."
-          curl -L --fail --retry 3 -o /data/map.osm.pbf "$$OSRM_PBF_URL"
+          curl -L --fail --retry 3 -o /data/map.osm.pbf.part "$$OSRM_PBF_URL"
+          mv /data/map.osm.pbf.part /data/map.osm.pbf
           echo "[osrm-fetch] download complete."
         fi
 
-
   osrm-prepare:
-    image: *osrm-image
+    image: ghcr.io/project-osrm/osrm-backend:latest
     container_name: dide-osrm-prepare
     restart: "no"
     depends_on:
@@ -43,7 +40,8 @@ services:
             echo "[osrm-prepare] $$dir already prepared, skipping."
             return 0
           fi
-          echo "[osrm-prepare] preparing $$dir ..."
+          echo "[osrm-prepare] preparing $$dir (this can take a while) ..."
+          rm -rf "/data/$$dir"
           mkdir -p "/data/$$dir"
           cp /data/map.osm.pbf "/data/$$dir/map.osm.pbf"
           osrm-extract -p "/opt/$$profile.lua" "/data/$$dir/map.osm.pbf"
@@ -58,40 +56,55 @@ services:
         echo "[osrm-prepare] all profiles ready."
 
   osrm-car:
-    image: *osrm-image
+    image: ghcr.io/project-osrm/osrm-backend:latest
     container_name: dide-osrm-car
     restart: unless-stopped
-    depends_on:
-      osrm-prepare:
-        condition: service_completed_successfully
     volumes:
       - ./osrm-data:/data
-    command: osrm-routed --algorithm mld --max-matching-size 0 --max-trip-size 0 /data/car/map.osrm
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        while [ ! -f /data/car/map.osrm.mldgr ]; do
+          echo "[osrm-car] waiting for map data (osrm-prepare still running?) ..."
+          sleep 10
+        done
+        echo "[osrm-car] data ready, starting router."
+        exec osrm-routed --algorithm mld /data/car/map.osrm
     ports:
       - "127.0.0.1:5001:5000"
 
   osrm-bike:
-    image: *osrm-image
+    image: ghcr.io/project-osrm/osrm-backend:latest
     container_name: dide-osrm-bike
     restart: unless-stopped
-    depends_on:
-      osrm-prepare:
-        condition: service_completed_successfully
     volumes:
       - ./osrm-data:/data
-    command: osrm-routed --algorithm mld --max-matching-size 0 --max-trip-size 0 /data/bike/map.osrm
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        while [ ! -f /data/bike/map.osrm.mldgr ]; do
+          echo "[osrm-bike] waiting for map data (osrm-prepare still running?) ..."
+          sleep 10
+        done
+        echo "[osrm-bike] data ready, starting router."
+        exec osrm-routed --algorithm mld /data/bike/map.osrm
     ports:
       - "127.0.0.1:5002:5000"
 
   osrm-foot:
-    image: *osrm-image
+    image: ghcr.io/project-osrm/osrm-backend:latest
     container_name: dide-osrm-foot
     restart: unless-stopped
-    depends_on:
-      osrm-prepare:
-        condition: service_completed_successfully
     volumes:
       - ./osrm-data:/data
-    command: osrm-routed --algorithm mld --max-matching-size 0 --max-trip-size 0 /data/foot/map.osrm
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        while [ ! -f /data/foot/map.osrm.mldgr ]; do
+          echo "[osrm-foot] waiting for map data (osrm-prepare still running?) ..."
+          sleep 10
+        done
+        echo "[osrm-foot] data ready, starting router."
+        exec osrm-routed --algorithm mld /data/foot/map.osrm
     ports:
       - "127.0.0.1:5003:5000"

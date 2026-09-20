@@ -261,6 +261,8 @@ window.i18nLangs.en = {
     bufferRecordCount: '{{count}} records within {{radius}} m',
     noRecordsInBuffer: 'No records in this area',
     routeWalk: 'Walking',
+    routeTo: 'Go here',
+    routeUnavailableHint: 'The routing service appears to be offline (the Docker containers may not be running).',
     routeBike: 'Cycling',
     routeCar: 'Driving',
     routeCalculating: 'Calculating route…',

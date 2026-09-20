@@ -3688,6 +3688,60 @@ app.get('/api/boundary', async (req, res) => {
    - Basit hız sınırı uygulanır (IP başına dakikada N istek).
    - docker-compose.yml içindeki OSRM portları yalnızca 127.0.0.1'e bağlanır. */
 
+/* --- Rotalama servislerinin durumu + Docker ile otomatik başlatma --- */
+let __osrmStatus = { foot: false, bike: false, car: false, checkedAt: 0 };
+
+async function osrmPing(baseUrl) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 2500);
+  try {
+    // Rastgele bir koordinat çifti: servis ayakta değilse istek hata verir.
+    const r = await fetch(`${baseUrl}/route/v1/driving/13.388,52.517;13.397,52.529?overview=false`, { signal: ctrl.signal });
+    return r.ok || r.status === 400;   // 400 = servis ayakta, koordinat kapsam dışı
+  } catch { return false; }
+  finally { clearTimeout(timer); }
+}
+
+async function refreshOsrmStatus() {
+  const [foot, bike, car] = await Promise.all([
+    osrmPing(OSRM_URLS.foot), osrmPing(OSRM_URLS.bike), osrmPing(OSRM_URLS.car)
+  ]);
+  __osrmStatus = { foot, bike, car, checkedAt: Date.now() };
+  return __osrmStatus;
+}
+
+// Docker açıksa rotalama konteynerlerini uygulamayla birlikte ayağa kaldırır.
+// Sabit komut çalıştırılır; hiçbir kullanıcı girdisi komuta karışmaz.
+// .env'de OSRM_AUTOSTART=false yazılarak kapatılabilir.
+function autoStartOsrmContainers() {
+  if (String(process.env.OSRM_AUTOSTART || 'true').toLowerCase() === 'false') {
+    console.log('[ROUTE] OSRM autostart disabled (OSRM_AUTOSTART=false).');
+    return;
+  }
+  const composeFile = path.join(__dirname, 'docker-compose.yml');
+  if (!_fileExists(composeFile)) {
+    console.warn('[ROUTE] docker-compose.yml not found → routing containers not started.');
+    return;
+  }
+  const run = (args, cb) => execFile('docker', args, { cwd: __dirname, timeout: 120000 }, cb);
+  run(['compose', 'version'], (err) => {
+    if (err) {
+      console.warn('[ROUTE] Docker (compose) not available → routing services will not start automatically.');
+      console.warn('[ROUTE] Start Docker and run "docker compose up -d" in the project folder.');
+      return;
+    }
+    console.log('[ROUTE] Starting OSRM routing containers (docker compose up -d) ...');
+    run(['compose', 'up', '-d'], (e2, stdout, stderr) => {
+      if (e2) {
+        console.warn('[ROUTE] "docker compose up -d" failed:', (stderr || e2.message || '').toString().trim().split('\n').slice(-3).join(' | '));
+        return;
+      }
+      console.log('[ROUTE] Routing containers are up. First run downloads and prepares map data; this can take a while.');
+      setTimeout(() => { refreshOsrmStatus().then(st => console.log('[ROUTE] OSRM status:', st)); }, 8000);
+    });
+  });
+}
+
 const ROUTE_AREA_TABLE = 'dide_route_area';   // sınır/aggregation birleşiminin önbelleği
 let __routeAreaReady = null;
 
@@ -3768,6 +3822,16 @@ async function osrmFetch(baseUrl, profile, from, to) {
     clearTimeout(timer);
   }
 }
+
+// GET /api/route/status — hangi rotalama profillerinin ayakta olduğunu bildirir
+app.get('/api/route/status', async (req, res) => {
+  try {
+    if (Date.now() - __osrmStatus.checkedAt > 20000) await refreshOsrmStatus();
+    res.json({ ok: true, foot: __osrmStatus.foot, bike: __osrmStatus.bike, car: __osrmStatus.car });
+  } catch (e) {
+    res.json({ ok: false, foot: false, bike: false, car: false });
+  }
+});
 
 // POST /api/route  { mode: 'foot'|'bike'|'car', from:{lat,lng}, to:{lat,lng} }
 app.post('/api/route', tryAuth, async (req, res) => {
@@ -5669,6 +5733,9 @@ async function ensureOlaylarSchema(){
 }
 
 ensureOlaylarSchema().then(() => {
+  // Rotalama (OSRM) konteynerlerini Docker açıksa otomatik başlat
+  try { autoStartOsrmContainers(); } catch (e) { console.warn('[ROUTE] autostart error:', e.message); }
+
   const server = app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
 
   // Yuk altinda baglanti kopmasini onle

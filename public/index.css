@@ -3619,9 +3619,12 @@ th:has(#btn-add-type){
 /* ===================== ROTALAMA / NAVİGASYON ===================== */
 /* Pop-up içindeki yaya / bisiklet / araç butonları */
 .route-btn-row{
-  display:flex; gap:6px; margin-top:10px; padding-top:8px;
-  border-top:1px solid var(--border-soft,#eef2f7);
+  display:flex; flex-direction:column; gap:5px;
+  margin:0 0 10px; padding-bottom:9px;
+  border-bottom:1px solid var(--border-soft,#eef2f7);
 }
+.route-btn-head{ font-size:11px; font-weight:700; color:var(--muted,#6b7280); letter-spacing:.2px; }
+.route-btn-list{ display:flex; gap:6px; }
 .route-btn{
   flex:1 1 0; min-width:0;
   display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
