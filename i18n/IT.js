@@ -495,6 +495,14 @@ window.i18nLangs.it = {
 
     // Messaggi di errore auth (localizzati)
     usernameTaken: 'Il nome utente è già registrato. Scegli un nome utente diverso.',
+    ordScannedBy: 'Scansionato da',
+    agreeOutOfRange: 'Devi essere vicino a questo punto per aderire (è fuori dalla tua area).',
+    agree_out_of_range: 'Devi trovarti all\'interno della tua area per aderire a questo punto.',
+    emailRequiredWarn: 'Inserisci un indirizzo email. L\'email è obbligatoria per aggiungere un utente aziendale.',
+    emailInvalidWarn: 'Inserisci un indirizzo email valido (es. nome@dominio.com).',
+    email_required: 'L\'indirizzo email è obbligatorio.',
+    usernameTakenInCompanyWarn: 'Questo nome utente è già usato in questa azienda. Scegli un nome utente diverso.',
+    usernameTakenInCompany: 'Questo nome utente è già registrato in questa azienda.',
     base32_gecersiz: 'Il codice Base32 non è valido. Sono ammesse solo le lettere A–Z e le cifre 2–7, con una lunghezza di 16–64 caratteri. Puoi anche usare il pulsante "Genera Base32".',
     invalidAmount: 'Inserisci un importo valido (es. 200,50).',
     billAmount: 'Importo del conto',

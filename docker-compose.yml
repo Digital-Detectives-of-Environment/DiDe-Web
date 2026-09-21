@@ -3,54 +3,103 @@ services:
   osrm-prepare:
     image: ghcr.io/project-osrm/osrm-backend:latest
     container_name: dide-osrm-prepare
-    restart: "no"
+    # Sürekli çalışan bir "gözcü": harita dosyası ya da sınır değişirse veriyi
+    # kendiliğinden yeniden hazırlar; router'lar da yeni veriyle kendiliğinden açılır.
+    restart: unless-stopped
     volumes:
       # Kaynak: case_study/<CASE_STUDY>/existing_data  (salt okunur)
+      #   map.osm.pbf (ya da map.osm)       → yol verisi
+      #   .routing_boundary.geojson          → sınır (uygulama dide_boundary'den yazar)
       - ./case_study/${CASE_STUDY:?CASE_STUDY is not set in .env. Routing needs case_study/<CASE_STUDY>/existing_data/map.osm}/existing_data:/input:ro
       # Hedef: işlenmiş rotalama verisi
       - ./osrm-data:/data
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
-        set -e
-        SRC=""
-        if   [ -s /input/map.osm.pbf ]; then SRC=/input/map.osm.pbf
-        elif [ -s /input/map.osm ];     then SRC=/input/map.osm
-        fi
-        if [ -z "$$SRC" ]; then
-          echo "[osrm-prepare] ERROR: no map file found."
-          echo "[osrm-prepare] Put your OpenStreetMap export at:"
-          echo "[osrm-prepare]   case_study/<CASE_STUDY>/existing_data/map.osm   (or map.osm.pbf)"
-          exit 1
-        fi
-        STAMP="$$(stat -c '%s-%Y' "$$SRC")"
-        echo "[osrm-prepare] source: $$SRC  (stamp $$STAMP)"
-        prepare () {
-          profile="$$1"; dir="$$2"
-          if [ -f "/data/$$dir/map.osrm.mldgr" ] && [ "$$(cat /data/$$dir/.source-stamp 2>/dev/null)" = "$$STAMP" ]; then
-            echo "[osrm-prepare] $$dir already prepared for this file, skipping."
-            return 0
+        BND=/input/.routing_boundary.geojson
+
+        # Sınırla kesmek için osmium gerekir; yoksa bir kez kurulur.
+        ensure_osmium () {
+          command -v osmium >/dev/null 2>&1 && return 0
+          echo "[osrm-prepare] installing osmium-tool (one time) ..."
+          if command -v apt-get >/dev/null 2>&1; then
+            apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq --no-install-recommends osmium-tool >/dev/null 2>&1
+          elif command -v apk >/dev/null 2>&1; then
+            apk add --no-cache osmium-tool >/dev/null 2>&1
           fi
+          command -v osmium >/dev/null 2>&1
+        }
+
+        prepare () {
+          profile="$$1"; dir="$$2"; input="$$3"
           echo "[osrm-prepare] preparing $$dir ..."
-          rm -rf "/data/$$dir"
-          mkdir -p "/data/$$dir"
-          # Dosya adı her zaman map.osm / map.osm.pbf olur → çıktı her zaman map.osrm
+          rm -rf "/data/$$dir.tmp"
+          mkdir -p "/data/$$dir.tmp"
           NAME="map.osm"
-          case "$$SRC" in *.pbf) NAME="map.osm.pbf";; esac
-          cp "$$SRC" "/data/$$dir/$$NAME"
-          osrm-extract -p "/opt/$$profile.lua" "/data/$$dir/$$NAME"
-          rm -f "/data/$$dir/$$NAME"
-          osrm-partition "/data/$$dir/map.osrm"
-          osrm-customize "/data/$$dir/map.osrm"
-          echo "$$STAMP" > "/data/$$dir/.source-stamp"
+          case "$$input" in *.pbf) NAME="map.osm.pbf";; esac
+          cp "$$input" "/data/$$dir.tmp/$$NAME" || return 1
+          osrm-extract -p "/opt/$$profile.lua" "/data/$$dir.tmp/$$NAME" || return 1
+          rm -f "/data/$$dir.tmp/$$NAME"
+          osrm-partition "/data/$$dir.tmp/map.osrm" || return 1
+          osrm-customize "/data/$$dir.tmp/map.osrm" || return 1
+          echo "$$STAMP" > "/data/$$dir.tmp/.source-stamp"
+          # Hazır veriyi tek hamlede yerine koy (router eski veriyle çalışmaya devam eder,
+          # yeni damgayı görünce kendini yeni veriyle yeniden başlatır)
+          rm -rf "/data/$$dir.old"
+          [ -d "/data/$$dir" ] && mv "/data/$$dir" "/data/$$dir.old"
+          mv "/data/$$dir.tmp" "/data/$$dir"
+          rm -rf "/data/$$dir.old"
           echo "[osrm-prepare] $$dir ready."
         }
-        prepare car car
-        prepare bicycle bike
-        prepare foot foot
-        echo "[osrm-prepare] all profiles ready."
 
-  # 2) Rotalama servisleri — hemen başlar, veri hazır olunca servise girer
+        while true; do
+          SRC=""
+          if   [ -s /input/map.osm.pbf ]; then SRC=/input/map.osm.pbf
+          elif [ -s /input/map.osm ];     then SRC=/input/map.osm
+          fi
+          if [ -z "$$SRC" ]; then
+            echo "[osrm-prepare] ERROR: no map file. Put it at case_study/<CASE_STUDY>/existing_data/map.osm.pbf"
+            sleep 60; continue
+          fi
+
+          SRC_STAMP="$$(stat -c '%s-%Y' "$$SRC")"
+          if [ -s "$$BND" ]; then BND_STAMP="$$(cksum < "$$BND" | cut -d' ' -f1)"; else BND_STAMP="none"; fi
+          STAMP="$$SRC_STAMP-$$BND_STAMP"
+
+          UP_TO_DATE=1
+          for d in car bike foot; do
+            [ "$$(cat /data/$$d/.source-stamp 2>/dev/null)" = "$$STAMP" ] || UP_TO_DATE=0
+          done
+          if [ "$$UP_TO_DATE" = "1" ] || [ "$$(cat /data/.failed-stamp 2>/dev/null)" = "$$STAMP" ]; then
+            sleep 30; continue
+          fi
+
+          echo "[osrm-prepare] source: $$SRC   boundary: $$( [ -s "$$BND" ] && echo yes || echo 'none (full network)')   stamp: $$STAMP"
+          INPUT="$$SRC"
+          if [ -s "$$BND" ]; then
+            if ensure_osmium; then
+              echo "[osrm-prepare] clipping the road network to the boundary ..."
+              if osmium extract -p "$$BND" "$$SRC" -o /data/clipped.osm.pbf --overwrite; then
+                INPUT=/data/clipped.osm.pbf
+              else
+                echo "[osrm-prepare] WARNING: clipping failed, using the full network."
+              fi
+            else
+              echo "[osrm-prepare] WARNING: osmium could not be installed, using the full network."
+            fi
+          fi
+
+          if prepare car car "$$INPUT" && prepare bicycle bike "$$INPUT" && prepare foot foot "$$INPUT"; then
+            rm -f /data/.failed-stamp
+            echo "[osrm-prepare] all profiles ready."
+          else
+            echo "$$STAMP" > /data/.failed-stamp
+            echo "[osrm-prepare] ERROR: preparation failed (see messages above). Will retry when the map or boundary changes."
+          fi
+          rm -f /data/clipped.osm.pbf
+          sleep 30
+        done
+
   osrm-car:
     image: ghcr.io/project-osrm/osrm-backend:latest
     container_name: dide-osrm-car
@@ -65,7 +114,7 @@ services:
         # bu döngü router'ı KENDİLİĞİNDEN yeniden başlatır — yoksa eski veriyle
         # çalışmaya devam eder ve hiçbir rota bulunamaz.
         while true; do
-          while [ ! -f /data/car/map.osrm.mldgr ] || [ ! -f /data/car/.source-stamp ]; do
+          while [ ! -f /data/car/.source-stamp ]; do
             echo "[osrm-car] waiting for map data (check: docker compose logs osrm-prepare)"
             sleep 10
           done
@@ -102,7 +151,7 @@ services:
         # bu döngü router'ı KENDİLİĞİNDEN yeniden başlatır — yoksa eski veriyle
         # çalışmaya devam eder ve hiçbir rota bulunamaz.
         while true; do
-          while [ ! -f /data/bike/map.osrm.mldgr ] || [ ! -f /data/bike/.source-stamp ]; do
+          while [ ! -f /data/bike/.source-stamp ]; do
             echo "[osrm-bike] waiting for map data (check: docker compose logs osrm-prepare)"
             sleep 10
           done
@@ -139,7 +188,7 @@ services:
         # bu döngü router'ı KENDİLİĞİNDEN yeniden başlatır — yoksa eski veriyle
         # çalışmaya devam eder ve hiçbir rota bulunamaz.
         while true; do
-          while [ ! -f /data/foot/map.osrm.mldgr ] || [ ! -f /data/foot/.source-stamp ]; do
+          while [ ! -f /data/foot/.source-stamp ]; do
             echo "[osrm-foot] waiting for map data (check: docker compose logs osrm-prepare)"
             sleep 10
           done

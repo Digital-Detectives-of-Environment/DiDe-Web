@@ -501,6 +501,14 @@ window.i18nLangs.tr = {
 
     // Auth hata mesajları (dil desteği)
     usernameTaken: 'Kullanıcı adı kayıtlı. Lütfen başka bir kullanıcı adı girin.',
+    ordScannedBy: 'QR\'ı okutan',
+    agreeOutOfRange: 'Katılmak için bu noktaya yakın olmalısınız (tampon alanınızın dışında).',
+    agree_out_of_range: 'Bu noktaya katılmak için tampon alanınızın içinde olmalısınız.',
+    emailRequiredWarn: 'Lütfen e-posta adresini girin. Şirket kullanıcısı eklemek için e-posta adresi zorunludur.',
+    emailInvalidWarn: 'Lütfen geçerli bir e-posta adresi girin (örn. ad@alanadi.com).',
+    email_required: 'E-posta adresi zorunludur.',
+    usernameTakenInCompanyWarn: 'Bu kullanıcı adı bu şirkette zaten kullanılıyor. Lütfen farklı bir kullanıcı adı girin.',
+    usernameTakenInCompany: 'Bu kullanıcı adı bu şirkette zaten kayıtlı.',
     base32_gecersiz: 'Base32 kodu kurallara uygun değil. Yalnızca A–Z harfleri ve 2–7 rakamları kullanılabilir; uzunluk 16–64 karakter olmalıdır. Dilerseniz "Base32 üret" düğmesiyle otomatik oluşturabilirsiniz.',
     invalidAmount: 'Lütfen geçerli bir tutar girin (örn. 200,50).',
     billAmount: 'Hesap tutarı',

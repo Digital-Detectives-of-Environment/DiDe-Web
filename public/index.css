@@ -3642,6 +3642,30 @@ th:has(#btn-add-type){
 .route-btn-bike:hover{ background:rgba(15,157,88,.10); }
 @media (max-width:380px){ .route-btn-label{ display:none; } .route-btn{ padding:9px 4px; } }
 
+/* Canlı tampon (BUFFER_RADIUS): kullanıcının konumu çevresinde, animasyonsuz.
+   Aydınlık temada canlı turkuaz, karanlık temada karanlık haritaya uyan açık turkuaz. */
+path.live-buffer-circle{
+  stroke:#0d9488;
+  stroke-width:2;
+  stroke-opacity:.9;
+  fill:#14b8a6;
+  fill-opacity:.14;
+}
+:root.theme-dark path.live-buffer-circle{
+  stroke:#5eead4;
+  stroke-opacity:.85;
+  fill:#2dd4bf;
+  fill-opacity:.12;
+}
+
+/* Katılım (+) butonu tamponun DIŞINDAKİ noktalarda: soluk ve pasif */
+.like-btn.like-out-of-range{
+  opacity:.38;
+  filter:grayscale(.85);
+  cursor:not-allowed;
+}
+.like-btn.like-out-of-range:hover{ transform:none; background:transparent; }
+
 /* Hedef noktası işareti (Google Maps tarzı kırmızı iğne) */
 .nav-dest-icon{ background:none !important; border:none !important; }
 .nav-dest-pin svg{ width:30px; height:42px; display:block; filter:drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
@@ -3976,12 +4000,15 @@ th:has(#btn-add-type){
 .cd-orders-table tbody td{ padding:9px 12px; border-top:1px solid var(--border-soft,#eef2f7); color:var(--text,#111); white-space:normal; overflow-wrap:anywhere; word-break:break-word; vertical-align:middle; }
 .cd-orders-table tbody tr:hover{ background:color-mix(in srgb, var(--primary,#2563eb) 6%, transparent); }
 .cd-orders-td-person{ font-weight:600; }
-.cd-orders-table th:nth-child(1), .cd-orders-table td:nth-child(1){ width:22%; }
+.cd-orders-td-scanner{ color:var(--muted,#6b7280); font-weight:600; }
+/* 7 sütun: Kullanıcı | QR'ı okutan | Tutar | Ödenen | İndirim | Puan | Tarih */
+.cd-orders-table th:nth-child(1), .cd-orders-table td:nth-child(1){ width:17%; }
 .cd-orders-table th:nth-child(2), .cd-orders-table td:nth-child(2){ width:15%; }
-.cd-orders-table th:nth-child(3), .cd-orders-table td:nth-child(3){ width:15%; }
-.cd-orders-table th:nth-child(4), .cd-orders-table td:nth-child(4){ width:14%; text-align:center; }
-.cd-orders-table th:nth-child(5), .cd-orders-table td:nth-child(5){ width:12%; text-align:center; }
-.cd-orders-table th:nth-child(6), .cd-orders-table td:nth-child(6){ width:22%; }
+.cd-orders-table th:nth-child(3), .cd-orders-table td:nth-child(3){ width:13%; }
+.cd-orders-table th:nth-child(4), .cd-orders-table td:nth-child(4){ width:13%; }
+.cd-orders-table th:nth-child(5), .cd-orders-table td:nth-child(5){ width:11%; text-align:center; }
+.cd-orders-table th:nth-child(6), .cd-orders-table td:nth-child(6){ width:10%; text-align:center; }
+.cd-orders-table th:nth-child(7), .cd-orders-table td:nth-child(7){ width:21%; }
 .cd-orders-pagination{ display:flex; justify-content:center; gap:6px; flex-wrap:wrap; margin-top:10px; }
 
 @media (max-width:640px){
@@ -4268,15 +4295,17 @@ body.role-company #company-card{
   overflow-wrap:anywhere;
   word-break:break-word;
 }
-/* Sipariş tarihi sütunu (6.) profil tablosundaki iki tarih sütunu gibi tek satıra sığsın,
+/* Sipariş tarihi sütunu (7.) profil tablosundaki iki tarih sütunu gibi tek satıra sığsın,
    "gg.aa.yyyy ss:dd" alt satıra bölünmesin. */
-.cd-orders-table th:nth-child(6),
-.cd-orders-table td:nth-child(6){
+.cd-orders-table th:nth-child(7),
+.cd-orders-table td:nth-child(7){
   white-space:nowrap;
   word-break:normal;
   overflow-wrap:normal;
 }
 @media (max-width:640px){
-  .cd-orders-table th:nth-child(6),
-  .cd-orders-table td:nth-child(6){ white-space:normal; }
+  .cd-orders-table th:nth-child(7),
+  .cd-orders-table td:nth-child(7){ white-space:normal; }
+  .cd-orders-table{ font-size:10.5px; }
+  .cd-orders-table thead th, .cd-orders-table tbody td{ padding:5px 4px; }
 }

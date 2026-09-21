@@ -7364,13 +7364,16 @@ async function loadCompanyUsers(companyId) {
   const form = document.createElement('div'); form.className = 'cd-user-form';
   const mk = (id, ph, type) => { const i = document.createElement('input'); i.id = id; i.className = 'company-input'; i.type = type || 'text'; i.placeholder = ph; i.autocomplete = 'off'; return i; };
   // company rolündeki kullanıcılarda e-posta ve soyad İSTENMEZ (veritabanına NULL yazılır).
+  // Şirket kullanıcısı: e-posta ZORUNLU (aynı e-posta birden fazla hesapta olabilir),
+  // soyad istenmez. Kullanıcı adı yalnızca bu şirket içinde benzersiz olmalı.
   const uname = mk('cd-user-username', t('usernamePlaceholder'));
   const nm = mk('cd-user-name', t('firstNamePlaceholder'));
+  const em = mk('cd-user-email', t('emailPlaceholder'), 'email');
   const pw = mk('cd-user-password', t('passwordPlaceholder'), 'password');
   const b32 = mk('cd-user-base32', t('base32Placeholder'));
-  [uname, nm, pw].forEach(el => { const row = document.createElement('div'); row.className = 'company-form-row'; row.appendChild(el); form.appendChild(row); });
+  [uname, nm, em, pw].forEach(el => { const row = document.createElement('div'); row.className = 'company-form-row'; row.appendChild(el); form.appendChild(row); });
   // Hatalı alanın kırmızı çerçevesi, kullanıcı yazmaya başlayınca kalkar
-  [uname, nm, pw, b32].forEach(el => { el.addEventListener('input', () => el.classList.remove('input-error')); });
+  [uname, nm, em, pw, b32].forEach(el => { el.addEventListener('input', () => el.classList.remove('input-error')); });
   const b32Row = document.createElement('div'); b32Row.className = 'company-form-row cd-user-base32-row';
   const b32GenBtn = document.createElement('button'); b32GenBtn.type = 'button'; b32GenBtn.className = 'btn cd-user-base32-gen'; b32GenBtn.textContent = t('generateBase32');
   b32GenBtn.onclick = async () => {
@@ -7386,7 +7389,7 @@ async function loadCompanyUsers(companyId) {
   b32Row.appendChild(b32); b32Row.appendChild(b32GenBtn); form.appendChild(b32Row);
   const addBtn = document.createElement('button'); addBtn.type = 'button'; addBtn.className = 'btn cd-user-add'; addBtn.textContent = t('addCompanyUser');
   const btnRow = document.createElement('div'); btnRow.className = 'company-form-row'; btnRow.appendChild(addBtn); form.appendChild(btnRow);
-  addBtn.onclick = () => submitCompanyUser(companyId, { uname, nm, pw, b32, addBtn });
+  addBtn.onclick = () => submitCompanyUser(companyId, { uname, nm, em, pw, b32, addBtn });
   const title = document.createElement('div'); title.className = 'cd-section-title'; title.textContent = t('companyUsers');
   pane.appendChild(form);
   pane.appendChild(title);
@@ -7405,7 +7408,7 @@ async function refreshCompanyUsersList(companyId) {
   list.forEach(u => {
     const row = document.createElement('div'); row.className = 'cd-user-row';
     const nm = [u.name, u.surname].filter(Boolean).join(' ');
-    row.innerHTML = `<span class="cd-user-uname">${escapeHtml(u.username || '')}</span>${nm ? `<span class="cd-user-fn">${escapeHtml(nm)}</span>` : ''}`;
+    row.innerHTML = `<span class="cd-user-uname">${escapeHtml(u.username || '')}</span>${nm ? `<span class="cd-user-fn">${escapeHtml(nm)}</span>` : ''}${u.email ? `<span class="cd-user-em">${escapeHtml(u.email)}</span>` : ''}`;
     wrap.appendChild(row);
   });
 }
@@ -7426,12 +7429,19 @@ function _cdUserFieldError(el, messageKey) {
   showGridWarning(t(messageKey), 8000);
 }
 
+const CD_EMAIL_REGEX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
 async function submitCompanyUser(companyId, els) {
   const username = (els.uname.value || '').trim();
+  const email = ((els.em && els.em.value) || '').trim();
   const password = els.pw.value || '';
   const base32 = (els.b32.value || '').trim();
 
-  [els.uname, els.nm, els.pw, els.b32].forEach(el => el && el.classList.remove('input-error'));
+  [els.uname, els.nm, els.em, els.pw, els.b32].forEach(el => el && el.classList.remove('input-error'));
+
+  // E-posta zorunlu: boşsa alan kırmızı + kırmızı uyarı bandı
+  if (!email) { _cdUserFieldError(els.em, 'emailRequiredWarn'); return; }
+  if (!CD_EMAIL_REGEX.test(email)) { _cdUserFieldError(els.em, 'emailInvalidWarn'); return; }
 
   if (!username || !password || !base32) {
     if (!username) els.uname.classList.add('input-error');
@@ -7447,12 +7457,14 @@ async function submitCompanyUser(companyId, els) {
   try {
     const r = await fetch(`/api/admin/companies/${companyId}/users`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      // company kullanıcılarında e-posta ve soyad gönderilmez → sunucu NULL kaydeder
-      body: JSON.stringify({ username, password, name: els.nm.value || null, BASE32Code: base32 })
+      // soyad gönderilmez (sunucu NULL kaydeder); e-posta zorunlu
+      body: JSON.stringify({ username, email, password, name: els.nm.value || null, BASE32Code: base32 })
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d.ok) {
-      if (r.status === 409 || d.error === 'usernameTaken') { _cdUserFieldError(els.uname, 'usernameTakenWarn'); return; }
+      if (d.error === 'email_required') { _cdUserFieldError(els.em, 'emailRequiredWarn'); return; }
+      if (d.error === 'gecersiz_eposta') { _cdUserFieldError(els.em, 'emailInvalidWarn'); return; }
+      if (d.error === 'usernameTakenInCompany' || d.error === 'usernameTaken') { _cdUserFieldError(els.uname, 'usernameTakenInCompanyWarn'); return; }
       if (d.error === 'zayif_sifre') { _cdUserFieldError(els.pw, 'passwordRuleWarn'); return; }
       if (d.error === 'base32_gecersiz') { _cdUserFieldError(els.b32, 'base32RuleWarn'); return; }
       if (d.error === 'base32_cakisma') { els.b32.classList.add('input-error'); showGridWarning(d.message || t('unknownError'), 8000); return; }
@@ -7460,7 +7472,7 @@ async function submitCompanyUser(companyId, els) {
       return;
     }
     toast(t('userAdded'), 'success');
-    els.uname.value = ''; els.nm.value = ''; els.pw.value = ''; els.b32.value = '';
+    els.uname.value = ''; els.nm.value = ''; if (els.em) els.em.value = ''; els.pw.value = ''; els.b32.value = '';
     await refreshCompanyUsersList(companyId);
   } catch (e) { showGridWarning((e && e.message) || t('unknownError'), 6000); }
   finally { els.addBtn.disabled = false; }
@@ -7523,6 +7535,7 @@ function renderCompanyOrdersAdmin() {
   const table = document.createElement('table'); table.className = 'cd-orders-table';
   table.innerHTML = `<thead><tr>
       <th>${escapeHtml(t('ordPerson'))}</th>
+      <th>${escapeHtml(t('ordScannedBy'))}</th>
       <th>${escapeHtml(t('ordTotal'))}</th>
       <th>${escapeHtml(t('ordFinal'))}</th>
       <th>${escapeHtml(t('ordDiscount'))}</th>
@@ -7534,6 +7547,7 @@ function renderCompanyOrdersAdmin() {
     const tr = document.createElement('tr'); tr.className = 'cd-order-row';
     tr.innerHTML =
       `<td class="cd-orders-td-person">${escapeHtml(o.person_placing_order || '-')}</td>` +
+      `<td class="cd-orders-td-scanner">${escapeHtml(o.scanned_by || '-')}</td>` +
       `<td>${escapeHtml(_cdFmtMoney(o.order_amount_before_discount))}</td>` +
       `<td>${escapeHtml(_cdFmtMoney(o.order_amount_after_discount))}</td>` +
       `<td>${escapeHtml(o.discount_percentage != null ? o.discount_percentage + '%' : '-')}</td>` +
@@ -9577,11 +9591,30 @@ function addLikeControl(container, evt, opts = {}) {
   wrap.appendChild(count);
   wrap.appendChild(label);
 
+  // BUFFER_RADIUS tanımlıysa: buton yalnızca kullanıcının tamponunun içindeki
+  // noktalarda aktif (parlak); dışındakilerde soluk görünür ve tıklanınca bir şey yapmaz.
+  if (liveBufferRadius() > 0) {
+    _ensureLikeRangeHook();
+    btn.dataset.rangeGated = '1';
+    btn.dataset.lat = String(evt.latitude != null ? evt.latitude : '');
+    btn.dataset.lng = String(evt.longitude != null ? evt.longitude : '');
+    applyLikeRangeState(btn);
+  }
+
   btn.onclick = async (e) => {
     e.stopPropagation();
+    if (btn.dataset.rangeGated === '1') {
+      applyLikeRangeState(btn);
+      if (btn.classList.contains('like-out-of-range')) return;   // tampon dışında: hiçbir şey yapma
+    }
     btn.disabled = true;
     try {
-      const resp = await fetch(`/api/event/${evt.event_id}/agree`, { method: 'POST' });
+      const body = __slLastFix ? { lat: __slLastFix.lat, lng: __slLastFix.lng } : {};
+      const resp = await fetch(`/api/event/${evt.event_id}/agree`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
       const d = await resp.json().catch(() => ({}));
       if (!resp.ok) {
         toast((d.message || d.error || t('unknownError')), 'error');
@@ -10653,12 +10686,82 @@ function _slRender(){
     if (__slCircle) __slCircle.setLatLng(ll).setRadius(acc);
     else __slCircle = L.circle(ll, _accuracyCircleOpts(acc)).addTo(map);
   }
+  _slUpdateLiveBuffer(ll);
   updateLiveLocBtn();
   if (__slCenterPending) {
     __slCenterPending = false;
     _slCenterOnFix(true);
     _slArmFollow(15000);
   }
+}
+
+/* ===================== CANLI TAMPON (BUFFER_RADIUS) =====================
+   .env'deki BUFFER_RADIUS tanımlıysa, olay ekleyen/katılan kullanıcı ('user' rolü)
+   konumunu açtığında konumunun çevresinde bu yarıçapta bir tampon görür.
+   - Aydınlık ve karanlık tema için ayrı renkler (CSS: .live-buffer-circle).
+   - Katılım (+) butonu yalnızca bu tamponun İÇİNDEKİ noktalarda aktiftir.
+   - Aggregation layer olsa da tampon görünür ve katılımı sınırlar; ancak olay
+     EKLEME aggregation layer'a göre yapılır (bufferFlowEnabled ile aynı kural). */
+let __slBufferCircle = null;
+
+function liveBufferRadius(){
+  if (!currentUser || currentUser.role !== 'user') return 0;
+  const v = Number(APP_CONFIG.bufferRadius);
+  return (Number.isFinite(v) && v > 0) ? Math.round(v) : 0;
+}
+
+function _slUpdateLiveBuffer(ll){
+  const r = liveBufferRadius();
+  if (!map || !r || !ll) {
+    if (__slBufferCircle) { try { map.removeLayer(__slBufferCircle); } catch {} __slBufferCircle = null; }
+    return;
+  }
+  if (__slBufferCircle) {
+    __slBufferCircle.setLatLng(ll).setRadius(r);
+  } else {
+    __slBufferCircle = L.circle(ll, {
+      radius: r,
+      className: 'live-buffer-circle',
+      color: '#0d9488', weight: 2, opacity: 0.9,
+      fillColor: '#14b8a6', fillOpacity: 0.14,
+      interactive: false
+    }).addTo(map);
+    try { __slBufferCircle.bringToBack(); } catch {}
+  }
+}
+
+// Bir olay noktası kullanıcının tamponunun içinde mi?
+function isWithinLiveBuffer(lat, lng){
+  const r = liveBufferRadius();
+  if (!r) return true;                          // tampon tanımlı değil → kısıt yok
+  if (!__slLastFix) return false;               // konum yoksa kontrol edilemez → pasif
+  const la = Number(lat), lo = Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(lo)) return false;
+  const toRad = Math.PI / 180, R = 6371000;
+  const dLat = (la - __slLastFix.lat) * toRad, dLng = (lo - __slLastFix.lng) * toRad;
+  const h = Math.sin(dLat / 2) ** 2 +
+            Math.cos(__slLastFix.lat * toRad) * Math.cos(la * toRad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h))) <= r;
+}
+
+function applyLikeRangeState(btn){
+  if (!btn || btn.dataset.rangeGated !== '1') return;
+  const inside = isWithinLiveBuffer(btn.dataset.lat, btn.dataset.lng);
+  btn.classList.toggle('like-out-of-range', !inside);
+  btn.setAttribute('aria-disabled', inside ? 'false' : 'true');
+  btn.title = inside ? t('agree') : t('agreeOutOfRange');
+}
+
+let __likeRangeHooked = false;
+function _ensureLikeRangeHook(){
+  if (__likeRangeHooked || !map) return;
+  __likeRangeHooked = true;
+  try { map.on('popupopen', () => setTimeout(refreshLikeRangeStates, 0)); } catch {}
+}
+
+// Açık pop-up'lardaki katılım butonlarının durumunu konuma göre tazele
+function refreshLikeRangeStates(){
+  try { document.querySelectorAll('.like-btn[data-range-gated="1"]').forEach(applyLikeRangeState); } catch {}
 }
 
 function _slHandlePosition(position){
@@ -10673,6 +10776,7 @@ function _slHandlePosition(position){
   __slLastFix = { lat: c.latitude, lng: c.longitude, acc: c.accuracy, ts: Date.now() };
   _pushGpsCourse(c);
   _slRender();
+  refreshLikeRangeStates();
   // Canlı navigasyon açıksa rotayı/ölçümleri bu konuma göre güncelle
   try { if (typeof navOnPosition === 'function') navOnPosition(c); } catch (e) { console.warn('navOnPosition', e); }
 }
@@ -10784,6 +10888,8 @@ function stopStandaloneLive(){
   clearTimeout(__slFixTimer);
   if (__slMarker) { try { map.removeLayer(__slMarker); } catch {} __slMarker = null; }
   if (__slCircle) { try { map.removeLayer(__slCircle); } catch {} __slCircle = null; }
+  if (__slBufferCircle) { try { map.removeLayer(__slBufferCircle); } catch {} __slBufferCircle = null; }
+  try { refreshLikeRangeStates(); } catch {}
   __slCenterPending = false;
   __slAutoCentered = false;
   __slLastFix = null;

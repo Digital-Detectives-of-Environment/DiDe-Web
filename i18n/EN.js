@@ -501,6 +501,14 @@ window.i18nLangs.en = {
 
     // Auth error messages (localized)
     usernameTaken: 'Username is already registered. Please choose a different username.',
+    ordScannedBy: 'Scanned by',
+    agreeOutOfRange: 'You need to be close to this point to agree (it is outside your buffer).',
+    agree_out_of_range: 'You must be inside your buffer area to agree with this point.',
+    emailRequiredWarn: 'Please enter an email address. An email address is required to add a company user.',
+    emailInvalidWarn: 'Please enter a valid email address (e.g. name@domain.com).',
+    email_required: 'An email address is required.',
+    usernameTakenInCompanyWarn: 'This username is already used in this company. Please choose a different username.',
+    usernameTakenInCompany: 'This username is already registered in this company.',
     base32_gecersiz: 'The Base32 code is not valid. Only the letters A–Z and the digits 2–7 are allowed, with a length of 16–64 characters. You can also use the "Generate Base32" button.',
     invalidAmount: 'Please enter a valid amount (e.g. 200.50).',
     billAmount: 'Bill amount',

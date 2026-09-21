@@ -314,6 +314,12 @@ ensureDbConnectionWithRetry()
       // ignore
     }
     try { await initBoundary(); } catch (e) { console.warn('[BOUNDARY] init error:', e.message); }
+    // Rotalama: eski önbellek tablosu artık kullanılmıyor → kaldır
+    try { await pool.query(`DROP TABLE IF EXISTS public.dide_route_area`); } catch (e) {}
+    // Rotalama: sınırı (dide_boundary / aggregation) OSRM'in yol ağını kesmesi için dışa aktar
+    try { await exportRoutingBoundary(); } catch (e) { console.warn('[ROUTE] boundary export error:', e.message); }
+    // Şirket kullanıcıları: kullanıcı adı benzersizliği şirket bazında
+    try { await ensureCompanyUsernameScope(); } catch (e) { console.warn('[USERS] username scope error:', e.message); }
   })
   .catch((e) => {
     console.error('[FATAL] Database startup error:', e && e.message ? e.message : e);
@@ -2321,9 +2327,14 @@ async function ensureDbSqlHelpers() {
       IF NEW.username IS NOT NULL THEN NEW.username := NULLIF(btrim(NEW.username),''); END IF;
       IF NEW.email    IS NOT NULL THEN NEW.email    := NULLIF(btrim(NEW.email),   ''); END IF;
 
+      -- Şirket kullanıcıları: kullanıcı adı yalnızca kendi şirketi içinde benzersizdir
+      -- (users_company_username_uniq indeksi); e-posta tekrar edebilir. Global kontrol yok.
+      IF COALESCE(NEW.role,'') = 'company' THEN RETURN NEW; END IF;
+
       IF TG_OP='INSERT' THEN
         SELECT 1 INTO v_dummy FROM public.users u
-        WHERE (lower(btrim(u.username)) = lower(COALESCE(NEW.username,'')) OR lower(btrim(u.email)) = lower(COALESCE(NEW.email,'')))
+        WHERE u.role IS DISTINCT FROM 'company'
+          AND (lower(btrim(u.username)) = lower(COALESCE(NEW.username,'')) OR lower(btrim(u.email)) = lower(COALESCE(NEW.email,'')))
         LIMIT 1;
         IF FOUND THEN RAISE EXCEPTION 'active_username_or_email_exists' USING ERRCODE='P0002'; END IF;
       ELSIF TG_OP='UPDATE' THEN
@@ -2333,6 +2344,7 @@ async function ensureDbSqlHelpers() {
            OR (COALESCE(NEW.email,'') IS DISTINCT FROM COALESCE(OLD.email,'')) THEN
           SELECT 1 INTO v_dummy FROM public.users u
           WHERE u.id <> NEW.id
+            AND u.role IS DISTINCT FROM 'company'
             AND (lower(btrim(u.username)) = lower(COALESCE(NEW.username,'')) OR lower(btrim(u.email)) = lower(COALESCE(NEW.email,'')))
           LIMIT 1;
           IF FOUND THEN RAISE EXCEPTION 'active_username_or_email_exists' USING ERRCODE='P0002'; END IF;
@@ -2718,13 +2730,13 @@ async function failIfAnyDuplicate(usernameRaw, emailRaw) {
   const email = norm(emailRaw);
 
   const uq = await pool.query(
-    `SELECT 1 FROM users WHERE lower(btrim(username))=lower($1) LIMIT 1`,
+    `SELECT 1 FROM users WHERE lower(btrim(username))=lower($1) AND role IS DISTINCT FROM 'company' LIMIT 1`,
     [username]
   );
   const usernameTaken = uq.rowCount > 0;
 
   const eq = await pool.query(
-    `SELECT 1 FROM users WHERE lower(btrim(email))=lower($1) LIMIT 1`,
+    `SELECT 1 FROM users WHERE lower(btrim(email))=lower($1) AND role IS DISTINCT FROM 'company' LIMIT 1`,
     [email]
   );
   const emailTaken = eq.rowCount > 0;
@@ -2919,7 +2931,7 @@ app.post('/api/auth/login', async (req, res) => {
        FROM users
        WHERE (lower(btrim(username))=lower($1) OR lower(btrim(email))=lower($1))
        ORDER BY id DESC
-       LIMIT 1`,
+       LIMIT 25`,
       [input]
     );
 
@@ -2927,11 +2939,29 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(404).json({ error: 'accountNotFound', message: getErrorMessage(req, 'accountNotFound') });
     }
 
-    const u = rows[0];
-    if (!u.is_active) return res.status(403).json({ error: 'kullanici_pasif', message: getErrorMessage(req, 'kullanici_pasif') });
+    // Şirket kullanıcıları şirket bazında benzersiz olduğundan aynı kullanıcı adı / e-posta
+    // birden fazla hesaba ait olabilir. Doğru hesap ŞİFRE ile (gerekirse TOTP ile) seçilir.
+    const activeRows = rows.filter(r => r.is_active);
+    if (!activeRows.length) return res.status(403).json({ error: 'kullanici_pasif', message: getErrorMessage(req, 'kullanici_pasif') });
 
-    const ok = await bcrypt.compare(password, u.password_hash || '');
-    if (!ok) return res.status(401).json({ error: 'wrongPassword', message: getErrorMessage(req, 'wrongPassword') });
+    const pwMatches = [];
+    for (const cand of activeRows) {
+      try { if (await bcrypt.compare(password, cand.password_hash || '')) pwMatches.push(cand); } catch {}
+    }
+    if (!pwMatches.length) return res.status(401).json({ error: 'wrongPassword', message: getErrorMessage(req, 'wrongPassword') });
+
+    let u = pwMatches[0];
+    if (pwMatches.length > 1 && totp) {
+      // Aynı ad + aynı şifreli birden fazla hesap: TOTP'yi doğrulayan hesabı seç
+      const tokenTry = String(totp).replace(/\s+/g, '');
+      for (const cand of pwMatches) {
+        try {
+          if (!cand.two_factor_secret) continue;
+          const sec = padBase32(normalizeBase32(decSecret(String(cand.two_factor_secret))));
+          if (sec && speakeasy.totp.verify({ secret: sec, encoding: 'base32', token: tokenTry, digits: 6, step: 30, window: 2 })) { u = cand; break; }
+        } catch {}
+      }
+    }
     if (!u.email_verified) return res.status(403).json({ error: 'emailNotVerified', message: getErrorMessage(req, 'emailNotVerified') });
 
     if (u.two_factor_enabled) {
@@ -3010,7 +3040,7 @@ app.post('/api/auth/forgot/start', async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      'SELECT id, username, email, COALESCE(is_active,true) AS is_active FROM users WHERE lower(btrim(email))=lower($1) LIMIT 1',
+      'SELECT id, username, email, COALESCE(is_active,true) AS is_active FROM users WHERE lower(btrim(email))=lower($1) AND role IS DISTINCT FROM \'company\' ORDER BY id LIMIT 1',
       [email]
     );
 
@@ -3077,7 +3107,7 @@ app.post('/api/auth/forgot/verify', async (req, res) => {
   const code = norm(req.body?.code);
   if (!email || !code) return res.status(400).json({ error: 'eksik_bilgi', message: getErrorMessage(req, 'eksik_bilgi') });
   try {
-    const { rows } = await pool.query('SELECT id, reset_code, reset_expires FROM users WHERE lower(btrim(email))=lower($1) LIMIT 1', [email]);
+    const { rows } = await pool.query('SELECT id, reset_code, reset_expires FROM users WHERE lower(btrim(email))=lower($1) AND role IS DISTINCT FROM \'company\' ORDER BY id LIMIT 1', [email]);
     if (!rows.length) return res.status(404).json({ error: 'accountNotFound', message: getErrorMessage(req, 'accountNotFound') });
 
     const u = rows[0];
@@ -3116,7 +3146,7 @@ app.post('/api/auth/forgot/reset', async (req, res) => {
   const client = await pool.connect();
   try {
     const { rows } = await client.query(
-      'SELECT id, reset_code, reset_expires FROM users WHERE lower(btrim(email))=lower($1) LIMIT 1',
+      'SELECT id, reset_code, reset_expires FROM users WHERE lower(btrim(email))=lower($1) AND role IS DISTINCT FROM \'company\' ORDER BY id LIMIT 1',
       [email]
     );
     if (!rows.length) {
@@ -3318,16 +3348,23 @@ app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
   }
 
   const uid = req.user.id;
+  // BUFFER_RADIUS tanımlıysa katılım (agree) yalnızca kullanıcının konumunun bu
+  // yarıçap içinde olduğu noktalar için yapılabilir. Konum istemciden gelir.
+  const bLat = Number(req.body?.lat), bLng = Number(req.body?.lng);
+  const hasLoc = Number.isFinite(bLat) && Number.isFinite(bLng) && Math.abs(bLat) <= 90 && Math.abs(bLng) <= 180;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const cur = await client.query(
       `SELECT event_id, created_by_id, COALESCE(num_agrees,0) AS num_agrees,
-              COALESCE(agreed_ids,'[]'::jsonb) AS agreed_ids
+              COALESCE(agreed_ids,'[]'::jsonb) AS agreed_ids,
+              CASE WHEN $2::float8 IS NULL OR geom IS NULL THEN NULL
+                   ELSE ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint($3::float8, $2::float8), 4326)::geography)
+              END AS dist_m
          FROM event
         WHERE event_id=$1 AND COALESCE(active,true)=true
         FOR UPDATE`,
-      [id]
+      [id, hasLoc ? bLat : null, hasLoc ? bLng : null]
     );
     if (!cur.rowCount) {
       await client.query('ROLLBACK');
@@ -3343,6 +3380,15 @@ app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
     let ids = [];
     try { ids = Array.isArray(cur.rows[0].agreed_ids) ? cur.rows[0].agreed_ids.map(Number) : JSON.parse(cur.rows[0].agreed_ids).map(Number); } catch { ids = []; }
     const already = ids.includes(uid);
+
+    // Tampon kontrolü (yalnızca yeni katılımda; GPS sapması için küçük bir pay bırakılır)
+    if (!already && BUFFER_RADIUS > 0) {
+      const dist = cur.rows[0].dist_m;
+      if (dist == null || Number(dist) > BUFFER_RADIUS + 5) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'agree_out_of_range', message: getErrorMessage(req, 'agree_out_of_range') });
+      }
+    }
     let agreed;
     if (already) {
       ids = ids.filter(x => x !== uid);
@@ -3811,52 +3857,55 @@ function autoStartOsrmContainers() {
   });
 }
 
-const ROUTE_AREA_TABLE = 'dide_route_area';   // sınır/aggregation birleşiminin önbelleği
-let __routeAreaReady = null;
-
-// Rotaların içinde kalması gereken alanı (sınır ya da aggregation layer birleşimi)
-// bir kez hesaplayıp önbellek tablosuna yazar. Sınır yoksa null döner (serbest rota).
-async function ensureRouteArea() {
-  if (!BOUNDARY_MODE) return false;
-  if (__routeAreaReady) return __routeAreaReady;
-  __routeAreaReady = (async () => {
-    const srcTable = (BOUNDARY_MODE === 'aggregation')
-      ? assertSafeIdent(POLYGON_TABLE, 'table')
-      : BOUNDARY_DB_TABLE;
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS public.${ROUTE_AREA_TABLE} (
-        id integer PRIMARY KEY,
-        geom geometry(Geometry, 4326)
-      )`);
-    await pool.query(`
-      INSERT INTO public.${ROUTE_AREA_TABLE} (id, geom)
-      SELECT 1, ST_Buffer(ST_Union(geom)::geography, $1)::geometry
-        FROM public.${srcTable}
-      ON CONFLICT (id) DO UPDATE SET geom = EXCLUDED.geom`, [ROUTE_BOUNDARY_TOLERANCE]);
-    await pool.query(`CREATE INDEX IF NOT EXISTS ${ROUTE_AREA_TABLE}_gix ON public.${ROUTE_AREA_TABLE} USING GIST (geom)`);
-    return true;
-  })().catch((e) => {
-    console.warn('[ROUTE] boundary area cache error:', e.message);
-    return false;
-  });
-  return __routeAreaReady;
+/* --- Rotalama sınırı ---
+   Ayrı bir veritabanı tablosu KULLANILMAZ. Sınır varsa (boundary.geojson → dide_boundary
+   tablosu; aggregation layer varsa onun poligonları), bu sınır bir GeoJSON dosyasına
+   yazılır:  case_study/<CASE_STUDY>/existing_data/.routing_boundary.geojson
+   osrm-prepare bu dosyayı görürse map.osm.pbf'yi osmium ile bu sınırdan KESER ve yol
+   ağını yalnızca sınırın içindeki yollardan kurar → rota sınır dışına hiç çıkamaz.
+   Sınır yoksa dosya silinir ve map.osm.pbf'deki TÜM yol ağı kullanılır. */
+function routingBoundaryFilePath() {
+  return path.join(EXISTING_DATA_DIR, '.routing_boundary.geojson');
 }
 
-// Rota çizgisinin tamamı izin verilen alanın içinde mi?
-async function routeInsideBoundary(geometry) {
-  if (!BOUNDARY_MODE) return true;
-  const ok = await ensureRouteArea();
-  if (!ok) return true;   // alan hesaplanamadıysa engelleme (mevcut mantığı bozma)
-  try {
-    const r = await pool.query(
-      `SELECT ST_CoveredBy(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326), geom) AS ok
-         FROM public.${ROUTE_AREA_TABLE} WHERE id = 1`,
-      [JSON.stringify(geometry)]
-    );
-    return !!(r.rows[0] && r.rows[0].ok);
-  } catch (e) {
-    console.warn('[ROUTE] boundary check error:', e.message);
-    return true;
+async function exportRoutingBoundary() {
+  const file = routingBoundaryFilePath();
+  if (!BOUNDARY_MODE) {
+    if (_fileExists(file)) {
+      try { fs.unlinkSync(file); console.log('[ROUTE] No boundary → routing uses the full road network.'); } catch {}
+    }
+    return;
+  }
+  const srcTable = (BOUNDARY_MODE === 'aggregation')
+    ? assertSafeIdent(POLYGON_TABLE, 'table')
+    : BOUNDARY_DB_TABLE;
+  // Sınır, küçük bir toleransla genişletilir (sınıra teğet yollar kesilmesin) ve
+  // osmium'un hızlı çalışması için sadeleştirilir.
+  const r = await pool.query(
+    `SELECT ST_AsGeoJSON(
+              ST_SimplifyPreserveTopology(
+                ST_Buffer(ST_Union(ST_MakeValid(geom))::geography, $1)::geometry,
+                0.00005
+              ), 7
+            ) AS g
+       FROM public.${srcTable}
+      WHERE geom IS NOT NULL`,
+    [ROUTE_BOUNDARY_TOLERANCE]
+  );
+  const g = r.rows[0] && r.rows[0].g;
+  if (!g) { console.warn('[ROUTE] Boundary geometry is empty → routing uses the full road network.'); return; }
+  const content = JSON.stringify({
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', properties: { name: 'dide_routing_boundary' }, geometry: JSON.parse(g) }]
+  });
+  let old = null;
+  try { old = fs.readFileSync(file, 'utf8'); } catch {}
+  if (old !== content) {
+    fs.writeFileSync(file, content, 'utf8');
+    console.log(`[ROUTE] Routing boundary written (${BOUNDARY_MODE}): ${file}`);
+    console.log('[ROUTE] osrm-prepare will clip the road network to this boundary automatically.');
+  } else {
+    console.log('[ROUTE] Routing boundary unchanged.');
   }
 }
 
@@ -3971,15 +4020,13 @@ app.post('/api/route', tryAuth, async (req, res) => {
       });
     }
 
-    // OSRM rotaları en kısa/optimum olandan başlayarak gelir. Sınır varsa, sınırın
-    // TAMAMEN içinde kalan ilk (yani en optimum) rota seçilir.
+    // OSRM rotaları en kısa/optimum olandan başlayarak gelir. Sınır varsa yol ağı
+    // zaten sınırdan kesilerek hazırlandığı için dönen her rota sınırın içindedir.
     for (const rt of osrm.routes) {
       const geom = rt && rt.geometry;
       if (!geom || geom.type !== 'LineString' || !Array.isArray(geom.coordinates) || geom.coordinates.length < 2) continue;
       // Dejenere (sıfıra yakın) rota: başlangıç ve bitiş aynı yola yapışmış demektir
       if (!(Number(rt.distance) > 5)) continue;
-      const inside = await routeInsideBoundary(geom);
-      if (!inside) continue;
       return res.json({
         ok: true,
         mode: modeKey,
@@ -3990,7 +4037,7 @@ app.post('/api/route', tryAuth, async (req, res) => {
       });
     }
 
-    return res.status(422).json({ error: 'route_outside_boundary', message: getErrorMessage(req, 'route_outside_boundary') });
+    return res.status(404).json({ error: 'route_not_found', message: getErrorMessage(req, 'route_not_found') });
   } catch (e) {
     console.error('POST /api/route error:', e);
     res.status(500).json({ error: 'sunucu_hatasi', message: getErrorMessage(req, 'sunucu_hatasi') });
@@ -5277,11 +5324,37 @@ async function ensureUsersDependentCompany() {
     await pool.query(`ALTER TABLE public.users ADD CONSTRAINT users_dependent_company_fk
       FOREIGN KEY (dependent_company) REFERENCES public.companies(company_id) ON DELETE SET NULL`);
   } catch (e) { /* zaten var */ }
+  await ensureCompanyUsernameScope();
+}
+
+/* Kullanıcı adı benzersizliği:
+   - Şirket DIŞI kullanıcılar (user / supervisor / admin) arasında benzersizdir.
+   - Şirket kullanıcıları (role='company') yalnızca KENDİ ŞİRKETİ içinde benzersizdir;
+     başka şirketin kullanıcılarıyla ya da şirket dışı kullanıcılarla aynı adı taşıyabilir.
+   Eskiden tüm tabloda UNIQUE(username) vardı; bu kısıt ve ona bağlı sipariş FK'sı
+   kaldırılıp yerlerine kısmi (partial) benzersiz indeksler konur. */
+async function ensureCompanyUsernameScope() {
+  // UNIQUE(username)'e bağlı FK önce kaldırılmalı (orders tablosu yoksa hata yutulur)
+  try { await pool.query(`ALTER TABLE public.orders DROP CONSTRAINT IF EXISTS orders_person_fk`); } catch (e) {}
+  try { await pool.query(`ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_username_key`); } catch (e) {}
+  try {
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_noncompany_uniq
+      ON public.users (lower(btrim(username)))
+      WHERE role IS DISTINCT FROM 'company' AND username IS NOT NULL`);
+  } catch (e) { console.warn('[USERS] non-company username index:', e.message); }
+  try {
+    const col = await pool.query(`SELECT 1 FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='users' AND column_name='dependent_company'`);
+    if (col.rowCount) {
+      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_company_username_uniq
+        ON public.users (dependent_company, lower(btrim(username)))
+        WHERE role = 'company'`);
+    }
+  } catch (e) { console.warn('[USERS] company username index:', e.message); }
 }
 
 // orders: ilk sipariş oluşturulduğunda oluşur
 async function ensureOrdersSchema() {
-  try { await pool.query(`ALTER TABLE public.users ADD CONSTRAINT users_username_key UNIQUE (username)`); } catch (e) { /* var / eklenemedi */ }
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.orders (
       order_id serial PRIMARY KEY,
@@ -5309,14 +5382,14 @@ async function ensureOrdersSchema() {
   try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS order_date timestamptz NOT NULL DEFAULT now()`); } catch (e) {}
   // Ürün/menü seçimi kaldırıldı (tutar elle giriliyor) → items kolonu düşürülür.
   try { await pool.query(`ALTER TABLE public.orders DROP COLUMN IF EXISTS items`); } catch (e) {}
+  // QR'ı okutan şirket kullanıcısının kullanıcı adı (users.username)
+  try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS scanned_by text`); } catch (e) {}
   try {
     await pool.query(`ALTER TABLE public.orders ADD CONSTRAINT orders_company_fk
       FOREIGN KEY (company_id) REFERENCES public.companies(company_id) ON DELETE SET NULL`);
   } catch (e) { /* zaten var / companies yoksa */ }
-  try {
-    await pool.query(`ALTER TABLE public.orders ADD CONSTRAINT orders_person_fk
-      FOREIGN KEY (person_placing_order) REFERENCES public.users(username)`);
-  } catch (e) { /* username unique değilse FK kurulamaz; kolon metin olarak kalır */ }
+  // NOT: person_placing_order → users(username) FK'sı kaldırıldı; şirket kullanıcıları
+  // artık şirket bazında benzersiz olduğundan username tablo genelinde UNIQUE değildir.
 }
 
 async function companiesTableExists() {
@@ -5489,11 +5562,14 @@ app.post('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
   const username = norm(req.body?.username);
   const password = req.body?.password;
   const name = req.body?.name || null;
-  // company rolündeki kullanıcılarda e-posta ve soyad İSTENMEZ → her zaman NULL kaydedilir.
+  // company rolünde soyad istenmez (NULL). E-posta ZORUNLUDUR; ancak şirket kullanıcıları
+  // arasında (ve diğer kullanıcılarla) aynı e-posta tekrar kullanılabilir.
   const surname = null;
-  const email = null;
+  const email = norm(req.body?.email);
   const base32Raw = norm(req.body?.BASE32Code || req.body?.base32 || req.body?.base32Code || req.body?.totp || '');
 
+  if (!email) return res.status(400).json({ error: 'email_required', message: getErrorMessage(req, 'email_required') });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'gecersiz_eposta', message: getErrorMessage(req, 'gecersiz_eposta') });
   if (!username || !password || !base32Raw) return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
   if (!isStrongPassword(password)) return res.status(400).json({ error: 'zayif_sifre', message: getErrorMessage(req, 'zayif_sifre') });
   if (!isValidBase32Secret(base32Raw)) return res.status(400).json({ error: 'base32_gecersiz', message: getErrorMessage(req, 'base32_gecersiz') });
@@ -5506,15 +5582,22 @@ app.post('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
     return res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 
-  // E-posta alınmadığı için yalnızca kullanıcı adı çakışması denetlenir.
+  await ensureUsersDependentCompany();
+
+  // Kullanıcı adı YALNIZCA bu şirketin kullanıcıları arasında benzersiz olmalı.
+  // Başka şirketlerde ya da şirket dışı kullanıcılarda aynı ad olabilir; e-posta serbest.
   try {
-    const uq = await pool.query(`SELECT 1 FROM users WHERE lower(btrim(username))=lower($1) LIMIT 1`, [username]);
-    if (uq.rowCount) return res.status(409).json({ error: 'usernameTaken', message: getErrorMessage(req, 'usernameTaken') });
+    const uq = await pool.query(
+      `SELECT 1 FROM users
+        WHERE role='company' AND dependent_company=$2 AND lower(btrim(username))=lower($1)
+        LIMIT 1`,
+      [username, companyId]
+    );
+    if (uq.rowCount) return res.status(409).json({ error: 'usernameTakenInCompany', message: getErrorMessage(req, 'usernameTakenInCompany') });
   } catch (e) {
     return res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 
-  await ensureUsersDependentCompany();
   // E-posta NULL kaydedilebilsin diye (eski kurulumlarda NOT NULL olabilir)
   try { await pool.query(`ALTER TABLE public.users ALTER COLUMN email DROP NOT NULL`); } catch (e) {}
   const client = await pool.connect();
@@ -5535,6 +5618,9 @@ app.post('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch {}
     if (e.code === 'P0001' || e.code === 'P0002' || e.code === 'P0003') return res.status(400).json({ error: 'gecersiz', message: e.message });
+    if (e.code === '23505' && String(e.constraint || '') === 'users_company_username_uniq') {
+      return res.status(409).json({ error: 'usernameTakenInCompany', message: getErrorMessage(req, 'usernameTakenInCompany') });
+    }
     if (e.code === '23505') return res.status(409).json({ error: 'base32_cakisma', message: getErrorMessage(req, 'base32_cakisma') });
     console.error('create company user error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
@@ -5549,7 +5635,7 @@ app.get('/api/admin/companies/:id/orders', adminOnly, async (req, res) => {
   try {
     await ensureOrdersSchema();
     const r = await pool.query(
-      `SELECT order_id, person_placing_order, order_amount_before_discount, order_amount_after_discount,
+      `SELECT order_id, person_placing_order, scanned_by, order_amount_before_discount, order_amount_after_discount,
               discount_percentage, points_spent, order_date
          FROM public.orders WHERE company_id=$1 ORDER BY order_date DESC`,
       [req.params.id]
@@ -5644,7 +5730,7 @@ function verifyQrToken(token) {
 async function userEffectivePoints(username) {
   const u = await pool.query(
     `SELECT id, username, name, surname, COALESCE(posts_point,0) AS posts_point
-       FROM users WHERE lower(btrim(username))=lower($1) LIMIT 1`, [username]);
+       FROM users WHERE lower(btrim(username))=lower($1) AND role IS DISTINCT FROM 'company' LIMIT 1`, [username]);
   if (!u.rows.length) return null;
   const row = u.rows[0];
   let spent = 0;
@@ -5736,7 +5822,7 @@ app.post('/api/company/order', requireAuth, requireAnyRole(['company']), async (
       if (dup.code === '23505') return res.status(409).json({ error: 'qr_used', message: getErrorMessage(req, 'qr_used') });
       throw dup;
     }
-    const ur = await client.query(`SELECT id, username, COALESCE(posts_point,0) AS posts_point FROM users WHERE lower(btrim(username))=lower($1) FOR UPDATE`, [payload.u]);
+    const ur = await client.query(`SELECT id, username, COALESCE(posts_point,0) AS posts_point FROM users WHERE lower(btrim(username))=lower($1) AND role IS DISTINCT FROM 'company' FOR UPDATE`, [payload.u]);
     if (!ur.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'accountNotFound', message: getErrorMessage(req, 'accountNotFound') }); }
     const uname = ur.rows[0].username;
     const sp = await client.query(`SELECT COALESCE(SUM(points_spent),0)::int AS s FROM public.orders WHERE person_placing_order=$1`, [uname]);
@@ -5745,9 +5831,10 @@ app.post('/api/company/order', requireAuth, requireAnyRole(['company']), async (
     const before = Math.round(amount * 100) / 100;
     const after = Math.round(before * (1 - cfg.discount_percentage / 100) * 100) / 100;
     const ins = await client.query(
-      `INSERT INTO public.orders (company_id, person_placing_order, order_amount_before_discount, order_amount_after_discount, discount_percentage, points_spent)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING order_id`,
-      [cfg.company_id, uname, before, after, cfg.discount_percentage, cfg.discount_threshold_point]
+      `INSERT INTO public.orders (company_id, person_placing_order, order_amount_before_discount, order_amount_after_discount, discount_percentage, points_spent, scanned_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING order_id`,
+      // scanned_by: QR'ı okutan şirket kullanıcısının users.username değeri
+      [cfg.company_id, uname, before, after, cfg.discount_percentage, cfg.discount_threshold_point, req.user.username]
     );
     await client.query('COMMIT');
     res.json({ ok: true, order_id: ins.rows[0].order_id, amount_before: before, amount_after: after, discount_percentage: cfg.discount_percentage, points_spent: cfg.discount_threshold_point, remaining_points: effective - cfg.discount_threshold_point });
