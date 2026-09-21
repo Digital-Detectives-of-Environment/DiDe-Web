@@ -501,6 +501,8 @@ window.i18nLangs.en = {
 
     // Auth error messages (localized)
     usernameTaken: 'Username is already registered. Please choose a different username.',
+    emailTakenOutsideCompany: 'This email address belongs to another user. The same email can only be reused among users of the same company.',
+    emailTakenOutsideCompanyWarn: 'This email address belongs to another user (another company, an opener/solver or a supervisor). Only users of this company can share the same email.',
     ordScannedBy: 'Scanned by',
     agreeOutOfRange: 'You need to be close to this point to agree (it is outside your buffer).',
     agree_out_of_range: 'You must be inside your buffer area to agree with this point.',

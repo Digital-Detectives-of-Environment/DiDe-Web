@@ -2327,16 +2327,23 @@ async function ensureDbSqlHelpers() {
       IF NEW.username IS NOT NULL THEN NEW.username := NULLIF(btrim(NEW.username),''); END IF;
       IF NEW.email    IS NOT NULL THEN NEW.email    := NULLIF(btrim(NEW.email),   ''); END IF;
 
-      -- Şirket kullanıcıları: kullanıcı adı yalnızca kendi şirketi içinde benzersizdir
-      -- (users_company_username_uniq indeksi); e-posta tekrar edebilir. Global kontrol yok.
-      IF COALESCE(NEW.role,'') = 'company' THEN RETURN NEW; END IF;
-
       IF TG_OP='INSERT' THEN
+        -- Kullanıcı adı: rol fark etmeksizin tablo genelinde benzersiz
         SELECT 1 INTO v_dummy FROM public.users u
-        WHERE u.role IS DISTINCT FROM 'company'
-          AND (lower(btrim(u.username)) = lower(COALESCE(NEW.username,'')) OR lower(btrim(u.email)) = lower(COALESCE(NEW.email,'')))
+        WHERE lower(btrim(u.username)) = lower(COALESCE(NEW.username,''))
         LIMIT 1;
         IF FOUND THEN RAISE EXCEPTION 'active_username_or_email_exists' USING ERRCODE='P0002'; END IF;
+
+        -- E-posta: yalnızca AYNI şirketin kullanıcıları arasında tekrarlanabilir
+        IF COALESCE(NEW.email,'') <> '' THEN
+          SELECT 1 INTO v_dummy FROM public.users u
+          WHERE lower(btrim(u.email)) = lower(NEW.email)
+            AND NOT (COALESCE(NEW.role,'') = 'company' AND u.role = 'company'
+                     AND NEW.dependent_company IS NOT NULL
+                     AND u.dependent_company = NEW.dependent_company)
+          LIMIT 1;
+          IF FOUND THEN RAISE EXCEPTION 'active_username_or_email_exists' USING ERRCODE='P0002'; END IF;
+        END IF;
       ELSIF TG_OP='UPDATE' THEN
         IF COALESCE(OLD.is_active,false)=false AND COALESCE(NEW.is_active,true)=true THEN RETURN NEW; END IF;
 
@@ -2344,10 +2351,20 @@ async function ensureDbSqlHelpers() {
            OR (COALESCE(NEW.email,'') IS DISTINCT FROM COALESCE(OLD.email,'')) THEN
           SELECT 1 INTO v_dummy FROM public.users u
           WHERE u.id <> NEW.id
-            AND u.role IS DISTINCT FROM 'company'
-            AND (lower(btrim(u.username)) = lower(COALESCE(NEW.username,'')) OR lower(btrim(u.email)) = lower(COALESCE(NEW.email,'')))
+            AND lower(btrim(u.username)) = lower(COALESCE(NEW.username,''))
           LIMIT 1;
           IF FOUND THEN RAISE EXCEPTION 'active_username_or_email_exists' USING ERRCODE='P0002'; END IF;
+
+          IF COALESCE(NEW.email,'') <> '' THEN
+            SELECT 1 INTO v_dummy FROM public.users u
+            WHERE u.id <> NEW.id
+              AND lower(btrim(u.email)) = lower(NEW.email)
+              AND NOT (COALESCE(NEW.role,'') = 'company' AND u.role = 'company'
+                       AND NEW.dependent_company IS NOT NULL
+                       AND u.dependent_company = NEW.dependent_company)
+            LIMIT 1;
+            IF FOUND THEN RAISE EXCEPTION 'active_username_or_email_exists' USING ERRCODE='P0002'; END IF;
+          END IF;
         END IF;
       END IF;
       RETURN NEW;
@@ -2730,13 +2747,13 @@ async function failIfAnyDuplicate(usernameRaw, emailRaw) {
   const email = norm(emailRaw);
 
   const uq = await pool.query(
-    `SELECT 1 FROM users WHERE lower(btrim(username))=lower($1) AND role IS DISTINCT FROM 'company' LIMIT 1`,
+    `SELECT 1 FROM users WHERE lower(btrim(username))=lower($1) LIMIT 1`,
     [username]
   );
   const usernameTaken = uq.rowCount > 0;
 
   const eq = await pool.query(
-    `SELECT 1 FROM users WHERE lower(btrim(email))=lower($1) AND role IS DISTINCT FROM 'company' LIMIT 1`,
+    `SELECT 1 FROM users WHERE lower(btrim(email))=lower($1) LIMIT 1`,
     [email]
   );
   const emailTaken = eq.rowCount > 0;
@@ -3870,12 +3887,23 @@ function routingBoundaryFilePath() {
 
 async function exportRoutingBoundary() {
   const file = routingBoundaryFilePath();
+  const dropFile = (why) => {
+    if (_fileExists(file)) { try { fs.unlinkSync(file); } catch {} }
+    if (why) console.log(`[ROUTE] ${why}`);
+  };
+
   if (!BOUNDARY_MODE) {
-    if (_fileExists(file)) {
-      try { fs.unlinkSync(file); console.log('[ROUTE] No boundary → routing uses the full road network.'); } catch {}
-    }
+    dropFile('No boundary → routing uses the full road network.');
     return;
   }
+  // Sınır zaten existing_data/boundary.geojson olarak duruyorsa EK BİR DOSYA ÜRETİLMEZ;
+  // osrm-prepare yol ağını doğrudan o dosyaya göre keser.
+  if (BOUNDARY_MODE === 'file') {
+    dropFile('Boundary file found → osrm-prepare clips the road network with boundary.geojson (no extra file).');
+    return;
+  }
+  // Aggregation layer modunda sınır yalnızca veritabanındadır; osmium'un kesebilmesi için
+  // poligonlar bir GeoJSON dosyasına yazılır (rotalamanın sınırını da gösterir).
   const srcTable = (BOUNDARY_MODE === 'aggregation')
     ? assertSafeIdent(POLYGON_TABLE, 'table')
     : BOUNDARY_DB_TABLE;
@@ -5327,30 +5355,24 @@ async function ensureUsersDependentCompany() {
   await ensureCompanyUsernameScope();
 }
 
-/* Kullanıcı adı benzersizliği:
-   - Şirket DIŞI kullanıcılar (user / supervisor / admin) arasında benzersizdir.
-   - Şirket kullanıcıları (role='company') yalnızca KENDİ ŞİRKETİ içinde benzersizdir;
-     başka şirketin kullanıcılarıyla ya da şirket dışı kullanıcılarla aynı adı taşıyabilir.
-   Eskiden tüm tabloda UNIQUE(username) vardı; bu kısıt ve ona bağlı sipariş FK'sı
-   kaldırılıp yerlerine kısmi (partial) benzersiz indeksler konur. */
+/* Kullanıcı adı / e-posta benzersizliği:
+   - KULLANICI ADI: rol fark etmeksizin TÜM users tablosunda benzersizdir (eski mantık).
+   - E-POSTA: aynı şirketin (dependent_company) kullanıcıları arasında TEKRARLANABİLİR;
+     bunun dışında (başka şirketler, opener/solver kullanıcılar, supervisor'lar) benzersizdir.
+   Bu kurallar hem uygulama içinde hem de app_api.users_prevent_global_dup tetikleyicisinde
+   uygulanır. */
 async function ensureCompanyUsernameScope() {
-  // UNIQUE(username)'e bağlı FK önce kaldırılmalı (orders tablosu yoksa hata yutulur)
-  try { await pool.query(`ALTER TABLE public.orders DROP CONSTRAINT IF EXISTS orders_person_fk`); } catch (e) {}
-  try { await pool.query(`ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_username_key`); } catch (e) {}
+  // Önceki sürümde denenen kısmi indeksler kaldırılır (kullanıcı adı yine global benzersiz)
+  try { await pool.query(`DROP INDEX IF EXISTS public.users_username_noncompany_uniq`); } catch (e) {}
+  try { await pool.query(`DROP INDEX IF EXISTS public.users_company_username_uniq`); } catch (e) {}
+  // Tetikleyicinin dependent_company kolonuna güvenle bakabilmesi için kolon garanti edilir
+  try { await pool.query(`ALTER TABLE public.users ADD COLUMN IF NOT EXISTS dependent_company integer`); } catch (e) {}
+  // Kullanıcı adı: tablo genelinde benzersiz (orders FK'si de buna bağlıdır)
+  try { await pool.query(`ALTER TABLE public.users ADD CONSTRAINT users_username_key UNIQUE (username)`); } catch (e) { /* zaten var */ }
   try {
-    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_noncompany_uniq
-      ON public.users (lower(btrim(username)))
-      WHERE role IS DISTINCT FROM 'company' AND username IS NOT NULL`);
-  } catch (e) { console.warn('[USERS] non-company username index:', e.message); }
-  try {
-    const col = await pool.query(`SELECT 1 FROM information_schema.columns
-      WHERE table_schema='public' AND table_name='users' AND column_name='dependent_company'`);
-    if (col.rowCount) {
-      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_company_username_uniq
-        ON public.users (dependent_company, lower(btrim(username)))
-        WHERE role = 'company'`);
-    }
-  } catch (e) { console.warn('[USERS] company username index:', e.message); }
+    await pool.query(`ALTER TABLE public.orders ADD CONSTRAINT orders_person_fk
+      FOREIGN KEY (person_placing_order) REFERENCES public.users(username)`);
+  } catch (e) { /* orders yoksa / zaten var */ }
 }
 
 // orders: ilk sipariş oluşturulduğunda oluşur
@@ -5384,12 +5406,15 @@ async function ensureOrdersSchema() {
   try { await pool.query(`ALTER TABLE public.orders DROP COLUMN IF EXISTS items`); } catch (e) {}
   // QR'ı okutan şirket kullanıcısının kullanıcı adı (users.username)
   try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS scanned_by text`); } catch (e) {}
+  try { await pool.query(`ALTER TABLE public.users ADD CONSTRAINT users_username_key UNIQUE (username)`); } catch (e) { /* zaten var */ }
   try {
     await pool.query(`ALTER TABLE public.orders ADD CONSTRAINT orders_company_fk
       FOREIGN KEY (company_id) REFERENCES public.companies(company_id) ON DELETE SET NULL`);
   } catch (e) { /* zaten var / companies yoksa */ }
-  // NOT: person_placing_order → users(username) FK'sı kaldırıldı; şirket kullanıcıları
-  // artık şirket bazında benzersiz olduğundan username tablo genelinde UNIQUE değildir.
+  try {
+    await pool.query(`ALTER TABLE public.orders ADD CONSTRAINT orders_person_fk
+      FOREIGN KEY (person_placing_order) REFERENCES public.users(username)`);
+  } catch (e) { /* username unique değilse FK kurulamaz; kolon metin olarak kalır */ }
 }
 
 async function companiesTableExists() {
@@ -5584,16 +5609,21 @@ app.post('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
 
   await ensureUsersDependentCompany();
 
-  // Kullanıcı adı YALNIZCA bu şirketin kullanıcıları arasında benzersiz olmalı.
-  // Başka şirketlerde ya da şirket dışı kullanıcılarda aynı ad olabilir; e-posta serbest.
+  // Kullanıcı adı: rol fark etmeksizin TÜM kullanıcılar arasında benzersiz olmalı.
+  // E-posta: yalnızca AYNI şirketin kullanıcıları arasında tekrarlanabilir; diğer
+  // şirketlerin kullanıcıları, opener/solver kullanıcılar ve supervisor'lar ile aynı olamaz.
   try {
-    const uq = await pool.query(
+    const uq = await pool.query(`SELECT 1 FROM users WHERE lower(btrim(username))=lower($1) LIMIT 1`, [username]);
+    if (uq.rowCount) return res.status(409).json({ error: 'usernameTaken', message: getErrorMessage(req, 'usernameTaken') });
+
+    const eq = await pool.query(
       `SELECT 1 FROM users
-        WHERE role='company' AND dependent_company=$2 AND lower(btrim(username))=lower($1)
+        WHERE lower(btrim(email))=lower($1)
+          AND NOT (role='company' AND dependent_company=$2)
         LIMIT 1`,
-      [username, companyId]
+      [email, companyId]
     );
-    if (uq.rowCount) return res.status(409).json({ error: 'usernameTakenInCompany', message: getErrorMessage(req, 'usernameTakenInCompany') });
+    if (eq.rowCount) return res.status(409).json({ error: 'emailTakenOutsideCompany', message: getErrorMessage(req, 'emailTakenOutsideCompany') });
   } catch (e) {
     return res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
@@ -5618,8 +5648,8 @@ app.post('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch {}
     if (e.code === 'P0001' || e.code === 'P0002' || e.code === 'P0003') return res.status(400).json({ error: 'gecersiz', message: e.message });
-    if (e.code === '23505' && String(e.constraint || '') === 'users_company_username_uniq') {
-      return res.status(409).json({ error: 'usernameTakenInCompany', message: getErrorMessage(req, 'usernameTakenInCompany') });
+    if (e.code === '23505' && String(e.constraint || '') === 'users_username_key') {
+      return res.status(409).json({ error: 'usernameTaken', message: getErrorMessage(req, 'usernameTaken') });
     }
     if (e.code === '23505') return res.status(409).json({ error: 'base32_cakisma', message: getErrorMessage(req, 'base32_cakisma') });
     console.error('create company user error:', e);

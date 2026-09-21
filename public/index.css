@@ -34,6 +34,7 @@
   --tbl-font: clamp(13px, 1.05vw, 15px);
   --tbl-head: clamp(13.5px, 1.1vw, 16px);
 
+  --bg-soft: #f1f5f9;
 }
 
 /* Dark Theme */
@@ -69,6 +70,7 @@
   --tbl-font: clamp(13px, 1.05vw, 15px);
   --tbl-head: clamp(13.5px, 1.1vw, 16px);
 
+  --bg-soft: #0b1220;
 }
 
 /* Mobil tarayıcılarda (Safari/Chrome) adres çubuğu / arama çubuğu açılıp
@@ -4309,3 +4311,99 @@ body.role-company #company-card{
   .cd-orders-table{ font-size:10.5px; }
   .cd-orders-table thead th, .cd-orders-table tbody td{ padding:5px 4px; }
 }
+
+
+/* ===================== KARANLIK TEMA DÜZELTMELERİ ===================== */
+
+/* Profil ekranı: beyaz zeminli küçük butonlar koyu temada görünmez oluyordu */
+:root.theme-dark .profile-close,
+:root.theme-dark .points-info-close,
+:root.theme-dark .profile-map-back,
+:root.theme-dark .profile-lang button{
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+:root.theme-dark .profile-close:hover,
+:root.theme-dark .points-info-close:hover,
+:root.theme-dark .profile-map-back:hover,
+:root.theme-dark .profile-lang button:hover{ background:#334155; }
+/* Aktif dil butonu koyu temada da belirgin kalsın */
+:root.theme-dark .profile-lang button.active{
+  background: var(--primary);
+  color:#fff;
+  border-color: var(--primary);
+}
+:root.theme-dark .profile-map-back img{ filter: invert(1) brightness(1.4); }
+
+/* Harita / indirme butonları */
+:root.theme-dark .profile-map-open-big,
+:root.theme-dark .profile-map-open-list{
+  background:#152238;
+  border-color:#3b82f6;
+  color:#93c5fd;
+}
+:root.theme-dark .profile-map-open-big:hover,
+:root.theme-dark .profile-map-open-list:hover{ background:#1e3a5f; }
+:root.theme-dark .profile-map-open-big-img,
+:root.theme-dark .profile-map-open-list-img{ filter: invert(1) brightness(1.5); }
+:root.theme-dark .profile-download-icon{ color:#93c5fd; }
+
+/* Puan sistemi "i" butonu */
+:root.theme-dark .profile-info-btn{ color:#93c5fd; opacity:1; }
+:root.theme-dark .profile-info-btn:hover{ color:#bfdbfe; }
+
+/* Profil tablosu başlıkları (Type / Date added / Deactivated at / Agrees) */
+:root.theme-dark .profile-posts-table thead th{
+  background:#0b1220;
+  color:#cbd5e1;
+  border-bottom-color: var(--border);
+}
+:root.theme-dark .cd-orders-table thead th,
+:root.theme-dark .company-orders-table thead th{
+  background: var(--surface);
+  color:#cbd5e1;
+}
+
+/* Profil haritası: sınır dışı alan koyu temada beyaz kalmasın */
+:root.theme-dark .profile-map-view{ background:#1a1a2e; }
+:root.theme-dark .profile-map{ background:#1a1a2e; }
+
+/* Pop-up'taki rota butonları (yürüyerek / bisikletle / arabayla) */
+:root.theme-dark .route-btn{
+  background:#0b1220;
+  border-color:#3b82f6;
+  color:#93c5fd;
+}
+:root.theme-dark .route-btn:hover{ background:#16233b; }
+:root.theme-dark .route-btn-bike{ border-color:#34d399; color:#6ee7b7; }
+:root.theme-dark .route-btn-bike:hover{ background:#0f2a22; }
+:root.theme-dark .route-btn-head{ color:#94a3b8; }
+
+/* Puan sistemi ekranı koyu temada */
+:root.theme-dark .points-info-row{ background: var(--surface); border-color: var(--border); }
+:root.theme-dark .points-info-title{ color: var(--text); }
+
+/* "Generate QR" butonu: her iki temada da net bir BUTON gibi görünsün */
+#profile-qr-btn.profile-qr-btn{
+  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+  color:#ffffff;
+  border:1.5px solid #1e40af;
+  border-radius:12px;
+  padding: clamp(9px,1.6vh,12px) 22px;
+  font-weight:800;
+  letter-spacing:.2px;
+  box-shadow:0 3px 10px rgba(37,99,235,.35);
+  text-shadow:0 1px 1px rgba(0,0,0,.18);
+}
+#profile-qr-btn.profile-qr-btn:hover{ filter:brightness(1.08); }
+#profile-qr-btn.profile-qr-btn:active{ transform:translateY(1px); }
+:root.theme-dark #profile-qr-btn.profile-qr-btn{
+  background: linear-gradient(180deg, #38bdf8 0%, #0ea5e9 100%);
+  color:#06202e;
+  border-color:#7dd3fc;
+  box-shadow:0 3px 12px rgba(56,189,248,.35);
+  text-shadow:none;
+}
+:root.theme-dark .profile-qr-text{ background:#0b1220; color:var(--text); border-color:var(--border); }
+:root.theme-dark .profile-qr-hint{ color:#94a3b8; }

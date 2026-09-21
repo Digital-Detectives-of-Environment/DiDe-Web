@@ -1,10 +1,8 @@
 services:
-  # 1) Rotalama verisini SENİN dosyandan hazırlar (indirme yok)
   osrm-prepare:
     image: ghcr.io/project-osrm/osrm-backend:latest
     container_name: dide-osrm-prepare
-    # Sürekli çalışan bir "gözcü": harita dosyası ya da sınır değişirse veriyi
-    # kendiliğinden yeniden hazırlar; router'lar da yeni veriyle kendiliğinden açılır.
+
     restart: unless-stopped
     volumes:
       # Kaynak: case_study/<CASE_STUDY>/existing_data  (salt okunur)
@@ -16,7 +14,14 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
-        BND=/input/.routing_boundary.geojson
+        # Sınır kaynağı: önce existing_data/boundary.geojson (kullanıcının kendi dosyası),
+        # yoksa uygulamanın aggregation layer'dan ürettiği .routing_boundary.geojson.
+        pick_boundary () {
+          for f in /input/boundary.geojson /input/boundary.json /input/.routing_boundary.geojson; do
+            [ -s "$$f" ] && { echo "$$f"; return 0; }
+          done
+          echo ""
+        }
 
         # Sınırla kesmek için osmium gerekir; yoksa bir kez kurulur.
         ensure_osmium () {
@@ -63,7 +68,8 @@ services:
           fi
 
           SRC_STAMP="$$(stat -c '%s-%Y' "$$SRC")"
-          if [ -s "$$BND" ]; then BND_STAMP="$$(cksum < "$$BND" | cut -d' ' -f1)"; else BND_STAMP="none"; fi
+          BND="$$(pick_boundary)"
+          if [ -n "$$BND" ]; then BND_STAMP="$$(cksum < "$$BND" | cut -d' ' -f1)"; else BND_STAMP="none"; fi
           STAMP="$$SRC_STAMP-$$BND_STAMP"
 
           UP_TO_DATE=1
@@ -74,9 +80,9 @@ services:
             sleep 30; continue
           fi
 
-          echo "[osrm-prepare] source: $$SRC   boundary: $$( [ -s "$$BND" ] && echo yes || echo 'none (full network)')   stamp: $$STAMP"
+          echo "[osrm-prepare] source: $$SRC   boundary: $$( [ -n "$$BND" ] && echo "$$BND" || echo 'none (full network)')   stamp: $$STAMP"
           INPUT="$$SRC"
-          if [ -s "$$BND" ]; then
+          if [ -n "$$BND" ]; then
             if ensure_osmium; then
               echo "[osrm-prepare] clipping the road network to the boundary ..."
               if osmium extract -p "$$BND" "$$SRC" -o /data/clipped.osm.pbf --overwrite; then

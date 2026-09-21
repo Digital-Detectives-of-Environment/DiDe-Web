@@ -495,6 +495,8 @@ window.i18nLangs.it = {
 
     // Messaggi di errore auth (localizzati)
     usernameTaken: 'Il nome utente è già registrato. Scegli un nome utente diverso.',
+    emailTakenOutsideCompany: 'Questo indirizzo email appartiene a un altro utente. La stessa email può essere riutilizzata solo tra utenti della stessa azienda.',
+    emailTakenOutsideCompanyWarn: 'Questo indirizzo email appartiene a un altro utente (altra azienda, opener/solver o supervisor). Solo gli utenti di questa azienda possono condividere la stessa email.',
     ordScannedBy: 'Scansionato da',
     agreeOutOfRange: 'Devi essere vicino a questo punto per aderire (è fuori dalla tua area).',
     agree_out_of_range: 'Devi trovarti all\'interno della tua area per aderire a questo punto.',

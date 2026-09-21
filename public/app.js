@@ -458,6 +458,9 @@ function setTheme(mode){
   try { _restyleGridLayers(); } catch {}
   // Sınır katmanını da temaya göre yeniden renklendir
   try { _restyleBoundaryLayer(); } catch {}
+  // Profil haritası ayrı bir Leaflet örneği: sınır dışı maskesi ve sınır çizgisi
+  // bir kez oluşturuluyor; tema değişince onları da yeniden renklendir.
+  try { _restyleProfileMapTheme(); } catch {}
 
   try{ 
     localStorage.setItem(THEME_KEY, mode); 
@@ -7464,7 +7467,8 @@ async function submitCompanyUser(companyId, els) {
     if (!r.ok || !d.ok) {
       if (d.error === 'email_required') { _cdUserFieldError(els.em, 'emailRequiredWarn'); return; }
       if (d.error === 'gecersiz_eposta') { _cdUserFieldError(els.em, 'emailInvalidWarn'); return; }
-      if (d.error === 'usernameTakenInCompany' || d.error === 'usernameTaken') { _cdUserFieldError(els.uname, 'usernameTakenInCompanyWarn'); return; }
+      if (d.error === 'usernameTaken' || d.error === 'usernameTakenInCompany') { _cdUserFieldError(els.uname, 'usernameTakenWarn'); return; }
+      if (d.error === 'emailTakenOutsideCompany') { _cdUserFieldError(els.em, 'emailTakenOutsideCompanyWarn'); return; }
       if (d.error === 'zayif_sifre') { _cdUserFieldError(els.pw, 'passwordRuleWarn'); return; }
       if (d.error === 'base32_gecersiz') { _cdUserFieldError(els.b32, 'base32RuleWarn'); return; }
       if (d.error === 'base32_cakisma') { els.b32.classList.add('input-error'); showGridWarning(d.message || t('unknownError'), 8000); return; }
@@ -9221,6 +9225,15 @@ function _ensureEarlyBoundaryMask(){
     drawBoundaryMask();
   } catch (e) { console.warn('_ensureEarlyBoundaryMask error:', e); }
 }
+// Profil haritasındaki maske (sınır dışı dolgu) + sınır çizgisi renklerini temaya uyarlar
+function _restyleProfileMapTheme(){
+  try {
+    if (typeof __pf === 'undefined' || !__pf) return;
+    if (__pf._mask) { try { __pf._mask.setStyle({ fillColor: _maskFill() }); } catch {} }
+    if (__pf._outline) { try { __pf._outline.setStyle(_boundaryStyle()); } catch {} }
+  } catch {}
+}
+
 function _restyleBoundaryMask(){
   if (__boundaryMask) try { __boundaryMask.setStyle({ fillColor:_maskFill() }); } catch {}
 }

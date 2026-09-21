@@ -501,6 +501,8 @@ window.i18nLangs.tr = {
 
     // Auth hata mesajları (dil desteği)
     usernameTaken: 'Kullanıcı adı kayıtlı. Lütfen başka bir kullanıcı adı girin.',
+    emailTakenOutsideCompany: 'Bu e-posta adresi başka bir kullanıcıda kayıtlı. Aynı e-posta yalnızca aynı şirketin kullanıcıları arasında tekrar kullanılabilir.',
+    emailTakenOutsideCompanyWarn: 'Bu e-posta adresi başka bir kullanıcıya ait (başka şirket, opener/solver ya da supervisor). Aynı e-postayı yalnızca bu şirketin kullanıcıları paylaşabilir.',
     ordScannedBy: 'QR\'ı okutan',
     agreeOutOfRange: 'Katılmak için bu noktaya yakın olmalısınız (tampon alanınızın dışında).',
     agree_out_of_range: 'Bu noktaya katılmak için tampon alanınızın içinde olmalısınız.',
