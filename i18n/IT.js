@@ -3,6 +3,11 @@ window.i18nLangs = window.i18nLangs || {};
 window.i18nLangs.it = {
     application: 'Applicazione',
     close: 'Chiudi',
+    leaderboard: 'Classifica',
+    leaderboardTitle: 'Classifica',
+    yourRank: 'La tua posizione',
+    noLeaderboardData: 'Nessuna classifica ancora',
+    lbLoading: 'Caricamento…',
     back: 'Indietro',
     cancel: 'Annulla',
     save: 'Salva',

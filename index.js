@@ -3514,6 +3514,54 @@ function buildZipBuffer(entries) {
 }
 
 /* =============== Profil: istatistikler =============== */
+/* ===================== LİDERLİK TABLOSU (LEADERBOARD) =====================
+   Rol ayrımı yapmadan (opener + solver) olay ekleyen 'user' hesapları arasında
+   KAZANILAN puana (users.posts_point) göre sıralama. Harcanan puan (QR indirimi)
+   sıralamayı düşürmez; liderlik tablosu kazanılan puanı gösterir.
+   Giriş yapılmışsa kullanıcının kendi sırası ve puanı da döner. */
+app.get('/api/leaderboard', tryAuth, async (req, res) => {
+  try {
+    let limit = parseInt(req.query.limit, 10);
+    if (!Number.isInteger(limit) || limit < 1) limit = 10;
+    if (limit > 50) limit = 50;
+
+    const top = await pool.query(
+      `SELECT username, COALESCE(posts_point,0)::int AS points
+         FROM public.users
+        WHERE role='user' AND COALESCE(is_active,true)=true AND username IS NOT NULL
+        ORDER BY COALESCE(posts_point,0) DESC, lower(btrim(username)) ASC
+        LIMIT $1`,
+      [limit]
+    );
+    const entries = top.rows.map((r, i) => ({ rank: i + 1, username: r.username, points: r.points }));
+
+    let me = null;
+    if (req.user && req.user.role === 'user') {
+      const mine = await pool.query(
+        `SELECT username, COALESCE(posts_point,0)::int AS points FROM public.users WHERE id=$1`,
+        [req.user.id]
+      );
+      if (mine.rowCount) {
+        const u = mine.rows[0];
+        const rk = await pool.query(
+          `SELECT COUNT(*)::int + 1 AS rank
+             FROM public.users
+            WHERE role='user' AND COALESCE(is_active,true)=true AND username IS NOT NULL
+              AND (COALESCE(posts_point,0) > $1
+                   OR (COALESCE(posts_point,0) = $1 AND lower(btrim(username)) < lower(btrim($2))))`,
+          [u.points, u.username]
+        );
+        me = { rank: rk.rows[0].rank, username: u.username, points: u.points };
+      }
+    }
+
+    res.json({ ok: true, limit, entries, me });
+  } catch (e) {
+    console.error('GET /api/leaderboard error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
 app.get('/api/me/stats', requireAuth, async (req, res) => {
   try {
     // En güncel değerler için önce yeniden hesapla (olay ekleyen kullanıcılar için)

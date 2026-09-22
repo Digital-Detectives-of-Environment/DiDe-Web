@@ -11678,6 +11678,10 @@ function showForgotStep(step){
 
 function reflectAuth(){
   const who = qs('#whoami'), rolePill = qs('#role-pill');
+  // Liderlik tablosu kupası: header'da YALNIZCA giriş yapılmadan görünür.
+  // Giriş yapıldığında kupa profil ekranında (puanın üstünde) yer alır.
+  const lbBtn = qs('#btn-leaderboard');
+  if (lbBtn) lbBtn.classList.toggle('hidden', !!currentUser);
   const body = document.body;
   const adminCard = qs('#admin-card');
   const olayCard  = qs('#olay-card');
@@ -14545,6 +14549,7 @@ function pfShowPage(index){
 
 function closeProfileOverlay(){
   try { closePointsInfo(); } catch {}
+  try { closeLeaderboard(); } catch {}
   const ov = pfEl('profile-overlay');
   if (!ov) return;
   ov.classList.add('hidden');
@@ -14600,6 +14605,90 @@ function pfApplyLanguage(){
 }
 
 // Overlay olaylarını bağla
+/* ===================== LİDERLİK TABLOSU (LEADERBOARD) =====================
+   Kupa butonundan açılır (giriş öncesi header'da, giriş sonrası profil ekranında).
+   Rol ayrımı yapmadan (opener + solver) en yüksek KAZANILAN puana sahip ilk
+   LEADERBOARD_LIMIT kullanıcı listelenir. Giriş yapılmışsa listenin altında
+   kullanıcının kendi sırası ve puanı da gösterilir.
+   Satır sayısı SABİTTİR; satır yükseklikleri ekran yüksekliğine göre ölçeklenir,
+   böylece her mobil ekranda kaydırma olmadan tam ekrana sığar. */
+const LEADERBOARD_LIMIT = 10;
+
+function _lbMedal(rank){
+  if (rank === 1) return 'gold';
+  if (rank === 2) return 'silver';
+  if (rank === 3) return 'bronze';
+  return '';
+}
+
+function _lbRowHtml(e, isMe){
+  const medal = _lbMedal(e.rank);
+  const badge = medal
+    ? `<span class="lb-medal lb-medal-${medal}" aria-hidden="true"></span>`
+    : `<span class="lb-rank-num">${escapeHtml(String(e.rank))}</span>`;
+  return `<div class="lb-row${medal ? ' lb-row-' + medal : ''}${isMe ? ' lb-row-me' : ''}">
+      <span class="lb-rank">${badge}</span>
+      <span class="lb-name">${escapeHtml(e.username || '-')}</span>
+      <span class="lb-points">${escapeHtml(String(e.points != null ? e.points : 0))}</span>
+    </div>`;
+}
+
+async function openLeaderboard(){
+  const ov = qs('#leaderboard-overlay');
+  if (!ov) return;
+  const list = qs('#leaderboard-list');
+  const meEl = qs('#leaderboard-me');
+  if (list) list.innerHTML = `<div class="lb-empty">${escapeHtml(t('lbLoading'))}</div>`;
+  if (meEl) meEl.classList.add('hidden');
+  ov.classList.remove('hidden');
+  ov.setAttribute('aria-hidden', 'false');
+
+  let data = null;
+  try {
+    const r = await fetch(`/api/leaderboard?limit=${LEADERBOARD_LIMIT}`);
+    if (r.ok) data = await r.json();
+  } catch (e) { console.warn('leaderboard', e); }
+
+  const entries = (data && Array.isArray(data.entries)) ? data.entries : [];
+  const myName = (data && data.me && data.me.username) ? data.me.username : null;
+  if (list) {
+    list.innerHTML = entries.length
+      ? entries.map(e => _lbRowHtml(e, myName && e.username === myName)).join('')
+      : `<div class="lb-empty">${escapeHtml(t('noLeaderboardData'))}</div>`;
+  }
+  if (meEl) {
+    if (data && data.me) {
+      meEl.innerHTML =
+        `<div class="lb-me-label">${escapeHtml(t('yourRank'))}</div>` +
+        _lbRowHtml(data.me, true);
+      meEl.classList.remove('hidden');
+    } else {
+      meEl.classList.add('hidden');
+    }
+  }
+}
+
+function closeLeaderboard(){
+  const ov = qs('#leaderboard-overlay');
+  if (!ov) return;
+  ov.classList.add('hidden');
+  ov.setAttribute('aria-hidden', 'true');
+}
+
+(function wireLeaderboard(){
+  document.addEventListener('click', (e) => {
+    const tg = e.target;
+    if (!tg || !tg.closest) return;
+    if (tg.closest('#btn-leaderboard') || tg.closest('#profile-trophy-btn')) { openLeaderboard(); return; }
+    if (tg.closest('#leaderboard-close')) { closeLeaderboard(); return; }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const ov = qs('#leaderboard-overlay');
+    if (ov && !ov.classList.contains('hidden')) closeLeaderboard();
+  });
+})();
+
 /* ===================== PUAN SİSTEMİ BİLGİ EKRANI =====================
    Profil ekranındaki puanın altındaki "i" butonuyla açılır. Tam ekrandır,
    çarpı ile kapanınca profil ekranı olduğu gibi geri gelir. İçerik role göre

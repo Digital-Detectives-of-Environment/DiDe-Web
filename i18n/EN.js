@@ -3,6 +3,11 @@ window.i18nLangs = window.i18nLangs || {};
 window.i18nLangs.en = {
     application: 'Application',
     close: 'Close',
+    leaderboard: 'Leaderboard',
+    leaderboardTitle: 'Leaderboard',
+    yourRank: 'Your rank',
+    noLeaderboardData: 'No ranking yet',
+    lbLoading: 'Loading…',
     back: 'Back',
     cancel: 'Cancel',
     save: 'Save',

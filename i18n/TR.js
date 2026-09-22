@@ -3,6 +3,11 @@ window.i18nLangs = window.i18nLangs || {};
 window.i18nLangs.tr = {
     application: 'Uygulama',
     close: 'Kapat',
+    leaderboard: 'Liderlik tablosu',
+    leaderboardTitle: 'Liderlik Tablosu',
+    yourRank: 'Senin sıran',
+    noLeaderboardData: 'Henüz sıralama yok',
+    lbLoading: 'Yükleniyor…',
     back: 'Geri',
     cancel: 'İptal',
     save: 'Kaydet',

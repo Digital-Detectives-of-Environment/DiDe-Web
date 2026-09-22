@@ -4407,3 +4407,205 @@ body.role-company #company-card{
 }
 :root.theme-dark .profile-qr-text{ background:#0b1220; color:var(--text); border-color:var(--border); }
 :root.theme-dark .profile-qr-hint{ color:#94a3b8; }
+
+
+/* ===================== LİDERLİK TABLOSU (KUPA + TAM EKRAN) ===================== */
+
+/* Kupa butonu — header'da (giriş öncesi) ve profil ekranında (puanın üstünde) */
+.trophy-btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:4px;
+  border:none;
+  background:none;
+  cursor:pointer;
+  color:#d97706;                 /* açık tema: amber */
+  line-height:0;
+  transition:transform .1s ease, color .15s ease, filter .15s ease;
+}
+.trophy-btn:hover{ color:#b45309; }
+.trophy-btn:active{ transform:scale(.94); }
+.trophy-btn.hidden{ display:none; }
+.trophy-btn svg{
+  width:clamp(24px, 6.2vw, 32px);
+  height:clamp(24px, 6.2vw, 32px);
+  display:block;
+  filter:drop-shadow(0 1px 1px rgba(0,0,0,.18));
+}
+/* Profil ekranındaki kupa biraz daha büyük ve ortalı */
+.profile-trophy-btn{ align-self:center; margin:2px 0 -2px; }
+.profile-trophy-btn svg{ width:clamp(30px, 8vw, 40px); height:clamp(30px, 8vw, 40px); }
+:root.theme-dark .trophy-btn{ color:#ffd54a; }
+:root.theme-dark .trophy-btn:hover{ color:#ffe694; }
+:root.theme-dark .trophy-btn svg{ filter:drop-shadow(0 0 6px rgba(255,213,74,.55)); }
+
+/* Tam ekran liderlik tablosu — her ekranda KAYDIRMASIZ sığar */
+.leaderboard-overlay{
+  position:fixed;
+  inset:0;
+  z-index:11900;
+  background:var(--bg, #f8fafc);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.leaderboard-overlay.hidden{ display:none; }
+.leaderboard-inner{
+  position:relative;
+  width:100%;
+  height:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:clamp(46px, 9vh, 70px) clamp(12px, 4vw, 28px) clamp(14px, 3vh, 26px);
+  box-sizing:border-box;
+  overflow:auto;                 /* güvenlik: çok küçük ekranlarda içerik kesilmesin */
+}
+.leaderboard-close{
+  position:absolute;
+  top:12px;
+  right:12px;
+  z-index:12;
+  width:42px;
+  height:42px;
+  border-radius:50%;
+  border:1.5px solid var(--border, #e5e7eb);
+  background:#fff;
+  color:var(--text, #111);
+  font-size:20px;
+  line-height:1;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  box-shadow:0 2px 8px rgba(0,0,0,.12);
+}
+:root.theme-dark .leaderboard-close{ background:var(--surface); color:var(--text); border-color:var(--border); }
+:root.theme-dark .leaderboard-close:hover{ background:#334155; }
+.leaderboard-content{
+  width:min(520px, 100%);
+  display:flex;
+  flex-direction:column;
+  gap:clamp(6px, 1.2vh, 12px);
+}
+.leaderboard-title{
+  margin:0 0 clamp(2px,.6vh,6px);
+  text-align:center;
+  font-size:clamp(18px, min(6vw, 3.2vh), 26px);
+  font-weight:800;
+  color:var(--text, #111);
+}
+.leaderboard-list{ display:flex; flex-direction:column; gap:clamp(4px, .8vh, 8px); }
+.lb-row{
+  display:flex;
+  align-items:center;
+  gap:clamp(8px, 2.5vw, 14px);
+  padding:clamp(5px, 1.05vh, 10px) clamp(10px, 3vw, 16px);
+  border:1px solid var(--border, #e5e7eb);
+  border-radius:12px;
+  background:var(--surface, #fff);
+  box-shadow:var(--shadow-sm);
+}
+.lb-rank{ flex:0 0 auto; width:clamp(26px, 7vw, 34px); display:flex; align-items:center; justify-content:center; }
+.lb-rank-num{ font-weight:800; color:var(--muted,#6b7280); font-size:clamp(12px, min(3.6vw, 2vh), 16px); }
+.lb-medal{
+  width:clamp(18px, 5vw, 24px);
+  height:clamp(18px, 5vw, 24px);
+  border-radius:50%;
+  display:block;
+  box-shadow:inset 0 -2px 3px rgba(0,0,0,.18), 0 1px 3px rgba(0,0,0,.25);
+}
+.lb-medal-gold{ background:linear-gradient(145deg,#fde68a,#f59e0b 60%,#b45309); }
+.lb-medal-silver{ background:linear-gradient(145deg,#f1f5f9,#cbd5e1 60%,#94a3b8); }
+.lb-medal-bronze{ background:linear-gradient(145deg,#fcd9b6,#d97706 60%,#92400e); }
+.lb-name{
+  flex:1 1 auto;
+  min-width:0;
+  font-weight:700;
+  font-size:clamp(12px, min(3.8vw, 2.05vh), 17px);
+  color:var(--text, #111);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.lb-points{
+  flex:0 0 auto;
+  font-weight:800;
+  font-size:clamp(12px, min(3.8vw, 2.05vh), 17px);
+  color:var(--primary, #2563eb);
+}
+.lb-row-gold{ border-color:#f59e0b; background:linear-gradient(180deg, rgba(245,158,11,.14), transparent); }
+.lb-row-silver{ border-color:#94a3b8; background:linear-gradient(180deg, rgba(148,163,184,.14), transparent); }
+.lb-row-bronze{ border-color:#d97706; background:linear-gradient(180deg, rgba(217,119,6,.12), transparent); }
+.lb-row-me{ outline:2px solid var(--primary, #2563eb); outline-offset:-2px; }
+.lb-empty{ text-align:center; color:var(--muted,#6b7280); padding:clamp(10px,3vh,20px) 0; font-size:clamp(12px,3.6vw,15px); }
+.leaderboard-me{ margin-top:clamp(4px,1vh,10px); padding-top:clamp(4px,1vh,10px); border-top:1px dashed var(--border,#e5e7eb); }
+.leaderboard-me.hidden{ display:none; }
+.lb-me-label{
+  text-align:center;
+  font-size:clamp(10px, min(3vw, 1.7vh), 13px);
+  font-weight:700;
+  color:var(--muted,#6b7280);
+  margin-bottom:clamp(3px,.7vh,6px);
+}
+:root.theme-dark .lb-points{ color:#7dd3fc; }
+:root.theme-dark .lb-row{ background:#152238; border-color:var(--border); }
+:root.theme-dark .lb-row-gold{ background:linear-gradient(180deg, rgba(245,158,11,.20), transparent); }
+:root.theme-dark .lb-row-silver{ background:linear-gradient(180deg, rgba(203,213,225,.16), transparent); }
+:root.theme-dark .lb-row-bronze{ background:linear-gradient(180deg, rgba(217,119,6,.18), transparent); }
+
+/* ===== Karanlık temada FOSFORLU ikonlar =====
+   index.html <head> içindeki "button img/svg { filter:none !important }" kuralı
+   nedeniyle bu kurallar !important ile yazılmıştır. */
+:root.theme-dark .profile-info-btn{ color:#ccff00; opacity:1; }
+:root.theme-dark .profile-info-btn:hover{ color:#e4ff66; }
+:root.theme-dark .profile-info-btn svg{
+  filter:drop-shadow(0 0 6px rgba(204,255,0,.5)) !important;
+  opacity:1 !important;
+}
+
+/* Profil harita butonu (büyük), tablo harita butonu ve indirme butonu */
+:root.theme-dark .profile-map-open-big,
+:root.theme-dark .profile-map-open-list{
+  background:#101b2e;
+  border-color:#00e5ff;
+  color:#00e5ff;
+  box-shadow:0 0 10px rgba(0,229,255,.28);
+}
+:root.theme-dark .profile-map-open-big:hover,
+:root.theme-dark .profile-map-open-list:hover{ background:#16243c; }
+:root.theme-dark .profile-map-open-big-img,
+:root.theme-dark .profile-map-open-list-img{
+  /* Koyu lacivert SVG → fosforlu turkuaz */
+  filter: brightness(0) saturate(100%) invert(72%) sepia(94%) saturate(2000%)
+          hue-rotate(140deg) brightness(105%) contrast(103%)
+          drop-shadow(0 0 4px rgba(0,229,255,.45)) !important;
+  opacity:1 !important;
+}
+:root.theme-dark .profile-download-icon{ color:#00e5ff; }
+:root.theme-dark .profile-download-icon,
+:root.theme-dark .profile-download-btn svg{
+  filter:drop-shadow(0 0 4px rgba(0,229,255,.45)) !important;
+  opacity:1 !important;
+}
+
+/* Pop-up rota butonları (yürüyerek / bisikletle / arabayla) — fosforlu */
+:root.theme-dark .route-btn{
+  background:#0b1220;
+  border-color:#00e5ff;
+  color:#00e5ff;
+  box-shadow:0 0 8px rgba(0,229,255,.22);
+}
+:root.theme-dark .route-btn:hover{ background:#12243a; }
+:root.theme-dark .route-btn svg{
+  filter:drop-shadow(0 0 4px rgba(0,229,255,.45)) !important;
+  opacity:1 !important;
+}
+:root.theme-dark .route-btn-bike{
+  border-color:#39ff14;
+  color:#39ff14;
+  box-shadow:0 0 8px rgba(57,255,20,.22);
+}
+:root.theme-dark .route-btn-bike svg{ filter:drop-shadow(0 0 4px rgba(57,255,20,.45)) !important; }
+:root.theme-dark .route-btn-bike:hover{ background:#0d2413; }

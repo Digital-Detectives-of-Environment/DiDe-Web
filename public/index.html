@@ -331,6 +331,10 @@
       <div class="brand">
         <img id="site-logo" alt="logo" class="hidden" />
         <h1 id="site-title"></h1>
+        <!-- Liderlik tablosu (kupa) — yalnızca giriş yapılmadan header'da görünür -->
+        <button id="btn-leaderboard" class="trophy-btn" type="button"
+                data-i18n-title="leaderboard" data-i18n-aria-label="leaderboard"
+                title="Leaderboard" aria-label="Leaderboard"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" shape-rendering="geometricPrecision"><path d="M7 4h10v5a5 5 0 0 1-10 0V4z" fill="currentColor"/><path d="M7 5.5H4.6a.6.6 0 0 0-.6.6V8a3.4 3.4 0 0 0 3.4 3.4H7.6M17 5.5h2.4a.6.6 0 0 1 .6.6V8a3.4 3.4 0 0 1-3.4 3.4h-.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12 14v3.4M9 20.4h6M9.6 20.4c0-1.7.9-3 2.4-3s2.4 1.3 2.4 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       </div>
       <div class="auth">
         <div class="language-selector">
@@ -1060,6 +1064,19 @@
     </div>
   </div>
 
+  <!-- Liderlik tablosu (tam ekran, kaydırmasız) -->
+  <div id="leaderboard-overlay" class="leaderboard-overlay hidden" aria-hidden="true">
+    <div class="leaderboard-inner">
+      <button id="leaderboard-close" class="leaderboard-close" type="button"
+              aria-label="Close" data-i18n-title="close" title="Close">&#10005;</button>
+      <div class="leaderboard-content">
+        <h3 class="leaderboard-title" data-i18n="leaderboardTitle">Leaderboard</h3>
+        <div id="leaderboard-list" class="leaderboard-list"></div>
+        <div id="leaderboard-me" class="leaderboard-me hidden"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Puan sistemi bilgi ekranı (tam ekran, kaydırmasız) -->
   <div id="points-info-overlay" class="points-info-overlay hidden" aria-hidden="true">
     <div class="points-info-inner">
@@ -1093,6 +1110,10 @@
                 <div id="profile-role" class="profile-role">—</div>
               </div>
             </div>
+            <!-- Liderlik tablosu (kupa) — ad/soyadın altında, puanın üstünde -->
+            <button id="profile-trophy-btn" class="trophy-btn profile-trophy-btn" type="button"
+                    data-i18n-title="leaderboard" data-i18n-aria-label="leaderboard"
+                    title="Leaderboard" aria-label="Leaderboard"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" shape-rendering="geometricPrecision"><path d="M7 4h10v5a5 5 0 0 1-10 0V4z" fill="currentColor"/><path d="M7 5.5H4.6a.6.6 0 0 0-.6.6V8a3.4 3.4 0 0 0 3.4 3.4H7.6M17 5.5h2.4a.6.6 0 0 1 .6.6V8a3.4 3.4 0 0 1-3.4 3.4h-.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12 14v3.4M9 20.4h6M9.6 20.4c0-1.7.9-3 2.4-3s2.4 1.3 2.4 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             <div class="profile-score">
               <span class="profile-score-label" data-i18n="points">Points</span>
               <span id="profile-score-value" class="profile-score-value">0</span>
