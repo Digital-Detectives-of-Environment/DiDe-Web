@@ -4627,13 +4627,26 @@ body.role-company #company-card{
    parçaları .ic-stroke / .ic-fill sınıflarıyla işaretlendi ve burada currentColor'a
    (yani butonun fosforlu rengine) bağlanıyor. */
 :root.theme-dark svg .ic-stroke{
+  /* ÖNEMLİ: genel kural (":root.theme-dark button svg path{ color:#111827 !important }")
+     <path> elemanının KENDİ color değerini koyuya çeviriyordu; bu yüzden
+     stroke:currentColor koyu kalıyor, ikonun çizgi kısımları görünmüyordu.
+     color'ı ebeveynden (butonun fosforlu renginden) devral. */
+  color: inherit !important;
   fill: none !important;
   stroke: currentColor !important;
 }
 :root.theme-dark svg .ic-fill{
+  color: inherit !important;
   fill: currentColor !important;
   stroke: none !important;
 }
+/* Aynı sorun ikonun kökündeki <svg> için de geçerli: rengi butondan devralsın */
+:root.theme-dark .route-btn svg,
+:root.theme-dark .profile-info-btn svg,
+:root.theme-dark .trophy-btn svg,
+:root.theme-dark .profile-map-open-big svg,
+:root.theme-dark .profile-map-open-list svg,
+:root.theme-dark .profile-download-btn svg{ color: inherit !important; }
 
 /* Fosforlu renkler (karanlık tema) */
 :root.theme-dark .route-btn{ color:#00e5ff !important; }
@@ -4643,12 +4656,23 @@ body.role-company #company-card{
 :root.theme-dark .profile-info-btn,
 :root.theme-dark .profile-info-btn svg{ color:#ccff00 !important; }
 :root.theme-dark .profile-map-open-big,
-:root.theme-dark .profile-map-open-big svg,
 :root.theme-dark .profile-map-open-list,
-:root.theme-dark .profile-map-open-list svg,
 :root.theme-dark .profile-download-btn,
-:root.theme-dark .profile-download-btn svg,
 :root.theme-dark .profile-download-icon{ color:#00e5ff !important; }
+
+/* Tablo üstündeki harita ve indirme butonları .icon-btn sınıfını da taşıyor;
+   ":root.theme-dark .icon-btn{ background:#fff !important }" kuralı onları beyaz
+   yapıyordu. Aşağıdaki kurallar profil kartındaki BÜYÜK harita butonuyla
+   BİREBİR aynı görünümü verir. */
+:root.theme-dark .profile-map-open-list.icon-btn,
+:root.theme-dark .profile-download-btn.icon-btn{
+  background:#101b2e !important;
+  border:2px solid #00e5ff !important;
+  color:#00e5ff !important;
+  box-shadow:0 0 10px rgba(0,229,255,.28) !important;
+}
+:root.theme-dark .profile-map-open-list.icon-btn:hover,
+:root.theme-dark .profile-download-btn.icon-btn:hover{ background:#16243c !important; }
 :root.theme-dark .trophy-btn,
 :root.theme-dark .trophy-btn svg{ color:#ffd54a !important; }
 
@@ -4679,24 +4703,11 @@ body.role-company #company-card{
   border-radius:12px;
   background:linear-gradient(180deg, rgba(253,230,138,.35), rgba(245,158,11,.12));
   box-shadow:0 2px 6px rgba(180,83,9,.18);
-  animation: trophyPulse 2.8s ease-in-out infinite;
 }
 .trophy-btn:hover{ background:linear-gradient(180deg, rgba(253,230,138,.55), rgba(245,158,11,.22)); }
-@keyframes trophyPulse{
-  0%,100%{ box-shadow:0 2px 6px rgba(180,83,9,.18); transform:translateY(0); }
-  50%    { box-shadow:0 4px 12px rgba(245,158,11,.38); transform:translateY(-1px); }
-}
 :root.theme-dark .trophy-btn{
   border-color:#ffd54a;
   background:linear-gradient(180deg, rgba(255,213,74,.18), rgba(255,213,74,.06));
   box-shadow:0 0 10px rgba(255,213,74,.35);
-  animation: trophyPulseDark 2.8s ease-in-out infinite;
 }
 :root.theme-dark .trophy-btn:hover{ background:linear-gradient(180deg, rgba(255,213,74,.3), rgba(255,213,74,.12)); }
-@keyframes trophyPulseDark{
-  0%,100%{ box-shadow:0 0 8px rgba(255,213,74,.28); transform:translateY(0); }
-  50%    { box-shadow:0 0 18px rgba(255,213,74,.6);  transform:translateY(-1px); }
-}
-@media (prefers-reduced-motion: reduce){
-  .trophy-btn, :root.theme-dark .trophy-btn{ animation:none; }
-}
