@@ -3662,7 +3662,8 @@ app.get('/api/me/posts', requireAuth, async (req, res) => {
    (uploads'taki dosya adlarıyla) tek bir ZIP dosyasında indirir. */
 app.get('/api/me/export', requireAuth, async (req, res) => {
   try {
-    if (req.user.role !== 'user' || req.user.solver === true) {
+    // Hem opener hem solver kendi eklediği verileri indirebilir
+    if (req.user.role !== 'user') {
       return res.status(403).json({ error: 'yetkisiz', message: getErrorMessage(req, 'yetkisiz') });
     }
 

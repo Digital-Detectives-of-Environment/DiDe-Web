@@ -334,7 +334,7 @@
         <!-- Liderlik tablosu (kupa) — yalnızca giriş yapılmadan header'da görünür -->
         <button id="btn-leaderboard" class="trophy-btn" type="button"
                 data-i18n-title="leaderboard" data-i18n-aria-label="leaderboard"
-                title="Leaderboard" aria-label="Leaderboard"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" shape-rendering="geometricPrecision"><path d="M7 4h10v5a5 5 0 0 1-10 0V4z" fill="currentColor"/><path d="M7 5.5H4.6a.6.6 0 0 0-.6.6V8a3.4 3.4 0 0 0 3.4 3.4H7.6M17 5.5h2.4a.6.6 0 0 1 .6.6V8a3.4 3.4 0 0 1-3.4 3.4h-.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12 14v3.4M9 20.4h6M9.6 20.4c0-1.7.9-3 2.4-3s2.4 1.3 2.4 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                title="Leaderboard" aria-label="Leaderboard"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" shape-rendering="geometricPrecision"><path class="ic-fill" d="M7 4h10v5a5 5 0 0 1-10 0V4z" fill="currentColor"/><path class="ic-stroke" d="M7 5.5H4.6a.6.6 0 0 0-.6.6V8a3.4 3.4 0 0 0 3.4 3.4H7.6M17 5.5h2.4a.6.6 0 0 1 .6.6V8a3.4 3.4 0 0 1-3.4 3.4h-.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path class="ic-stroke" d="M12 14v3.4M9 20.4h6M9.6 20.4c0-1.7.9-3 2.4-3s2.4 1.3 2.4 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       </div>
       <div class="auth">
         <div class="language-selector">
@@ -1113,7 +1113,7 @@
             <!-- Liderlik tablosu (kupa) — ad/soyadın altında, puanın üstünde -->
             <button id="profile-trophy-btn" class="trophy-btn profile-trophy-btn" type="button"
                     data-i18n-title="leaderboard" data-i18n-aria-label="leaderboard"
-                    title="Leaderboard" aria-label="Leaderboard"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" shape-rendering="geometricPrecision"><path d="M7 4h10v5a5 5 0 0 1-10 0V4z" fill="currentColor"/><path d="M7 5.5H4.6a.6.6 0 0 0-.6.6V8a3.4 3.4 0 0 0 3.4 3.4H7.6M17 5.5h2.4a.6.6 0 0 1 .6.6V8a3.4 3.4 0 0 1-3.4 3.4h-.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12 14v3.4M9 20.4h6M9.6 20.4c0-1.7.9-3 2.4-3s2.4 1.3 2.4 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                    title="Leaderboard" aria-label="Leaderboard"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" shape-rendering="geometricPrecision"><path class="ic-fill" d="M7 4h10v5a5 5 0 0 1-10 0V4z" fill="currentColor"/><path class="ic-stroke" d="M7 5.5H4.6a.6.6 0 0 0-.6.6V8a3.4 3.4 0 0 0 3.4 3.4H7.6M17 5.5h2.4a.6.6 0 0 1 .6.6V8a3.4 3.4 0 0 1-3.4 3.4h-.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path class="ic-stroke" d="M12 14v3.4M9 20.4h6M9.6 20.4c0-1.7.9-3 2.4-3s2.4 1.3 2.4 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             <div class="profile-score">
               <span class="profile-score-label" data-i18n="points">Points</span>
               <span id="profile-score-value" class="profile-score-value">0</span>
@@ -1123,9 +1123,9 @@
                     data-i18n-title="pointsInfo" data-i18n-aria-label="pointsInfo"
                     title="Point system" aria-label="Point system">
               <svg viewBox="0 0 48 48" aria-hidden="true" focusable="false" shape-rendering="geometricPrecision">
-                <circle cx="24" cy="24" r="21" fill="none" stroke="currentColor" stroke-width="2.6"/>
-                <circle cx="24" cy="14.4" r="2.6" fill="currentColor"/>
-                <path d="M24 21.4v13.2" fill="none" stroke="currentColor" stroke-width="4"
+                <circle class="ic-stroke" cx="24" cy="24" r="21" fill="none" stroke="currentColor" stroke-width="2.6"/>
+                <circle class="ic-fill" cx="24" cy="14.4" r="2.6" fill="currentColor"/>
+                <path class="ic-stroke" d="M24 21.4v13.2" fill="none" stroke="currentColor" stroke-width="4"
                       stroke-linecap="round"/>
               </svg>
             </button>
@@ -1141,7 +1141,7 @@
               </div>
             </div>
             <button id="profile-map-open-big" class="profile-map-open-big" type="button" data-i18n-title="openMap" title="Open map">
-              <img src="/map-view.svg" alt="map" class="profile-map-open-big-img" onerror="this.onerror=null;this.src='/useposition.svg';" />
+              <svg class="profile-map-open-big-img" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polygon class="ic-stroke" points="1 6 8 3 16 6 23 3 23 18 16 21 8 18 1 21 1 6"></polygon><line class="ic-stroke" x1="8" y1="3" x2="8" y2="18"></line><line class="ic-stroke" x1="16" y1="6" x2="16" y2="21"></line><circle class="ic-fill" cx="15.5" cy="11" r="2.6" fill="currentColor" stroke="none"></circle></svg>
             </button>
           </div>
         </section>
@@ -1151,7 +1151,7 @@
           <div class="profile-posts-head">
             <h3 id="profile-posts-title" class="profile-posts-title">Posts</h3>
             <button id="profile-map-open-list" class="profile-map-open-list icon-btn" type="button" data-i18n-title="openMap" title="Open map">
-              <img src="/map-view.svg" alt="map" class="profile-map-open-list-img" onerror="this.onerror=null;this.src='/useposition.svg';" />
+              <svg class="profile-map-open-list-img" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polygon class="ic-stroke" points="1 6 8 3 16 6 23 3 23 18 16 21 8 18 1 21 1 6"></polygon><line class="ic-stroke" x1="8" y1="3" x2="8" y2="18"></line><line class="ic-stroke" x1="16" y1="6" x2="16" y2="21"></line><circle class="ic-fill" cx="15.5" cy="11" r="2.6" fill="currentColor" stroke="none"></circle></svg>
             </button>
             <!-- Kendi verimi indir (GeoJSON + photos/ + videos/ → ZIP) — yalnızca opener -->
             <button id="profile-download-btn" class="profile-map-open-list profile-download-btn icon-btn" type="button"
@@ -1159,10 +1159,10 @@
                     title="Download my data" aria-label="Download my data">
               <svg class="profile-download-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
                    shape-rendering="geometricPrecision">
-                <path d="M12 3.5v10.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                <path d="M7.4 9.6L12 14.2l4.6-4.6" fill="none" stroke="currentColor" stroke-width="2"
+                <path class="ic-stroke" d="M12 3.5v10.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <path class="ic-stroke" d="M7.4 9.6L12 14.2l4.6-4.6" fill="none" stroke="currentColor" stroke-width="2"
                       stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M4.5 16.2v2.1a2.2 2.2 0 0 0 2.2 2.2h10.6a2.2 2.2 0 0 0 2.2-2.2v-2.1"
+                <path class="ic-stroke" d="M4.5 16.2v2.1a2.2 2.2 0 0 0 2.2 2.2h10.6a2.2 2.2 0 0 0 2.2-2.2v-2.1"
                       fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
               </svg>
             </button>

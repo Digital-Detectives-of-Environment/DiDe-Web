@@ -1852,23 +1852,23 @@ function _navRemainingDistance(fromIndex, fromPoint){
 function _navIcon(mode){
   if (mode === 'foot') {
     return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
-      '<circle cx="13.2" cy="4.1" r="1.9" fill="currentColor"/>' +
-      '<path d="M12.4 8.2 9.6 9.9l-1.3 3.6M12.4 8.2l2.6 1.1 1.5 3.1 2.2 1M12.4 8.2l-.7 4.6 2.7 2.6.9 4.9M11.7 12.8l-3.1 3-1.8 4.2" ' +
+      '<circle class="ic-fill" cx="13.2" cy="4.1" r="1.9" fill="currentColor"/>' +
+      '<path class="ic-stroke" d="M12.4 8.2 9.6 9.9l-1.3 3.6M12.4 8.2l2.6 1.1 1.5 3.1 2.2 1M12.4 8.2l-.7 4.6 2.7 2.6.9 4.9M11.7 12.8l-3.1 3-1.8 4.2" ' +
       'fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   }
   if (mode === 'bike') {
     return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
-      '<circle cx="5.4" cy="17" r="3.4" fill="none" stroke="currentColor" stroke-width="1.8"/>' +
-      '<circle cx="18.6" cy="17" r="3.4" fill="none" stroke="currentColor" stroke-width="1.8"/>' +
-      '<circle cx="14.6" cy="4.4" r="1.5" fill="currentColor"/>' +
-      '<path d="M5.4 17 9.9 11.2h4.2l-2.6-3.1 3.1-1.5 2.4 3.2h2.3M12 8.1 10 17" ' +
+      '<circle class="ic-stroke" cx="5.4" cy="17" r="3.4" fill="none" stroke="currentColor" stroke-width="1.8"/>' +
+      '<circle class="ic-stroke" cx="18.6" cy="17" r="3.4" fill="none" stroke="currentColor" stroke-width="1.8"/>' +
+      '<circle class="ic-fill" cx="14.6" cy="4.4" r="1.5" fill="currentColor"/>' +
+      '<path class="ic-stroke" d="M5.4 17 9.9 11.2h4.2l-2.6-3.1 3.1-1.5 2.4 3.2h2.3M12 8.1 10 17" ' +
       'fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   }
   return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
-    '<path d="M4 16.5v2.2a.8.8 0 0 1-.8.8H2.4a.8.8 0 0 1-.8-.8V11l2.2-5.1A2 2 0 0 1 5.6 4.7h12.8a2 2 0 0 1 1.8 1.2L22.4 11v7.7a.8.8 0 0 1-.8.8h-.8a.8.8 0 0 1-.8-.8v-2.2z" ' +
+    '<path class="ic-stroke" d="M4 16.5v2.2a.8.8 0 0 1-.8.8H2.4a.8.8 0 0 1-.8-.8V11l2.2-5.1A2 2 0 0 1 5.6 4.7h12.8a2 2 0 0 1 1.8 1.2L22.4 11v7.7a.8.8 0 0 1-.8.8h-.8a.8.8 0 0 1-.8-.8v-2.2z" ' +
     'fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>' +
-    '<path d="M1.6 11h20.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
-    '<circle cx="6.1" cy="14.1" r="1.25" fill="currentColor"/><circle cx="17.9" cy="14.1" r="1.25" fill="currentColor"/></svg>';
+    '<path class="ic-stroke" d="M1.6 11h20.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
+    '<circle class="ic-fill" cx="6.1" cy="14.1" r="1.25" fill="currentColor"/><circle class="ic-fill" cx="17.9" cy="14.1" r="1.25" fill="currentColor"/></svg>';
 }
 
 // Her olay pop-up'ının altına yaya / bisiklet / araç rota butonlarını ekler.
@@ -13884,10 +13884,10 @@ async function openProfileOverlay(){
   const postsTitle = pfEl('profile-posts-title');
   if (postsTitle) postsTitle.textContent = __pf.solver ? t('deletedPosts') : t('posts');
 
-  // "Verimi indir" butonu yalnızca olay ekleyen (opener) hesapta görünür
+  // "Verimi indir" butonu her 'user' hesabında (opener ve solver) görünür
   const dlBtn = pfEl('profile-download-btn');
   if (dlBtn) {
-    dlBtn.style.display = __pf.solver ? 'none' : '';
+    dlBtn.style.display = '';
     dlBtn.disabled = false;
   }
 
@@ -14621,10 +14621,21 @@ function _lbMedal(rank){
   return '';
 }
 
+function _lbMedalSvg(kind){
+  // Kurdeleli madalya: 1. altın, 2. gümüş, 3. bronz
+  return `<svg class="lb-medal-svg lb-medal-${kind}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path class="lb-ribbon-l" d="M7.6 1.6 11 9.2 8.2 10.6 5 3.1z"/>
+      <path class="lb-ribbon-r" d="M16.4 1.6 13 9.2l2.8 1.4L19 3.1z"/>
+      <circle class="lb-disc" cx="12" cy="16" r="6.1"/>
+      <circle class="lb-disc-inner" cx="12" cy="16" r="4.1"/>
+      <path class="lb-star" d="M12 12.9l.95 1.93 2.13.31-1.54 1.5.36 2.12L12 17.76l-1.9 1-.36-2.12-1.54-1.5 2.13-.31z"/>
+    </svg>`;
+}
+
 function _lbRowHtml(e, isMe){
   const medal = _lbMedal(e.rank);
   const badge = medal
-    ? `<span class="lb-medal lb-medal-${medal}" aria-hidden="true"></span>`
+    ? _lbMedalSvg(medal)
     : `<span class="lb-rank-num">${escapeHtml(String(e.rank))}</span>`;
   return `<div class="lb-row${medal ? ' lb-row-' + medal : ''}${isMe ? ' lb-row-me' : ''}">
       <span class="lb-rank">${badge}</span>
