@@ -7183,12 +7183,20 @@ async function submitCompany() {
   try {
     const r = await fetch('/api/admin/companies', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ company_name: name, logo_url: __companies.logoUrl, latitude: lat, longitude: lng })
+      body: JSON.stringify({
+        company_name: name,
+        logo_url: __companies.logoUrl,
+        latitude: lat,
+        longitude: lng,
+        // Instagram bağlantısı zorunlu değildir; boş bırakılabilir
+        instagram_link: (qs('#company-instagram') && qs('#company-instagram').value || '').trim()
+      })
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); return; }
     toast(t('companyAdded'), 'success');
     if (qs('#company-name')) qs('#company-name').value = '';
+    if (qs('#company-instagram')) qs('#company-instagram').value = '';
     if (qs('#company-lat')) qs('#company-lat').value = '';
     if (qs('#company-lng')) qs('#company-lng').value = '';
     __companies.logoUrl = '';
@@ -7208,6 +7216,7 @@ function openCompanyUpdate(c) {
   __companyUpdate.id = c.company_id;
   __companyUpdate.logoUrl = ''; // boş kalırsa mevcut logo korunur
   const nameI = qs('#company-update-name'); if (nameI) nameI.value = c.company_name || '';
+  const igI = qs('#company-update-instagram'); if (igI) igI.value = c.instagram_link || '';
   const prev = qs('#company-update-logo-preview'); if (prev) prev.src = c.logo_url || '';
   const st = qs('#company-update-logo-status'); if (st) st.textContent = '';
   const f = qs('#company-update-logo-file'); if (f) f.value = '';
@@ -7246,6 +7255,9 @@ async function submitCompanyUpdate() {
   if (!name) { toast(t('company_name_required'), 'error', 4000); return; }
   const body = { company_name: name };
   if (__companyUpdate.logoUrl) body.logo_url = __companyUpdate.logoUrl;
+  // Boş bırakılırsa bağlantı kaldırılır; dolu ise güncellenir
+  const igEl = qs('#company-update-instagram');
+  if (igEl) body.instagram_link = (igEl.value || '').trim();
   const btn = qs('#company-update-save'); if (btn) btn.disabled = true;
   try {
     const r = await fetch(`/api/admin/companies/${id}`, {
@@ -7628,11 +7640,33 @@ function repositionCompanyMarkers() {
   } catch {}
 }
 
+/* Şirket logoları yalnızca belirli bir zoom seviyesinden İTİBAREN görünür.
+   .env → COMPANY_LOGO_MIN_ZOOM (varsayılan 15). Bu seviyenin altına uzaklaşınca
+   katman haritadan çıkarılır, seviyeye gelince/yaklaşınca geri eklenir.
+   Tüm şirketler için aynı eşik geçerlidir. */
+function companyLogoMinZoom(){
+  const v = Number(APP_CONFIG.companyLogoMinZoom);
+  return (Number.isFinite(v) && v >= 0 && v <= 22) ? v : 15;
+}
+
+function applyCompanyLogoZoomVisibility(){
+  if (!map || !companyMarkersLayer) return;
+  const show = (map.getZoom() || 0) >= companyLogoMinZoom();
+  const onMap = map.hasLayer(companyMarkersLayer);
+  if (show && !onMap) {
+    try { companyMarkersLayer.addTo(map); } catch {}
+    try { repositionCompanyMarkers(); } catch {}
+  } else if (!show && onMap) {
+    try { map.removeLayer(companyMarkersLayer); } catch {}
+  }
+}
+
 function hookCompanyMarkerReposition() {
   if (__companyRepositionHooked || !map) return;
   __companyRepositionHooked = true;
   try {
     map.on('zoomend', repositionCompanyMarkers);
+    map.on('zoomend', applyCompanyLogoZoomVisibility);
     map.on('moveend', repositionCompanyMarkers);
     map.on('resize', repositionCompanyMarkers);   // invalidateSize sonrası
     map.on('load', repositionCompanyMarkers);
@@ -7662,10 +7696,13 @@ async function refreshCompanyMarkers() {
       iconSize: [46, 54], iconAnchor: [23, 52], popupAnchor: [0, -48]
     });
     const m = L.marker([lat, lng], { icon, title: c.company_name || '' });
-    m.bindPopup(companyPopupHtml(c));
+    m.bindPopup(companyPopupNode(c));
     m.__companyData = c;   // dil değişiminde içeriği tazeleyebilmek için
     m.addTo(companyMarkersLayer);
   });
+
+  // Zoom eşiğine göre görünürlüğü uygula (uzakken logolar gizli kalır)
+  applyCompanyLogoZoomVisibility();
 
   // Marker'lar eklendikten sonra konumlarını güvenceye al: bir sonraki karede ve
   // kısa aralıklarla yeniden hesapla (açılıştaki animasyonlar/boyut değişimleri
@@ -7677,17 +7714,55 @@ async function refreshCompanyMarkers() {
 
 // Şirket marker'ının pop-up içeriği: şirket adı + indirim bilgisi (kaç puana yüzde kaç).
 // İndirim tanımlı değilse bunu belirten satır gösterilir. Metinler dil dosyalarından gelir.
-function companyPopupHtml(c){
+/* Şirket pop-up'ı: rota butonları (yaya/bisiklet/araç) + ad + indirim + Instagram.
+   DOM olarak kurulur; rota butonları olay pop-up'larındakiyle AYNI bileşendir,
+   böylece dil desteği ve açık/koyu tema uyumu birebir aynıdır. */
+function companyPopupNode(c){
+  const wrap = document.createElement('div');
+  wrap.className = 'company-marker-popup';
+
+  const name = document.createElement('div');
+  name.className = 'company-marker-name';
+  name.textContent = (c && c.company_name) || '';
+  wrap.appendChild(name);
+
   const pct = Number(c && c.discount_percentage);
   const thr = Number(c && c.discount_threshold_point);
   const hasDiscount = Number.isFinite(pct) && pct > 0 && Number.isFinite(thr) && thr > 0;
-  const line = hasDiscount
+  const disc = document.createElement('div');
+  disc.className = 'company-marker-discount' + (hasDiscount ? '' : ' is-none');
+  disc.textContent = hasDiscount
     ? t('companyDiscountLine', { threshold: thr, percent: pct })
     : t('companyNoDiscount');
-  return `<div class="company-marker-popup">
-    <div class="company-marker-name">${escapeHtml((c && c.company_name) || '')}</div>
-    <div class="company-marker-discount${hasDiscount ? '' : ' is-none'}">${escapeHtml(line)}</div>
-  </div>`;
+  wrap.appendChild(disc);
+
+  // Instagram bağlantısı tanımlıysa logolu buton
+  const link = (c && typeof c.instagram_link === 'string') ? c.instagram_link.trim() : '';
+  if (/^https?:\/\//i.test(link)) {
+    const a = document.createElement('a');
+    a.className = 'company-instagram-btn';
+    a.href = link;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.title = t('instagramLink');
+    a.setAttribute('aria-label', t('instagramLink'));
+    a.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+        '<defs><linearGradient id="igGrad" x1="0" y1="1" x2="1" y2="0">' +
+          '<stop offset="0" stop-color="#f9ce34"/><stop offset="0.45" stop-color="#ee2a7b"/>' +
+          '<stop offset="1" stop-color="#6228d7"/></linearGradient></defs>' +
+        '<rect class="ig-frame" x="2.4" y="2.4" width="19.2" height="19.2" rx="5.4" ry="5.4" ' +
+          'fill="none" stroke="url(#igGrad)" stroke-width="2"/>' +
+        '<circle class="ig-lens" cx="12" cy="12" r="4.3" fill="none" stroke="url(#igGrad)" stroke-width="2"/>' +
+        '<circle class="ig-dot" cx="17.2" cy="6.8" r="1.35" fill="url(#igGrad)"/>' +
+      '</svg>' +
+      `<span class="company-instagram-label">${escapeHtml(t('instagramLink'))}</span>`;
+    wrap.appendChild(a);
+  }
+
+  // Rotalama butonları (olay pop-up'larıyla aynı bileşen) — en üste eklenir
+  try { addRouteButtonsToPopup(wrap, { latitude: c && c.latitude, longitude: c && c.longitude }); } catch {}
+  return wrap;
 }
 
 // Dil değişince açık/kapalı tüm şirket pop-up'larının metnini güncelle
@@ -7696,7 +7771,7 @@ function refreshCompanyPopupTexts(){
   try {
     companyMarkersLayer.eachLayer(m => {
       if (!m || !m.__companyData || typeof m.setPopupContent !== 'function') return;
-      m.setPopupContent(companyPopupHtml(m.__companyData));
+      m.setPopupContent(companyPopupNode(m.__companyData));
     });
   } catch {}
 }

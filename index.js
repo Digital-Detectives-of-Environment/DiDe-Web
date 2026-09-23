@@ -132,6 +132,14 @@ const ROUTE_BOUNDARY_TOLERANCE = (() => {
   return (Number.isFinite(v) && v >= 0 && v <= 500) ? v : 20;
 })();
 
+// Şirket logolarının haritada görünmeye başladığı EN KÜÇÜK zoom seviyesi.
+// Bu değerin altına (uzaklaştırınca) şirket logoları gizlenir; bu seviyeye gelince
+// ya da yakınlaştırınca tüm şirketlerin logoları görünür olur.
+const COMPANY_LOGO_MIN_ZOOM = (() => {
+  const v = Number(String(process.env.COMPANY_LOGO_MIN_ZOOM ?? '').trim());
+  return (Number.isFinite(v) && v >= 0 && v <= 22) ? v : 15;
+})();
+
 const EVENT_SUBMIT_INTERVAL_RAW = String(process.env.EVENT_SUBMIT_INTERVAL_HOURS ?? '').trim();
 let EVENT_SUBMIT_INTERVAL_HOURS = 0; // 0 = sınır yok
 if (EVENT_SUBMIT_INTERVAL_RAW !== '') {
@@ -2747,6 +2755,8 @@ app.get('/api/config', (_req, res) => {
     bufferRadius: BUFFER_RADIUS > 0 ? BUFFER_RADIUS : 0,
     // Rotalama: hedefe yaklaşma eşiği (metre). OSRM adresleri istemciye GÖNDERİLMEZ.
     routeArrivalThreshold: ROUTE_ARRIVAL_THRESHOLD,
+    // Şirket logolarının görünmeye başladığı en küçük zoom seviyesi
+    companyLogoMinZoom: COMPANY_LOGO_MIN_ZOOM,
   });
 });
 /* ===================== AUTH ===================== */
@@ -5390,6 +5400,16 @@ app.post('/api/import/geojson', adminOnly, express.json({ limit: '50mb' }), asyn
 
 /* ===================== Şirketler (company) altyapısı ===================== */
 // Tablolar yalnızca ihtiyaç anında (ilk şirket / ilk sipariş) oluşturulur.
+/* Şirket bağlantısı (Instagram / web): boşsa NULL; şema yoksa https:// eklenir.
+   Yalnızca http/https kabul edilir (javascript: gibi şemalar engellenir). */
+function normalizeLink(raw) {
+  let v = String(raw ?? '').trim();
+  if (!v) return null;
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(v)) v = 'https://' + v.replace(/^\/+/, '');
+  if (!/^https?:\/\//i.test(v)) return null;
+  return v.slice(0, 500);
+}
+
 async function ensureCompaniesSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.companies (
@@ -5409,6 +5429,8 @@ async function ensureCompaniesSchema() {
   `);
   // Menü özelliği kaldırıldı → eski kurulumlarda kolon düşürülür.
   try { await pool.query(`ALTER TABLE public.companies DROP COLUMN IF EXISTS menu`); } catch (e) {}
+  // Şirketin Instagram (ya da web) bağlantısı — zorunlu değildir
+  try { await pool.query(`ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS instagram_link text`); } catch (e) {}
 }
 
 // users.dependent_company: ilk şirket kullanıcısı eklendiğinde oluşur (companies FK)
@@ -5494,6 +5516,7 @@ app.post('/api/admin/companies', requireAuth, requireAnyRole(['supervisor', 'adm
   try {
     const name = String(req.body?.company_name || '').trim();
     const logo = String(req.body?.logo_url || '').trim();
+    const insta = normalizeLink(req.body?.instagram_link);
     const lat = Number(req.body?.latitude);
     const lng = Number(req.body?.longitude);
     if (!name)  return res.status(400).json({ error: 'company_name_required',  message: getErrorMessage(req, 'company_name_required') });
@@ -5503,10 +5526,11 @@ app.post('/api/admin/companies', requireAuth, requireAnyRole(['supervisor', 'adm
     }
     await ensureCompaniesSchema();
     const r = await pool.query(
-      `INSERT INTO public.companies (company_name, logo_url, latitude, longitude, created_by_name)
-       VALUES ($1,$2,$3,$4,$5)
-       RETURNING company_id, company_name, logo_url, latitude, longitude, COALESCE(active,true) AS active, created_at, created_by_name`,
-      [name, logo, lat, lng, req.user.username]
+      `INSERT INTO public.companies (company_name, logo_url, latitude, longitude, created_by_name, instagram_link)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING company_id, company_name, logo_url, latitude, longitude, instagram_link,
+                 COALESCE(active,true) AS active, created_at, created_by_name`,
+      [name, logo, lat, lng, req.user.username, insta]
     );
     res.json({ ok: true, company: r.rows[0] });
   } catch (e) {
@@ -5544,11 +5568,16 @@ app.patch('/api/admin/companies/:id', requireAuth, requireAnyRole(['supervisor',
       if (!logo) return res.status(400).json({ error: 'company_logo_required', message: getErrorMessage(req, 'company_logo_required') });
       sets.push(`logo_url=$${i++}`); vals.push(logo);
     }
+    if (req.body?.instagram_link != null) {
+      // Boş gönderilirse bağlantı kaldırılır (NULL)
+      sets.push(`instagram_link=$${i++}`); vals.push(normalizeLink(req.body.instagram_link));
+    }
     if (!sets.length) return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
     vals.push(id);
     const r = await pool.query(
       `UPDATE public.companies SET ${sets.join(', ')} WHERE company_id=$${i}
-       RETURNING company_id, company_name, logo_url, latitude, longitude, COALESCE(active,true) AS active, created_at, created_by_name`,
+       RETURNING company_id, company_name, logo_url, latitude, longitude, instagram_link,
+                 COALESCE(active,true) AS active, created_at, created_by_name`,
       vals
     );
     if (!r.rows.length) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
@@ -5582,7 +5611,8 @@ app.get('/api/admin/companies', requireAuth, requireAnyRole(['supervisor', 'admi
   try {
     if (!(await companiesTableExists())) return res.json([]);
     const r = await pool.query(
-      `SELECT company_id, company_name, logo_url, latitude, longitude, COALESCE(active,true) AS active, created_at, created_by_name
+      `SELECT company_id, company_name, logo_url, latitude, longitude, instagram_link,
+              COALESCE(active,true) AS active, created_at, created_by_name
        FROM public.companies WHERE COALESCE(active,true)=true ORDER BY created_at DESC`
     );
     res.json(r.rows);
@@ -5597,7 +5627,7 @@ app.get('/api/admin/companies/:id', requireAuth, requireAnyRole(['supervisor', '
   try {
     if (!(await companiesTableExists())) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
     const r = await pool.query(
-      `SELECT company_id, company_name, logo_url, latitude, longitude,
+      `SELECT company_id, company_name, logo_url, latitude, longitude, instagram_link,
               discount_percentage, discount_threshold_point, COALESCE(active,true) AS active,
               created_at, created_by_name
        FROM public.companies WHERE company_id=$1`,
@@ -5616,7 +5646,7 @@ app.get('/api/companies', tryAuth, async (req, res) => {
   try {
     if (!(await companiesTableExists())) return res.json([]);
     const r = await pool.query(
-      `SELECT company_id, company_name, logo_url, latitude, longitude,
+      `SELECT company_id, company_name, logo_url, latitude, longitude, instagram_link,
               discount_percentage, discount_threshold_point
        FROM public.companies
        WHERE COALESCE(active,true)=true AND latitude IS NOT NULL AND longitude IS NOT NULL`

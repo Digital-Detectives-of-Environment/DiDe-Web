@@ -262,6 +262,8 @@ window.i18nLangs.en = {
     myDataDownloaded: 'Your data has been downloaded.',
     companyDiscountLine: '{{percent}}% discount for {{threshold}} points',
     companyNoDiscount: 'No discount defined yet',
+    instagramLink: 'Instagram',
+    instagramLinkPlaceholder: 'Instagram link (optional)',
     allEventTypes: 'All event types',
     bufferRecordCount: '{{count}} records within {{radius}} m',
     noRecordsInBuffer: 'No records in this area',

@@ -684,6 +684,10 @@
               <div class="company-form-row">
                 <input id="company-name" type="text" class="company-input" data-i18n-placeholder="companyNamePlaceholder" />
               </div>
+              <!-- Instagram bağlantısı (zorunlu değil) -->
+              <div class="company-form-row">
+                <input id="company-instagram" type="text" class="company-input" data-i18n-placeholder="instagramLinkPlaceholder" />
+              </div>
               <div class="company-form-row company-logo-row">
                 <button type="button" id="company-logo-btn" class="btn company-logo-btn" data-i18n="uploadLogo">Upload logo</button>
                 <input id="company-logo-file" type="file" accept=".svg,.png,.jpg,.jpeg,.webp,.gif,image/svg+xml,image/png,image/jpeg,image/webp,image/gif" hidden />
@@ -1446,6 +1450,10 @@
       <div class="company-form">
         <div class="company-form-row">
           <input id="company-update-name" type="text" class="company-input" data-i18n-placeholder="companyNamePlaceholder" />
+        </div>
+        <!-- Instagram bağlantısı (zorunlu değil — boş bırakılırsa bağlantı kaldırılır) -->
+        <div class="company-form-row">
+          <input id="company-update-instagram" type="text" class="company-input" data-i18n-placeholder="instagramLinkPlaceholder" />
         </div>
         <div class="company-form-row company-logo-row">
           <img id="company-update-logo-preview" class="company-logo-preview" alt="" />

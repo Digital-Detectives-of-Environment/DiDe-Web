@@ -3975,6 +3975,50 @@ path.live-buffer-circle{
 :root.theme-dark .company-marker-popup .company-marker-discount{ background:rgba(59,130,246,.18); color:#93c5fd; }
 :root.theme-dark .company-marker-popup .company-marker-discount.is-none{ background:rgba(148,163,184,.18); color:#cbd5e1; }
 
+/* Şirket pop-up'ındaki Instagram butonu (açık ve koyu temada net görünür) */
+.company-instagram-btn{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  margin-top:8px;
+  padding:7px 10px;
+  border:1.5px solid #ee2a7b;
+  border-radius:10px;
+  background:linear-gradient(135deg, rgba(249,206,52,.12), rgba(238,42,123,.12) 45%, rgba(98,40,215,.12));
+  color:#c81e63;
+  font-weight:700;
+  font-size:12.5px;
+  line-height:1.2;
+  text-decoration:none;
+  cursor:pointer;
+}
+.company-instagram-btn:hover{
+  background:linear-gradient(135deg, rgba(249,206,52,.22), rgba(238,42,123,.22) 45%, rgba(98,40,215,.22));
+}
+.company-instagram-btn svg{ width:20px; height:20px; display:block; flex:0 0 auto; }
+.company-instagram-label{ white-space:nowrap; }
+:root.theme-dark .company-instagram-btn{
+  border-color:#ff5fa2;
+  background:linear-gradient(135deg, rgba(249,206,52,.16), rgba(238,42,123,.18) 45%, rgba(98,40,215,.18));
+  color:#ffa3c9;
+  box-shadow:0 0 10px rgba(238,42,123,.25);
+}
+:root.theme-dark .company-instagram-btn:hover{
+  background:linear-gradient(135deg, rgba(249,206,52,.26), rgba(238,42,123,.3) 45%, rgba(98,40,215,.3));
+}
+/* Instagram logosu koyu temada da kendi gradyan renklerini korur
+   (genel ":root.theme-dark button svg{fill:#111827!important}" kuralından etkilenmesin) */
+:root.theme-dark .company-instagram-btn svg .ig-frame,
+:root.theme-dark .company-instagram-btn svg .ig-lens{
+  fill:none !important;
+  stroke:url(#igGrad) !important;
+}
+:root.theme-dark .company-instagram-btn svg .ig-dot{
+  fill:url(#igGrad) !important;
+  stroke:none !important;
+}
+
 /* ===================== Company detail: users & orders ===================== */
 .cd-user-form{ display:flex; flex-direction:column; gap:8px; margin-bottom:16px; }
 .cd-user-add{ background:var(--primary,#2563eb); color:#fff; border:none; padding:10px 16px; border-radius:10px; font-weight:600; cursor:pointer; }

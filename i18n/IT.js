@@ -257,6 +257,8 @@ window.i18nLangs.it = {
     myDataDownloaded: 'I tuoi dati sono stati scaricati.',
     companyDiscountLine: 'Sconto del {{percent}}% con {{threshold}} punti',
     companyNoDiscount: 'Nessuno sconto definito',
+    instagramLink: 'Instagram',
+    instagramLinkPlaceholder: 'Link Instagram (facoltativo)',
     allEventTypes: 'Tutti i tipi di evento',
     bufferRecordCount: '{{count}} record entro {{radius}} m',
     noRecordsInBuffer: 'Nessun record in quest\'area',

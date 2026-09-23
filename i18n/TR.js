@@ -262,6 +262,8 @@ window.i18nLangs.tr = {
     myDataDownloaded: 'Verileriniz indirildi.',
     companyDiscountLine: '{{threshold}} puan ile %{{percent}} indirim',
     companyNoDiscount: 'Henüz indirim tanımlanmadı',
+    instagramLink: 'Instagram',
+    instagramLinkPlaceholder: 'Instagram bağlantısı (isteğe bağlı)',
     allEventTypes: 'Tüm olay türleri',
     bufferRecordCount: '{{radius}} m çevresinde {{count}} kayıt',
     noRecordsInBuffer: 'Bu alanda kayıt yok',
