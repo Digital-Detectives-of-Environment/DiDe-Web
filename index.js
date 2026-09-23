@@ -328,6 +328,8 @@ ensureDbConnectionWithRetry()
     try { await exportRoutingBoundary(); } catch (e) { console.warn('[ROUTE] boundary export error:', e.message); }
     // Şirket kullanıcıları: kullanıcı adı benzersizliği şirket bazında
     try { await ensureCompanyUsernameScope(); } catch (e) { console.warn('[USERS] username scope error:', e.message); }
+    // Şirket tablosu / yeni kolonlar (instagram_link, deactivated_* ...) açılışta hazırlanır
+    try { await ensureCompaniesSchema(); } catch (e) { console.warn('[COMPANIES] schema error:', e.message); }
   })
   .catch((e) => {
     console.error('[FATAL] Database startup error:', e && e.message ? e.message : e);
@@ -3877,7 +3879,7 @@ function osrmSourceMapFile() {
 function checkRoutingMapFile() {
   const file = osrmSourceMapFile();
   if (!file) return { ok: false, reason: 'missing' };
-  if (file.endsWith('.pbf')) return { ok: true, reason: 'pbf' };
+  if (file.endsWith('.pbf')) return { ok: true, reason: 'pbf', file };
   try {
     const fd = fs.openSync(file, 'r');
     const size = fs.statSync(file).size;
@@ -5410,7 +5412,19 @@ function normalizeLink(raw) {
   return v.slice(0, 500);
 }
 
-async function ensureCompaniesSchema() {
+// Şema bir kez hazırlanır; sonraki çağrılar aynı söze (promise) bağlanır.
+let __companiesSchemaReady = null;
+function ensureCompaniesSchema() {
+  if (!__companiesSchemaReady) {
+    __companiesSchemaReady = _ensureCompaniesSchema().catch((e) => {
+      __companiesSchemaReady = null;      // hata olursa bir sonraki istekte yeniden denensin
+      throw e;
+    });
+  }
+  return __companiesSchemaReady;
+}
+
+async function _ensureCompaniesSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.companies (
       company_id serial PRIMARY KEY,
@@ -5595,8 +5609,13 @@ app.delete('/api/admin/companies/:id', requireAuth, requireAnyRole(['supervisor'
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
     if (!(await companiesTableExists())) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
     const r = await pool.query(
-      `UPDATE public.companies SET active=false WHERE company_id=$1 AND COALESCE(active,true)=true RETURNING company_id`,
-      [id]
+      `UPDATE public.companies
+          SET active=false,
+              deactivated_at=now(),
+              deactivated_by_name=$2
+        WHERE company_id=$1 AND COALESCE(active,true)=true
+        RETURNING company_id`,
+      [id, req.user.username]
     );
     if (!r.rows.length) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
     res.json({ ok: true });
@@ -5610,6 +5629,8 @@ app.delete('/api/admin/companies/:id', requireAuth, requireAnyRole(['supervisor'
 app.get('/api/admin/companies', requireAuth, requireAnyRole(['supervisor', 'admin']), async (req, res) => {
   try {
     if (!(await companiesTableExists())) return res.json([]);
+    // Yeni kolonlar (ör. instagram_link) eski kurulumlarda eksik olabilir → garanti et
+    try { await ensureCompaniesSchema(); } catch (e) { console.warn('[COMPANIES] schema:', e.message); }
     const r = await pool.query(
       `SELECT company_id, company_name, logo_url, latitude, longitude, instagram_link,
               COALESCE(active,true) AS active, created_at, created_by_name
@@ -5626,6 +5647,7 @@ app.get('/api/admin/companies', requireAuth, requireAnyRole(['supervisor', 'admi
 app.get('/api/admin/companies/:id', requireAuth, requireAnyRole(['supervisor', 'admin']), async (req, res) => {
   try {
     if (!(await companiesTableExists())) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    try { await ensureCompaniesSchema(); } catch (e) { console.warn('[COMPANIES] schema:', e.message); }
     const r = await pool.query(
       `SELECT company_id, company_name, logo_url, latitude, longitude, instagram_link,
               discount_percentage, discount_threshold_point, COALESCE(active,true) AS active,
@@ -5645,6 +5667,7 @@ app.get('/api/admin/companies/:id', requireAuth, requireAnyRole(['supervisor', '
 app.get('/api/companies', tryAuth, async (req, res) => {
   try {
     if (!(await companiesTableExists())) return res.json([]);
+    try { await ensureCompaniesSchema(); } catch (e) { console.warn('[COMPANIES] schema:', e.message); }
     const r = await pool.query(
       `SELECT company_id, company_name, logo_url, latitude, longitude, instagram_link,
               discount_percentage, discount_threshold_point
