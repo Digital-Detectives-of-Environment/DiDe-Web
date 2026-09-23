@@ -557,24 +557,24 @@ async function ensureTargetHasOlayTuru(table) {
 }
 
 // Time-dependent expiry sweep.
-// Any active event whose event_type is time-dependent and whose lifetime
-// (created_at + valid_time days) has elapsed is deactivated: active=false and
-// deactivated_at set to the exact expiry instant. Idempotent — once a row is
-// deactivated it no longer matches, so repeated calls update 0 rows.
+// Ömür artık SON KATILIM tarihinden (last_agreed_date) itibaren sayılır; bu alan
+// olay eklenirken created_at ile aynıdır ve her yeni katılımda (agree) güncellenir.
+// Böylece bir olaya katılım geldikçe olayın süresi, bağlı olduğu olay türünün
+// süresi kadar uzar. created_at (ilk gönderim tarihi) hiç değişmez.
 async function deactivateExpiredEvents(db = pool) {
   try {
     const r = await db.query(`
       UPDATE public.event e
          SET active = false,
-             deactivated_at = e.created_at + (et.valid_time * interval '1 day')
+             deactivated_at = COALESCE(e.last_agreed_date, e.created_at) + (et.valid_time * interval '1 day')
         FROM public.event_type et
        WHERE e.event_type = et.event_type_id
          AND COALESCE(e.active, true) = true
          AND COALESCE(et.time_dependent, false) = true
          AND et.valid_time IS NOT NULL
          AND et.valid_time > 0
-         AND e.created_at IS NOT NULL
-         AND (e.created_at + (et.valid_time * interval '1 day')) <= now()
+         AND COALESCE(e.last_agreed_date, e.created_at) IS NOT NULL
+         AND (COALESCE(e.last_agreed_date, e.created_at) + (et.valid_time * interval '1 day')) <= now()
     `);
     return r.rowCount || 0;
   } catch (e) {
@@ -2132,6 +2132,14 @@ async function ensureDbSqlHelpers() {
   await run('event_type add time_dependent',       `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS time_dependent boolean DEFAULT false`);
   await run('event_type add valid_time',           `ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS valid_time double precision`);
 
+  // last_agreed_date: zamana bağlı olayların ömrü BU tarihten itibaren sayılır.
+  //  - Olay eklendiğinde created_at ile aynı değeri alır.
+  //  - Bir kullanıcı olaya KATILDIĞINDA (agree) o anki tarihe güncellenir; böylece
+  //    olayın süresi, bağlı olduğu olay türünün süresi kadar UZAR.
+  //  - created_at HİÇ değişmez (ilk gönderim tarihi korunur).
+  await run('event add last_agreed_date',          `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS last_agreed_date timestamptz`);
+  await run('event backfill last_agreed_date',     `UPDATE public.event SET last_agreed_date = created_at WHERE last_agreed_date IS NULL AND created_at IS NOT NULL`);
+
   // Rename event_type."public" → "public_"  (idempotent: handles new & existing installs)
   await tx('event_type rename public to public_', async (c) => {
     const has_public = await c.query(
@@ -3416,10 +3424,20 @@ app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
     }
     const newCount = ids.length;
 
-    await client.query(
-      `UPDATE event SET num_agrees=$2, agreed_ids=$3::jsonb WHERE event_id=$1`,
-      [id, newCount, JSON.stringify(ids)]
-    );
+    // YENİ bir katılımda son katılım tarihi güncellenir → zamana bağlı olayın ömrü,
+    // bağlı olduğu olay türünün süresi kadar bu tarihten itibaren yeniden başlar.
+    // Katılım geri alındığında tarih DEĞİŞMEZ (süre kısalmaz), created_at ise hiç değişmez.
+    if (agreed) {
+      await client.query(
+        `UPDATE event SET num_agrees=$2, agreed_ids=$3::jsonb, last_agreed_date=now() WHERE event_id=$1`,
+        [id, newCount, JSON.stringify(ids)]
+      );
+    } else {
+      await client.query(
+        `UPDATE event SET num_agrees=$2, agreed_ids=$3::jsonb WHERE event_id=$1`,
+        [id, newCount, JSON.stringify(ids)]
+      );
+    }
     await client.query('COMMIT');
 
     // Gönderi sahibinin puanını güncelle
@@ -4286,10 +4304,10 @@ app.post('/api/submit_olay', requireAuth, async (req, res) => {
     const ins = await pool.query(
       `INSERT INTO event (latitude, longitude, event_type, description, geom,
                          created_by_name, created_by_role_name, created_by_id, active,
-                         photo_urls, video_urls${pkColumns})
+                         photo_urls, video_urls, last_agreed_date${pkColumns})
        VALUES ($1,$2,$3,$4, ST_SetSRID(ST_MakePoint($2,$1),4326),
                $5, $6, $7, true,
-               $8::text, $9::text${pkPlaceholders})
+               $8::text, $9::text, now()${pkPlaceholders})
        RETURNING event_id`,
       [lat, lng, olayTuruId, description ?? null, req.user.username, req.user.role, req.user.id, toJsonText(photoUrls), toJsonText(videoUrls), ...pkVals]
     );
@@ -5351,9 +5369,9 @@ app.post('/api/import/geojson', adminOnly, express.json({ limit: '50mb' }), asyn
       try {
         await pool.query(
           `INSERT INTO event (latitude, longitude, event_type, description, geom,
-                             created_by_name, created_by_role_name, created_by_id, active${pkColumns})
+                             created_by_name, created_by_role_name, created_by_id, active, last_agreed_date${pkColumns})
            VALUES ($1,$2,$3,$4, ST_SetSRID(ST_MakePoint($2,$1),4326),
-                   $5, $6, $7, true${pkPlaceholders})`,
+                   $5, $6, $7, true, now()${pkPlaceholders})`,
           baseVals
         );
         inserted++;
