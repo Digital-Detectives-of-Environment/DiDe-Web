@@ -1509,6 +1509,17 @@ function setupInstagramSwiper(container, track, opts) {
     __swiperCleanup = null;
   }
 
+  // ÖNEMLİ: Kayıt kartı her yeniden çizildiğinde (yeni kayıtlar, tür süzgeci, dil
+  // değişimi...) bu fonksiyon tekrar çağrılıyordu ve AYNI kapsayıcıya her seferinde
+  // yeni touch/mouse dinleyicileri ekleniyordu. Tek bir parmak hareketi N tane
+  // dinleyiciyi tetiklediği için sayfa 2'şer, 5'er atlıyordu. Artık önceki
+  // dinleyiciler kurulum başında topluca kaldırılıyor.
+  try { if (container.__swiperAbort) container.__swiperAbort.abort(); } catch {}
+  const __ac = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  const __sig = __ac ? { signal: __ac.signal } : {};
+  container.__swiperAbort = __ac;
+  const withSignal = (opt) => Object.assign({}, opt || {}, __sig);
+
   let startX = 0, startY = 0, isDragging = false, hasMoved = false;
   let dragOffsetX = 0;
   let startTime = 0;
@@ -1548,14 +1559,16 @@ function setupInstagramSwiper(container, track, opts) {
     hasMoved = false;
     isHorizontalSwipe = null;
     dragOffsetX = 0;
-  }, { passive: true });
+  }, withSignal({ passive: true }));
 
   container.addEventListener('touchmove', (e) => {
     if (!isDragging || isAnimating) return;
     const dx = e.touches[0].clientX - startX;
     const dy = e.touches[0].clientY - startY;
-    if (isHorizontalSwipe === null && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
-      isHorizontalSwipe = Math.abs(dx) > Math.abs(dy);
+    // Yön kararı biraz daha geç verilir (14px) ve yatay hareket dikeyden belirgin
+    // şekilde büyük olmalıdır; böylece dikey kaydırmalar sayfa değiştirmez.
+    if (isHorizontalSwipe === null && (Math.abs(dx) > 14 || Math.abs(dy) > 14)) {
+      isHorizontalSwipe = Math.abs(dx) > Math.abs(dy) * 1.3;
     }
     if (isHorizontalSwipe) {
       e.preventDefault();
@@ -1567,7 +1580,7 @@ function setupInstagramSwiper(container, track, opts) {
       }
       setDragTransform(dragOffsetX);
     }
-  }, { passive: false });
+  }, withSignal({ passive: false }));
 
   container.addEventListener('touchend', (e) => {
     if (!isDragging || isAnimating) return;
@@ -1576,15 +1589,18 @@ function setupInstagramSwiper(container, track, opts) {
     const elapsed = Math.max(Date.now() - startTime, 1);
     const velocity = Math.abs(dragOffsetX) / elapsed;
     const current = opts.getCurrentPage();
-    const threshold = getPageWidth() * 0.22;
-    if (Math.abs(dragOffsetX) > threshold || (velocity > 0.4 && Math.abs(dragOffsetX) > 35)) {
+    // Sayfa değişmesi için parmağın sayfa genişliğinin en az %35'i kadar (ya da
+    // hızlı bir savurmada en az 70px) hareket etmesi gerekir. Bir harekette
+    // EN FAZLA BİR sayfa geçilir.
+    const threshold = getPageWidth() * 0.35;
+    if (Math.abs(dragOffsetX) > threshold || (velocity > 0.75 && Math.abs(dragOffsetX) > 70)) {
       if (dragOffsetX < 0) goToPage(current + 1);
       else goToPage(current - 1);
     } else {
-      goToPage(current);
+      goToPage(current);   // eşiğin altındaysa aynı sayfaya geri yaslanır
     }
     dragOffsetX = 0;
-  }, { passive: true });
+  }, withSignal({ passive: true }));
 
   // ── Mouse drag (desktop) ──
   container.addEventListener('mousedown', (e) => {
@@ -1596,7 +1612,7 @@ function setupInstagramSwiper(container, track, opts) {
     dragOffsetX = 0;
     container.style.cursor = 'grabbing';
     e.preventDefault();
-  });
+  }, withSignal());
   const onMouseMove = (e) => {
     if (!isDragging || isAnimating) return;
     const dx = e.clientX - startX;
@@ -1618,8 +1634,8 @@ function setupInstagramSwiper(container, track, opts) {
     const elapsed = Math.max(Date.now() - startTime, 1);
     const velocity = Math.abs(dragOffsetX) / elapsed;
     const current = opts.getCurrentPage();
-    const threshold = getPageWidth() * 0.22;
-    if (Math.abs(dragOffsetX) > threshold || (velocity > 0.4 && Math.abs(dragOffsetX) > 35)) {
+    const threshold = getPageWidth() * 0.35;
+    if (Math.abs(dragOffsetX) > threshold || (velocity > 0.75 && Math.abs(dragOffsetX) > 70)) {
       if (dragOffsetX < 0) goToPage(current + 1);
       else goToPage(current - 1);
     } else {
@@ -1627,8 +1643,8 @@ function setupInstagramSwiper(container, track, opts) {
     }
     dragOffsetX = 0;
   };
-  document.addEventListener('mousemove', onMouseMove);
-  document.addEventListener('mouseup', onMouseUp);
+  document.addEventListener('mousemove', onMouseMove, withSignal());
+  document.addEventListener('mouseup', onMouseUp, withSignal());
 
   // ── Wheel — accumulate then move one page ──
   let wheelLocked = false;
@@ -1650,10 +1666,11 @@ function setupInstagramSwiper(container, track, opts) {
       wheelLocked = true;
       setTimeout(() => { wheelLocked = false; }, 700);
     }
-  }, { passive: false });
+  }, withSignal({ passive: false }));
 
   // Store cleanup function to remove document listeners on next init
   __swiperCleanup = () => {
+    try { if (__ac) __ac.abort(); } catch {}
     document.removeEventListener('mousemove', onMouseMove);
     document.removeEventListener('mouseup', onMouseUp);
   };
@@ -14783,6 +14800,7 @@ function pfPointsRules(){
   const rules = [];
   if (__pf.solver) {
     rules.push({ badge: '✔',  text: t('pointsRuleSolverClose') });
+    rules.push({ badge: '+1', text: t('pointsRuleAgreeGiven') });
     rules.push({ badge: '+2', text: t('pointsRuleSolverAgree') });
     rules.push({ badge: 'i',  text: t('pointsRuleSolverNoPoint') });
     rules.push({ badge: '%',  text: t('pointsRuleSpend') });
@@ -14790,6 +14808,7 @@ function pfPointsRules(){
   }
   rules.push({ badge: '+1', text: t('pointsRulePost') });
   rules.push({ badge: '+2', text: t('pointsRuleAgree') });
+  rules.push({ badge: '+1', text: t('pointsRuleAgreeGiven') });
   rules.push({ badge: '−1', text: t('pointsRuleDelete') });
   // Gönderi aralığı .env'de tanımlı DEĞİLSE bu satır hiç gösterilmez.
   const h = (typeof postIntervalHours === 'function') ? postIntervalHours() : 0;

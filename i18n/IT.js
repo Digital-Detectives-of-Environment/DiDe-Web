@@ -249,6 +249,7 @@ window.i18nLangs.it = {
     pointsInfoTitle: 'Sistema di punti',
     pointsRulePost: 'Guadagni +1 punto per ogni post che aggiungi.',
     pointsRuleAgree: 'Guadagni +2 punti per ogni adesione ricevuta dal tuo post.',
+    pointsRuleAgreeGiven: 'Guadagni +1 punto per ogni post a cui aderisci nella tua area; se annulli l\'adesione il punto viene tolto.',
     pointsRuleDelete: 'Se elimini un tuo post restituisci il suo +1 punto; i punti delle adesioni di quel post restano tuoi.',
     pointsRuleInterval: 'Dopo aver aggiunto un post devi attendere {{time}} prima del successivo, quindi condividi le osservazioni che ritieni davvero importanti.',
     pointsRuleSpend: 'Puoi usare i punti accumulati come sconto presso le attività convenzionate con il codice QR del tuo profilo.',

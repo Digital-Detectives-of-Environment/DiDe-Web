@@ -1305,9 +1305,9 @@ async function recomputeUserStats(userId) {
   try {
     await pool.query(
       `UPDATE public.users u SET
-         num_events  = COALESCE(sub.cnt, 0),
-         agreed_point = COALESCE(sub.agrees, 0),
-         posts_point = COALESCE(2*sub.agrees + sub.kept, 0)
+         num_events  = COALESCE(own.cnt, 0),
+         agreed_point = COALESCE(own.agrees, 0),
+         posts_point = COALESCE(2*own.agrees + own.kept, 0) + COALESCE(given.cnt, 0)
        FROM (
          SELECT COUNT(*) AS cnt,
                 COUNT(*) FILTER (
@@ -1318,7 +1318,14 @@ async function recomputeUserStats(userId) {
                 COALESCE(SUM(COALESCE(num_agrees,0)),0) AS agrees
          FROM public.event
          WHERE created_by_id = $1
-       ) sub
+       ) own,
+       (
+         -- Kullanıcının KATILDIĞI (agree verdiği) gönderi sayısı → her katılım +1 puan.
+         -- Opener ve solver için aynı şekilde işler; katılım geri alınırsa puan da düşer.
+         SELECT COUNT(*) AS cnt
+           FROM public.event
+          WHERE COALESCE(agreed_ids, '[]'::jsonb) @> to_jsonb($1::int)
+       ) given
        WHERE u.id = $1`,
       [userId]
     );
@@ -2206,6 +2213,8 @@ async function ensureDbSqlHelpers() {
       num_events  = COALESCE(sub.cnt, 0),
       agreed_point = COALESCE(sub.agrees, 0),
       posts_point = COALESCE(2*sub.agrees + sub.kept, 0)
+                    + COALESCE((SELECT COUNT(*) FROM public.event e2
+                                 WHERE COALESCE(e2.agreed_ids,'[]'::jsonb) @> to_jsonb(u.id)), 0)
     FROM (
       SELECT created_by_id AS uid,
              COUNT(*) AS cnt,
@@ -2220,6 +2229,21 @@ async function ensureDbSqlHelpers() {
       GROUP BY created_by_id
     ) sub
     WHERE u.id = sub.uid
+  `);
+
+  // Hiç gönderi eklememiş ama başkalarının gönderilerine KATILMIŞ kullanıcılar için:
+  // yalnızca katılım puanları (her katılım +1) yazılır.
+  await run('backfill agree-given points', `
+    UPDATE public.users u SET
+      posts_point = COALESCE(given.cnt, 0)
+    FROM (
+      SELECT u2.id AS uid,
+             (SELECT COUNT(*) FROM public.event e2
+               WHERE COALESCE(e2.agreed_ids,'[]'::jsonb) @> to_jsonb(u2.id)) AS cnt
+        FROM public.users u2
+       WHERE NOT EXISTS (SELECT 1 FROM public.event e3 WHERE e3.created_by_id = u2.id)
+    ) given
+    WHERE u.id = given.uid AND COALESCE(given.cnt,0) > 0
   `);
 
   await tx('event_type unique(event_type_name)', async (c) => {
@@ -3454,6 +3478,8 @@ app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
 
     // Gönderi sahibinin puanını güncelle
     try { await recomputeUserStats(cur.rows[0].created_by_id); } catch {}
+    // Katılan kullanıcının kendi puanı da güncellenir (her katılım +1 puan)
+    try { if (uid !== cur.rows[0].created_by_id) await recomputeUserStats(uid); } catch {}
 
     res.json({ ok: true, event_id: id, num_agrees: newCount, agreed });
   } catch (e) {

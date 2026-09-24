@@ -254,6 +254,7 @@ window.i18nLangs.en = {
     pointsInfoTitle: 'Point system',
     pointsRulePost: 'You earn +1 point for every post you add.',
     pointsRuleAgree: 'You earn +2 points for every agreement your post receives.',
+    pointsRuleAgreeGiven: 'You earn +1 point for every post you agree with inside your buffer area; if you undo the agreement the point is removed.',
     pointsRuleDelete: 'If you delete your own post you give back its +1 point; the agreement points from that post stay with you.',
     pointsRuleInterval: 'After adding a post you wait {{time}} before you can add the next one, so share the observations you truly find valuable.',
     pointsRuleSpend: 'You can spend your points as a discount at partner businesses with the QR code in your profile.',

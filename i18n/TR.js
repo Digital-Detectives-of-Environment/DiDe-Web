@@ -254,6 +254,7 @@ window.i18nLangs.tr = {
     pointsInfoTitle: 'Puan sistemi',
     pointsRulePost: 'Eklediğin her gönderi için +1 puan kazanırsın.',
     pointsRuleAgree: 'Gönderine gelen her katılım için +2 puan kazanırsın.',
+    pointsRuleAgreeGiven: 'Tampon alanındaki bir gönderiye katıldığında +1 puan kazanırsın; katılımını geri alırsan bu puan düşer.',
     pointsRuleDelete: 'Kendi sildiğin gönderi için +1 puanı geri verirsin; o gönderiye gelen katılım puanları sende kalır.',
     pointsRuleInterval: 'Bir gönderi ekledikten sonra yenisini ekleyebilmek için {{time}} beklersin. Bu yüzden gerçekten değerli gördüğün gözlemleri paylaş.',
     pointsRuleSpend: 'Biriken puanlarını profilindeki QR kodla anlaşmalı işletmelerde indirim olarak kullanabilirsin.',
