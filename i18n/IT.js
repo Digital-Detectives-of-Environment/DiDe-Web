@@ -250,7 +250,7 @@ window.i18nLangs.it = {
     pointsRulePost: 'Guadagni +1 punto per ogni post che aggiungi.',
     pointsRuleAgree: 'Guadagni +2 punti per ogni adesione ricevuta dal tuo post.',
     pointsRuleAgreeGiven: 'Guadagni +1 punto per ogni post a cui aderisci nella tua area; se annulli l\'adesione il punto viene tolto.',
-    pointsRuleDelete: 'Se elimini un tuo post, tutti i punti che ti ha fatto guadagnare vengono tolti: il +1 punto del post viene rimosso, insieme ai punti delle adesioni che ha ricevuto.',
+    pointsRuleDelete: 'Se elimini un tuo post, oppure lo elimina un supervisore, tutti i punti che ti ha fatto guadagnare vengono tolti: il +1 punto del post viene rimosso, insieme ai punti delle adesioni che ha ricevuto.',
     pointsRuleInterval: 'Dopo aver aggiunto un post devi attendere {{time}} prima del successivo. Se elimini il tuo ultimo post, il tempo di attesa si azzera e puoi aggiungerne subito uno nuovo. Quindi condividi le osservazioni che ritieni davvero importanti.',
     pointsRuleAgreeInterval: 'Dopo aver aderito a un post, devi attendere {{time}} prima di poter aderire a un altro post nella tua area; in questo periodo il pulsante + degli altri punti appare sbiadito. Se annulli l\'adesione all\'ultimo post a cui hai aderito, il tempo di attesa si azzera e puoi aderire subito a un nuovo post.',
     pointsRuleSpend: 'Puoi usare i punti accumulati come sconto presso le attività convenzionate con il codice QR del tuo profilo.',

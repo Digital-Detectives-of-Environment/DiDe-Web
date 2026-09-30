@@ -1319,17 +1319,41 @@ function cookieOptsSession(req = null) {
   return { ...baseCookieFlags(req) };
 }
 
+// Bir gönderinin sahibine puan kazandırmaya DEVAM edip etmediği (ev = public.event takma adı).
+// Aşağıdaki iki durumda gönderi puana SAYILMAZ (hem +1 gönderi puanı hem +2/katılım puanları düşer):
+//   1) Kullanıcı gönderiyi KENDİSİ sildiyse (deactivated_by_id = created_by_id)
+//   2) Gönderiyi bir SUPERVISOR tek tek sildiyse (deactivated_by_role_name = 'supervisor').
+//      Supervisor'ın bir OLAY TÜRÜNÜ silmesiyle toplu kapanan gönderiler bu kapsama girmez:
+//      aynı işlemde (aynı deactivated_at anında) aynı supervisor tarafından pasifleştirilmiş
+//      olay türüne bağlı gönderiler "tür silme" sonucudur ve puanı düşürmez.
+// Solver'ın kapattığı ve süresi dolan gönderiler puanı düşürmez (mevcut davranış).
+// Yeni sütun gerekmez: event.deactivated_by_* ve event_type.deactivated_* alanları yeterlidir.
+const EVENT_KEEPS_POINTS_SQL = `(
+  COALESCE(ev.active, true) = true
+  OR NOT (
+       (ev.deactivated_by_id IS NOT NULL AND ev.deactivated_by_id = ev.created_by_id)
+    OR (lower(COALESCE(ev.deactivated_by_role_name, '')) = 'supervisor'
+        AND NOT EXISTS (
+          SELECT 1 FROM public.event_type et_del
+           WHERE et_del.event_type_id = ev.event_type
+             AND COALESCE(et_del.active, true) = false
+             AND et_del.deactivated_at IS NOT NULL
+             AND et_del.deactivated_at = ev.deactivated_at
+             AND et_del.deactivated_by_id IS NOT DISTINCT FROM ev.deactivated_by_id
+        ))
+  )
+)`;
+
 // Bir kullanıcının olay/beğeni istatistiklerini event tablosundan yeniden hesaplar
 // ve users tablosuna yazar. Beğeni değişince, olay eklenince/kapatılınca çağrılır.
 //   num_events  = kullanıcının eklediği toplam olay (aktif+deaktif)
-//   agreed_point = kullanıcının KENDİSİNİN silmediği gönderilerine gelen toplam katılım
-//   posts_point = 2*agreed_point + (kullanıcının KENDİSİNİN silmediği olay sayısı)
+//   agreed_point = puana sayılan gönderilerine gelen toplam katılım
+//   posts_point = 2*agreed_point + (puana sayılan olay sayısı)
 //
-//   Kullanıcı kendi gönderisini sildiğinde o gönderiye ait TÜM puanlar geri alınır:
-//   gönderi puanı (-1) VE o gönderiye gelen katılım puanları (-2/katılım).
-//   Bu yüzden hem gönderi sayısı hem katılım toplamı yalnızca "kullanıcının kendisi
-//   silmediği" olaylar üzerinden hesaplanır.
-//   (Solver/supervisor tarafından kapatılan olaylar kullanıcının puanını düşürmez.)
+//   Kullanıcı kendi gönderisini sildiğinde YA DA bir supervisor gönderiyi sildiğinde
+//   o gönderiye ait TÜM puanlar geri alınır: gönderi puanı (-1) VE o gönderiye gelen
+//   katılım puanları (-2/katılım). Kural: EVENT_KEEPS_POINTS_SQL.
+//   (Solver'ın kapattığı / süresi dolan olaylar kullanıcının puanını düşürmez.)
 async function recomputeUserStats(userId) {
   if (userId == null) return;
   try {
@@ -1343,19 +1367,11 @@ async function recomputeUserStats(userId) {
                             ELSE 0 END
        FROM (
          SELECT COUNT(*) AS cnt,
-                COUNT(*) FILTER (
-                  WHERE COALESCE(active, true) = true
-                     OR deactivated_by_id IS NULL
-                     OR deactivated_by_id <> created_by_id
-                ) AS kept,
-                -- Kendi sildiği gönderilere gelen katılımlar puana SAYILMAZ
-                COALESCE(SUM(COALESCE(num_agrees,0)) FILTER (
-                  WHERE COALESCE(active, true) = true
-                     OR deactivated_by_id IS NULL
-                     OR deactivated_by_id <> created_by_id
-                ),0) AS agrees
-         FROM public.event
-         WHERE created_by_id = $1
+                COUNT(*) FILTER (WHERE ${EVENT_KEEPS_POINTS_SQL}) AS kept,
+                -- Kendi sildiği / supervisor'ın sildiği gönderilere gelen katılımlar puana SAYILMAZ
+                COALESCE(SUM(COALESCE(ev.num_agrees,0)) FILTER (WHERE ${EVENT_KEEPS_POINTS_SQL}),0) AS agrees
+         FROM public.event ev
+         WHERE ev.created_by_id = $1
        ) own,
        (
          -- Kullanıcının KATILDIĞI (agree verdiği) gönderi sayısı → her katılım +1 puan.
@@ -2258,22 +2274,14 @@ async function ensureDbSqlHelpers() {
                     + COALESCE((SELECT COUNT(*) FROM public.event e2
                                  WHERE COALESCE(e2.agreed_ids,'[]'::jsonb) @> to_jsonb(u.id)), 0)
     FROM (
-      SELECT created_by_id AS uid,
+      SELECT ev.created_by_id AS uid,
              COUNT(*) AS cnt,
-             COUNT(*) FILTER (
-               WHERE COALESCE(active, true) = true
-                  OR deactivated_by_id IS NULL
-                  OR deactivated_by_id <> created_by_id
-             ) AS kept,
-             -- Kendi sildiği gönderilere gelen katılımlar puana SAYILMAZ
-             COALESCE(SUM(COALESCE(num_agrees,0)) FILTER (
-               WHERE COALESCE(active, true) = true
-                  OR deactivated_by_id IS NULL
-                  OR deactivated_by_id <> created_by_id
-             ),0) AS agrees
-      FROM public.event
-      WHERE created_by_id IS NOT NULL
-      GROUP BY created_by_id
+             COUNT(*) FILTER (WHERE ${EVENT_KEEPS_POINTS_SQL}) AS kept,
+             -- Kendi sildiği / supervisor'ın sildiği gönderilere gelen katılımlar puana SAYILMAZ
+             COALESCE(SUM(COALESCE(ev.num_agrees,0)) FILTER (WHERE ${EVENT_KEEPS_POINTS_SQL}),0) AS agrees
+      FROM public.event ev
+      WHERE ev.created_by_id IS NOT NULL
+      GROUP BY ev.created_by_id
     ) sub
     WHERE u.id = sub.uid AND COALESCE(u.is_active, true) = true
   `);
@@ -4685,8 +4693,8 @@ app.delete('/api/event/:id', requireAuth, async (req, res) => {
 
     if (!r.rowCount) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
 
-    // Gönderi sahibinin puanını tazele: kullanıcı KENDİ gönderisini sildiyse
-    // gönderi puanı (+1) geri alınır; beğeni (katılım) puanları korunur.
+    // Gönderi sahibinin puanını tazele: kullanıcı KENDİ gönderisini sildiyse ya da
+    // silen supervisor ise gönderi puanı (+1) VE o gönderinin katılım puanları geri alınır.
     try { await recomputeUserStats(r.rows[0].created_by_id); } catch {}
 
     res.set('X-UI-Remove', '1');
@@ -4931,12 +4939,17 @@ app.delete('/api/admin/event/:id', adminOnly, async (req, res) => {
              deactivated_by_id=$4,
              deactivated_at=NOW()
          WHERE event_id=$1 AND COALESCE(active,true)=true
-         RETURNING event_id`,
+         RETURNING event_id, created_by_id`,
         [id, req.user.username, req.user.role, req.user.id]
       );
       await client.query('COMMIT');
 
       if (!r.rowCount) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+
+      // Supervisor bir gönderiyi sildiğinde gönderi sahibinin (opener) puanı tazelenir:
+      // gönderi puanı (-1) VE o gönderiye gelen katılım puanları geri alınır.
+      try { if (r.rows[0].created_by_id != null) await recomputeUserStats(r.rows[0].created_by_id); } catch {}
+
       res.set('X-UI-Remove', '1');
       res.json({ ok: true, deletedId: id, ui_remove: true });
     } catch (e) {

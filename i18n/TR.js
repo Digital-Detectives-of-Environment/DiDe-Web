@@ -255,7 +255,7 @@ window.i18nLangs.tr = {
     pointsRulePost: 'Eklediğin her gönderi için +1 puan kazanırsın.',
     pointsRuleAgree: 'Gönderine gelen her katılım için +2 puan kazanırsın.',
     pointsRuleAgreeGiven: 'Tampon alanındaki bir gönderiye katıldığında +1 puan kazanırsın; katılımını geri alırsan bu puan düşer.',
-    pointsRuleDelete: 'Kendi gönderini silersen, o gönderiden kazandığın tüm puanlar geri alınır: gönderi için aldığın +1 puan düşer ve o gönderiye gelen katılımlardan kazandığın puanlar da silinir.',
+    pointsRuleDelete: 'Kendi gönderini sildiğinde ya da gönderin bir yetkili (supervisor) tarafından silindiğinde, o gönderiden kazandığın tüm puanlar geri alınır: gönderi için aldığın +1 puan düşer ve o gönderiye gelen katılımlardan kazandığın puanlar da silinir.',
     pointsRuleInterval: 'Bir gönderi ekledikten sonra yenisini ekleyebilmek için {{time}} beklersin. Son eklediğin gönderiyi silersen bekleme süresi sıfırlanır ve beklemeden yeni gönderi ekleyebilirsin. Bu yüzden gerçekten değerli gördüğün gözlemleri paylaş.',
     pointsRuleAgreeInterval: 'Bir gönderiye katıldıktan sonra, tampon alanındaki yeni bir gönderiye katılabilmek için {{time}} beklersin; bu sürede diğer noktaların + butonu soluk görünür. En son katıldığın gönderideki katılımını geri alırsan bekleme süresi sıfırlanır ve hemen yeni bir gönderiye katılabilirsin.',
     pointsRuleSpend: 'Biriken puanlarını profilindeki QR kodla anlaşmalı işletmelerde indirim olarak kullanabilirsin.',
