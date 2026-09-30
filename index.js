@@ -1322,13 +1322,13 @@ function cookieOptsSession(req = null) {
 // Bir kullanıcının olay/beğeni istatistiklerini event tablosundan yeniden hesaplar
 // ve users tablosuna yazar. Beğeni değişince, olay eklenince/kapatılınca çağrılır.
 //   num_events  = kullanıcının eklediği toplam olay (aktif+deaktif)
-//   agreed_point = gönderilerinde aldığı toplam beğeni
+//   agreed_point = kullanıcının KENDİSİNİN silmediği gönderilerine gelen toplam katılım
 //   posts_point = 2*agreed_point + (kullanıcının KENDİSİNİN silmediği olay sayısı)
 //
-//   Gönderi puanı (+1), kullanıcı kendi gönderisini sildiğinde geri alınır (-1).
-//   Beğeni (katılım) puanları (+2/beğeni) ise gönderi silinse bile kullanıcıda KALIR —
-//   bu yüzden beğeni toplamı tüm olaylar üzerinden, gönderi sayısı ise yalnızca
-//   "kullanıcının kendisi silmediği" olaylar üzerinden hesaplanır.
+//   Kullanıcı kendi gönderisini sildiğinde o gönderiye ait TÜM puanlar geri alınır:
+//   gönderi puanı (-1) VE o gönderiye gelen katılım puanları (-2/katılım).
+//   Bu yüzden hem gönderi sayısı hem katılım toplamı yalnızca "kullanıcının kendisi
+//   silmediği" olaylar üzerinden hesaplanır.
 //   (Solver/supervisor tarafından kapatılan olaylar kullanıcının puanını düşürmez.)
 async function recomputeUserStats(userId) {
   if (userId == null) return;
@@ -1348,7 +1348,12 @@ async function recomputeUserStats(userId) {
                      OR deactivated_by_id IS NULL
                      OR deactivated_by_id <> created_by_id
                 ) AS kept,
-                COALESCE(SUM(COALESCE(num_agrees,0)),0) AS agrees
+                -- Kendi sildiği gönderilere gelen katılımlar puana SAYILMAZ
+                COALESCE(SUM(COALESCE(num_agrees,0)) FILTER (
+                  WHERE COALESCE(active, true) = true
+                     OR deactivated_by_id IS NULL
+                     OR deactivated_by_id <> created_by_id
+                ),0) AS agrees
          FROM public.event
          WHERE created_by_id = $1
        ) own,
@@ -2233,7 +2238,7 @@ async function ensureDbSqlHelpers() {
 
   // users (olay ekleyen "expert" hesapları) için agregat istatistikler:
   //   num_events  : kullanıcının eklediği toplam olay sayısı (aktif + deaktif)
-  //   agreed_point : kullanıcının gönderilerinde aldığı toplam beğeni sayısı
+  //   agreed_point : kullanıcının (kendi silmediği) gönderilerinde aldığı toplam beğeni sayısı
   //   posts_point : genel hesaplanan puan = SUM(2*num_agrees + 1) = 2*agreed_point + num_events
   await run('users add num_events',           `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS num_events integer DEFAULT 0`);
   await run('users rename liked_point->agreed_point', `DO $$ BEGIN IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='liked_point') AND NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='agreed_point') THEN ALTER TABLE public.users RENAME COLUMN liked_point TO agreed_point; END IF; END $$;`);
@@ -2241,6 +2246,8 @@ async function ensureDbSqlHelpers() {
   await run('users add posts_point',          `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS posts_point integer DEFAULT 0`);
   // Kullanıcının EN SON yeni katılım (agree) yaptığı an (.env: COOLDOWN kontrolü için)
   await run('users add last_agree_at',        `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_agree_at timestamptz`);
+  // EN SON katılım yapılan gönderi: bu katılım geri alınırsa bekleme süresi sıfırlanır
+  await run('users add last_agree_event_id',  `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_agree_event_id integer`);
 
   // İlk kurulum/mevcut veriler için tek seferlik geri-doldurma (backfill)
   await run('backfill user stats', `
@@ -2258,7 +2265,12 @@ async function ensureDbSqlHelpers() {
                   OR deactivated_by_id IS NULL
                   OR deactivated_by_id <> created_by_id
              ) AS kept,
-             COALESCE(SUM(COALESCE(num_agrees,0)),0) AS agrees
+             -- Kendi sildiği gönderilere gelen katılımlar puana SAYILMAZ
+             COALESCE(SUM(COALESCE(num_agrees,0)) FILTER (
+               WHERE COALESCE(active, true) = true
+                  OR deactivated_by_id IS NULL
+                  OR deactivated_by_id <> created_by_id
+             ),0) AS agrees
       FROM public.event
       WHERE created_by_id IS NOT NULL
       GROUP BY created_by_id
@@ -3537,13 +3549,31 @@ app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
         `UPDATE event SET num_agrees=$2, agreed_ids=$3::jsonb, last_agreed_date=now() WHERE event_id=$1`,
         [id, newCount, JSON.stringify(ids)]
       );
-      // Katılım bekleme süresi bu andan itibaren başlar (.env: COOLDOWN)
-      await client.query(`UPDATE public.users SET last_agree_at=now() WHERE id=$1`, [uid]);
+      // Katılım bekleme süresi bu andan itibaren başlar (.env: COOLDOWN);
+      // en son katılınan gönderi de saklanır.
+      await client.query(`UPDATE public.users SET last_agree_at=now(), last_agree_event_id=$2 WHERE id=$1`, [uid, id]);
     } else {
       await client.query(
         `UPDATE event SET num_agrees=$2, agreed_ids=$3::jsonb WHERE event_id=$1`,
         [id, newCount, JSON.stringify(ids)]
       );
+      // EN SON katıldığı gönderideki katılımını geri aldıysa bekleme süresi sıfırlanır:
+      // beklemeden yeni bir gönderiye katılabilir; yeni katılımla süre yeniden başlar.
+      await client.query(
+        `UPDATE public.users SET last_agree_at=NULL, last_agree_event_id=NULL
+          WHERE id=$1 AND last_agree_event_id=$2`,
+        [uid, id]
+      );
+    }
+
+    // Bir sonraki yeni katılım için kalan bekleme süresi (saniye); 0 => bekleme yok
+    let agreeRetryAfter = 0;
+    if (AGREE_COOLDOWN_HOURS > 0) {
+      const la = await client.query(`SELECT last_agree_at FROM public.users WHERE id=$1`, [uid]);
+      if (la.rowCount && la.rows[0].last_agree_at) {
+        const ms = new Date(la.rows[0].last_agree_at).getTime() + AGREE_COOLDOWN_HOURS * 3600 * 1000 - Date.now();
+        if (Number.isFinite(ms) && ms > 0) agreeRetryAfter = Math.ceil(ms / 1000);
+      }
     }
     await client.query('COMMIT');
 
@@ -3554,8 +3584,9 @@ app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
 
     res.json({
       ok: true, event_id: id, num_agrees: newCount, agreed,
-      // Yeni katılımda bir sonraki katılım için beklenecek süre (saniye); 0 => bekleme yok
-      agree_retry_after_seconds: (agreed && AGREE_COOLDOWN_HOURS > 0) ? Math.ceil(AGREE_COOLDOWN_HOURS * 3600) : 0
+      // Bir sonraki yeni katılım için beklenecek süre (saniye); 0 => bekleme yok
+      // (son katılım geri alındığında 0 döner → bekleme sıfırlanmıştır)
+      agree_retry_after_seconds: agreeRetryAfter
     });
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch {}

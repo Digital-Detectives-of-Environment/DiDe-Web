@@ -9803,8 +9803,9 @@ function addLikeControl(container, evt, opts = {}) {
         heart.src = d.agreed ? '/dont_agree.svg' : '/agree.svg';
         btn.classList.toggle('liked', !!d.agreed);
         count.textContent = String(d.num_agrees);
-        // Yeni katılımda bekleme süresi başlar (.env: COOLDOWN) → diğer + butonları soluklaşır
-        if (d.agreed && Number(d.agree_retry_after_seconds) > 0) setAgreeCooldownSeconds(d.agree_retry_after_seconds);
+        // .env: COOLDOWN → yeni katılımda bekleme başlar (diğer + butonları soluklaşır);
+        // en son katılım geri alınırsa sunucu 0 döner → bekleme sıfırlanır, butonlar yeniden parlar.
+        if (agreeCooldownHours() > 0 && d.agree_retry_after_seconds != null) setAgreeCooldownSeconds(d.agree_retry_after_seconds);
         else { try { refreshLikeRangeStates(); } catch {} }
         // Diğer görünümlerdeki (varsa) aynı olayın verisini de tazele
         try { if (typeof syncEventLikeInStates === 'function') syncEventLikeInStates(evt.event_id, d.num_agrees, d.agreed); } catch {}
@@ -14902,7 +14903,7 @@ function pfPointsRules(){
   rules.push({ badge: '+1', text: t('pointsRulePost') });
   rules.push({ badge: '+2', text: t('pointsRuleAgree') });
   rules.push({ badge: '+1', text: t('pointsRuleAgreeGiven') });
-  rules.push({ badge: '−1', text: t('pointsRuleDelete') });
+  rules.push({ badge: '−', text: t('pointsRuleDelete') });
   // Gönderi aralığı .env'de tanımlı DEĞİLSE bu satır hiç gösterilmez.
   const h = (typeof postIntervalHours === 'function') ? postIntervalHours() : 0;
   if (h) rules.push({ badge: '⏳', text: t('pointsRuleInterval', { time: formatDurationHours(h) }) });
