@@ -1,7 +1,3 @@
-// DiDe — i18n Core Manager
-// Dil dosyalarını dinamik olarak yükler.
-// Kullanım: main.js her zaman yüklenir, dil dosyaları (TR.js, EN.js, IT.js vb.) ihtiyaç halinde yüklenir.
-
 (function () {
   'use strict';
 
@@ -9,8 +5,8 @@
   window.i18nLangs = window.i18nLangs || {};
 
   var currentLanguage = 'en';
-  var defaultLang = 'en';        // will be overridden by config (DEFAULT_LANG from .env)
-  var loadedScripts = {};        // track which scripts have been loaded
+  var defaultLang = 'en';        
+  var loadedScripts = {};        
   var _configFetched = false;
 
   // ── helpers ──
@@ -98,8 +94,9 @@
   function setLanguage(lang) {
     var code = (lang || 'en').toLowerCase();
     currentLanguage = code;
+
     try {
-      localStorage.setItem('app_language', code);
+      sessionStorage.setItem('app_language', code);
     } catch (e) { /* ignore */ }
     document.documentElement.lang = code;
     window.dispatchEvent(new CustomEvent('languagechange', { detail: { language: code } }));
@@ -146,15 +143,17 @@
       await loadTranslations(defaultLang);
     }
 
-    // 4) Restore saved language preference
+    // 4) Restore this session's language choice; otherwise start with DEFAULT_LANG (.env)
     var saved = null;
-    try { saved = localStorage.getItem('app_language'); } catch (e) { /* ignore */ }
+    try { saved = sessionStorage.getItem('app_language'); } catch (e) { /* ignore */ }
+    // Eski sürümden kalan kalıcı tercih, açılış dilini artık etkilemesin
+    try { localStorage.removeItem('app_language'); } catch (e) { /* ignore */ }
 
     if (saved && (saved === 'en' || saved === defaultLang)) {
       currentLanguage = saved;
     } else {
-      // Default: start with EN
-      currentLanguage = 'en';
+      // Default: start with the configured default language (DEFAULT_LANG)
+      currentLanguage = defaultLang || 'en';
     }
 
     document.documentElement.lang = currentLanguage;

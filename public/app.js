@@ -101,6 +101,10 @@ let APP_CONFIG = {
   // gereken süre (saat). 0 / boş => bekleme yok (mevcut davranış).
   eventSubmitIntervalHours: 0,
 
+  // .env → COOLDOWN: iki katılım (agree) arasında beklenmesi gereken süre (saat).
+  // Opener ve solver için ortaktır. 0 / boş => bekleme yok (mevcut davranış).
+  agreeCooldownHours: 0,
+
   // .env → BUFFER_RADIUS: seçilen konumun çevresine çizilen tampon yarıçapı (metre).
   // 0 / boş => tampon çizilmez, olay ekleme akışı eskisi gibi çalışır.
   bufferRadius: 0
@@ -166,6 +170,7 @@ async function loadAppConfig() {
       if (config.pageSizeTypes) config.pageSizeTypes = Number(config.pageSizeTypes);
       if (config.pageSizeUsers) config.pageSizeUsers = Number(config.pageSizeUsers);
       config.eventSubmitIntervalHours = Number(config.eventSubmitIntervalHours) || 0;
+      config.agreeCooldownHours = Number(config.agreeCooldownHours) || 0;
       config.bufferRadius = Number(config.bufferRadius) || 0;
       
       APP_CONFIG = { ...APP_CONFIG, ...config };
@@ -403,6 +408,51 @@ function formatDurationMinutes(totalMin){
 }
 function formatDurationSeconds(seconds){
   return formatDurationMinutes(Math.ceil((Number(seconds) || 0) / 60));
+}
+
+/* ===== Katılım bekleme süresi (.env: COOLDOWN) =====
+   Opener ve solver için ortaktır. Bir gönderiye katıldıktan sonra, yeni bir gönderiye
+   katılabilmek için bu kadar saat beklenir. Kalan süre sunucudan alınır; istemci saatine
+   güvenmemek için "şimdi + kalan saniye" olarak yerelde tutulur. */
+function agreeCooldownHours(){
+  const h = Number(APP_CONFIG.agreeCooldownHours);
+  return (Number.isFinite(h) && h > 0) ? h : 0;
+}
+const __agreeCd = { key: null, nextAt: 0, promise: null, timer: null };
+function _agreeCdUserKey(){
+  if (!currentUser || currentUser.role !== 'user') return null;
+  return String(currentUser.id != null ? currentUser.id : (currentUser.username || ''));
+}
+function agreeCooldownRemainingMs(){
+  if (!agreeCooldownHours()) return 0;
+  if (__agreeCd.key !== _agreeCdUserKey()) return 0;
+  return Math.max(0, __agreeCd.nextAt - Date.now());
+}
+function setAgreeCooldownSeconds(seconds){
+  __agreeCd.key = _agreeCdUserKey();
+  const sec = Number(seconds) || 0;
+  __agreeCd.nextAt = sec > 0 ? Date.now() + sec * 1000 : 0;
+  if (__agreeCd.timer) { clearTimeout(__agreeCd.timer); __agreeCd.timer = null; }
+  if (sec > 0) {
+    // Süre dolunca açık pop-up'lardaki + butonlarını yeniden parlak göster
+    const ms = Math.min(sec * 1000 + 250, 2147483000);
+    __agreeCd.timer = setTimeout(() => { try { refreshLikeRangeStates(); } catch {} }, ms);
+  }
+  try { refreshLikeRangeStates(); } catch {}
+}
+// Oturumdaki kullanıcı için kalan süreyi (bir kez) sunucudan yükler
+function ensureAgreeCooldownLoaded(){
+  if (!agreeCooldownHours()) return Promise.resolve();
+  const key = _agreeCdUserKey();
+  if (!key) return Promise.resolve();
+  if (__agreeCd.key === key && __agreeCd.promise) return __agreeCd.promise;
+  __agreeCd.key = key;
+  __agreeCd.nextAt = 0;
+  __agreeCd.promise = fetch('/api/me/agree-status', { cache: 'no-store' })
+    .then(r => r.ok ? r.json() : null)
+    .then(d => { if (d && __agreeCd.key === key) setAgreeCooldownSeconds(d.retry_after_seconds); })
+    .catch(() => {});
+  return __agreeCd.promise;
 }
 
 // Opener girişinde, oturumda bir kez, yeşil bilgi bandı (yalnızca .env'de süre tanımlıysa).
@@ -9706,11 +9756,29 @@ function addLikeControl(container, evt, opts = {}) {
     applyLikeRangeState(btn);
   }
 
+  // COOLDOWN tanımlıysa: bir katılımdan sonra süre dolana kadar, henüz katılınmamış
+  // noktaların + butonu soluk görünür; tampon içindekine tıklanınca kalan süre uyarısı çıkar.
+  if (agreeCooldownHours() > 0) {
+    _ensureLikeRangeHook();
+    btn.dataset.cdGated = '1';
+    applyLikeRangeState(btn);
+    ensureAgreeCooldownLoaded();
+  }
+
   btn.onclick = async (e) => {
     e.stopPropagation();
     if (btn.dataset.rangeGated === '1') {
       applyLikeRangeState(btn);
       if (btn.classList.contains('like-out-of-range')) return;   // tampon dışında: hiçbir şey yapma
+    }
+    // Katılım bekleme süresi dolmadı → kırmızı uyarı (katılımı geri almak serbesttir)
+    if (btn.dataset.cdGated === '1' && !evt.i_agreed) {
+      const remainMs = agreeCooldownRemainingMs();
+      if (remainMs > 0) {
+        applyLikeRangeState(btn);
+        toast(t('agreeCooldownWait', { time: formatDurationSeconds(remainMs / 1000) }), 'error', 4000);
+        return;
+      }
     }
     btn.disabled = true;
     try {
@@ -9722,13 +9790,22 @@ function addLikeControl(container, evt, opts = {}) {
       });
       const d = await resp.json().catch(() => ({}));
       if (!resp.ok) {
-        toast((d.message || d.error || t('unknownError')), 'error');
+        if (resp.status === 429 && d && d.error === 'agree_cooldown_wait') {
+          // Sunucu bekleme süresinin dolmadığını söyledi → yerel durumu eşitle ve kalan süreyi göster
+          setAgreeCooldownSeconds(d.retry_after_seconds);
+          toast(t('agreeCooldownWait', { time: formatDurationSeconds(d.retry_after_seconds) }), 'error', 4000);
+        } else {
+          toast((d.message || d.error || t('unknownError')), 'error');
+        }
       } else {
         evt.i_agreed = !!d.agreed;
         evt.num_agrees = d.num_agrees;
         heart.src = d.agreed ? '/dont_agree.svg' : '/agree.svg';
         btn.classList.toggle('liked', !!d.agreed);
         count.textContent = String(d.num_agrees);
+        // Yeni katılımda bekleme süresi başlar (.env: COOLDOWN) → diğer + butonları soluklaşır
+        if (d.agreed && Number(d.agree_retry_after_seconds) > 0) setAgreeCooldownSeconds(d.agree_retry_after_seconds);
+        else { try { refreshLikeRangeStates(); } catch {} }
         // Diğer görünümlerdeki (varsa) aynı olayın verisini de tazele
         try { if (typeof syncEventLikeInStates === 'function') syncEventLikeInStates(evt.event_id, d.num_agrees, d.agreed); } catch {}
       }
@@ -10850,11 +10927,20 @@ function isWithinLiveBuffer(lat, lng){
 }
 
 function applyLikeRangeState(btn){
-  if (!btn || btn.dataset.rangeGated !== '1') return;
-  const inside = isWithinLiveBuffer(btn.dataset.lat, btn.dataset.lng);
-  btn.classList.toggle('like-out-of-range', !inside);
-  btn.setAttribute('aria-disabled', inside ? 'false' : 'true');
-  btn.title = inside ? t('agree') : t('agreeOutOfRange');
+  if (!btn) return;
+  const rangeGated = btn.dataset.rangeGated === '1';
+  const cdGated = btn.dataset.cdGated === '1';
+  if (!rangeGated && !cdGated) return;
+  const inside = rangeGated ? isWithinLiveBuffer(btn.dataset.lat, btn.dataset.lng) : true;
+  if (rangeGated) btn.classList.toggle('like-out-of-range', !inside);
+  // Bekleme süresi: yalnızca henüz katılınmamış (liked olmayan) noktalar soluklaşır;
+  // katılınmış noktada buton, katılımı geri alabilmek için aktif kalır.
+  const waiting = cdGated && inside && !btn.classList.contains('liked') && agreeCooldownRemainingMs() > 0;
+  btn.classList.toggle('like-cooldown', waiting);
+  btn.setAttribute('aria-disabled', (!inside || waiting) ? 'true' : 'false');
+  btn.title = !inside ? t('agreeOutOfRange')
+            : waiting ? t('agreeCooldownWait', { time: formatDurationSeconds(agreeCooldownRemainingMs() / 1000) })
+            : t('agree');
 }
 
 let __likeRangeHooked = false;
@@ -10866,7 +10952,7 @@ function _ensureLikeRangeHook(){
 
 // Açık pop-up'lardaki katılım butonlarının durumunu konuma göre tazele
 function refreshLikeRangeStates(){
-  try { document.querySelectorAll('.like-btn[data-range-gated="1"]').forEach(applyLikeRangeState); } catch {}
+  try { document.querySelectorAll('.like-btn[data-range-gated="1"], .like-btn[data-cd-gated="1"]').forEach(applyLikeRangeState); } catch {}
 }
 
 function _slHandlePosition(position){
@@ -13098,12 +13184,16 @@ function importWizardBack() {
     langDefaultBtn.setAttribute('data-lang', cfgDefaultLang);
   }
 
-  if (typeof window.setLanguage === 'function') {
-    window.setLanguage('en');
-  }
-  
+  // Başlangıç dili: bu oturumda kullanıcı bir dil seçtiyse o (ör. EN'e geçip giriş
+  // yaptıysa EN kalır); yoksa .env'deki varsayılan dil (DEFAULT_LANG) aktif gelir.
+  const initLang = (typeof window.getLanguage === 'function' && window.getLanguage()) || cfgDefaultLang || 'en';
+
   if (typeof window.loadTranslations === 'function') {
-    await window.loadTranslations('en');
+    await window.loadTranslations(initLang);
+  }
+
+  if (typeof window.setLanguage === 'function') {
+    window.setLanguage(initLang);
   }
 
   await updateUIWithNewLanguage();
@@ -13111,8 +13201,8 @@ function importWizardBack() {
   document.querySelectorAll('.language-selector button').forEach(btn => {
     btn.classList.remove('active');
   });
-  const enBtn = document.getElementById('lang-en');
-  if (enBtn) enBtn.classList.add('active');
+  const initLangBtn = document.getElementById(initLang === 'en' ? 'lang-en' : 'lang-default');
+  if (initLangBtn) initLangBtn.classList.add('active');
   
   (function addHeaderLocationBtn(){
     const header = document.querySelector('header .wrap') || document.querySelector('header');
@@ -14798,10 +14888,13 @@ function closeLeaderboard(){
    (olay ekleyen / solver) ve .env'deki gönderi aralığına göre üretilir. */
 function pfPointsRules(){
   const rules = [];
+  // Katılım bekleme süresi (.env: COOLDOWN) — opener ve solver için ortak; tanımlı değilse gösterilmez.
+  const cdH = (typeof agreeCooldownHours === 'function') ? agreeCooldownHours() : 0;
   if (__pf.solver) {
     rules.push({ badge: '✔',  text: t('pointsRuleSolverClose') });
     rules.push({ badge: '+1', text: t('pointsRuleAgreeGiven') });
     rules.push({ badge: '+2', text: t('pointsRuleSolverAgree') });
+    if (cdH) rules.push({ badge: '⏱', text: t('pointsRuleAgreeInterval', { time: formatDurationHours(cdH) }) });
     rules.push({ badge: 'i',  text: t('pointsRuleSolverNoPoint') });
     rules.push({ badge: '%',  text: t('pointsRuleSpend') });
     return rules;
@@ -14813,6 +14906,7 @@ function pfPointsRules(){
   // Gönderi aralığı .env'de tanımlı DEĞİLSE bu satır hiç gösterilmez.
   const h = (typeof postIntervalHours === 'function') ? postIntervalHours() : 0;
   if (h) rules.push({ badge: '⏳', text: t('pointsRuleInterval', { time: formatDurationHours(h) }) });
+  if (cdH) rules.push({ badge: '⏱', text: t('pointsRuleAgreeInterval', { time: formatDurationHours(cdH) }) });
   rules.push({ badge: '%',  text: t('pointsRuleSpend') });
   return rules;
 }
@@ -14823,7 +14917,10 @@ function pfRenderPointsInfo(){
   const foot  = pfEl('points-info-foot');
   if (title) title.textContent = t('pointsInfoTitle');
   if (list) {
-    list.innerHTML = pfPointsRules().map(r => (
+    const rules = pfPointsRules();
+    // Satır sayısı arttığında (ör. COOLDOWN tanımlı) ekran kaydırmasız sığsın diye sıkı düzen
+    list.classList.toggle('dense', rules.length > 6);
+    list.innerHTML = rules.map(r => (
       `<div class="points-info-row">
          <span class="points-info-badge">${escapeHtml(r.badge)}</span>
          <span class="points-info-text">${escapeHtml(r.text)}</span>

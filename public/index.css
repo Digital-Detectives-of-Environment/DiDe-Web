@@ -3305,6 +3305,19 @@ th:has(#btn-add-type){
   color:var(--muted, #6b7280);
   overflow-wrap:anywhere;
 }
+/* Kural sayısı arttığında (ör. COOLDOWN tanımlıysa) tüm satırlar kaydırmasız sığsın */
+.points-info-list.dense{ gap:clamp(4px, 1vh, 10px); }
+.points-info-list.dense .points-info-row{
+  padding:clamp(6px, 1.1vh, 12px) clamp(9px, 2.6vw, 14px);
+  border-radius:12px;
+}
+.points-info-list.dense .points-info-text{
+  font-size:clamp(10.5px, min(3.3vw, 1.75vh), 15px);
+  line-height:1.35;
+}
+.points-info-list.dense .points-info-badge{
+  font-size:clamp(10.5px, min(3.2vw, 1.75vh), 14px);
+}
 @media (max-width: 576px){
   .points-info-close{ width:38px; height:38px; top:8px; right:8px; }
 }
@@ -3667,6 +3680,14 @@ path.live-buffer-circle{
   cursor:not-allowed;
 }
 .like-btn.like-out-of-range:hover{ transform:none; background:transparent; }
+/* Katılım bekleme süresi (.env: COOLDOWN) dolmadı: tampon içindeki + butonu da soluk görünür;
+   tıklanınca kalan süre uyarısı gösterilir (bu yüzden imleç "pointer" değil "not-allowed"). */
+.like-btn.like-cooldown{
+  opacity:.38;
+  filter:grayscale(.85);
+  cursor:not-allowed;
+}
+.like-btn.like-cooldown:hover{ transform:none; background:transparent; }
 
 /* Hedef noktası işareti (Google Maps tarzı kırmızı iğne) */
 .nav-dest-icon{ background:none !important; border:none !important; }

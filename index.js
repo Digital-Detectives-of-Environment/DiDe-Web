@@ -157,6 +157,36 @@ if (EVENT_SUBMIT_INTERVAL_RAW !== '') {
   EVENT_SUBMIT_INTERVAL_HOURS = parsed;
 }
 
+// ==================== COOLDOWN ====================
+// Katılım (agree) bekleme süresi — SAAT cinsinden. Opener ve solver için ORTAKTIR.
+// Kullanıcı tamponu (BUFFER_RADIUS) içindeki bir gönderiye katıldıktan sonra, YENİ
+// bir gönderiye katılabilmek için bu kadar beklemek zorundadır.
+//   COOLDOWN=2     -> bir katılımdan sonra yenisi 2 saat sonra
+//   COOLDOWN=1.5   -> 1 saat 30 dakika   (1.2, 1.3, 1.54 ... gibi ondalıklar da olur)
+//   COOLDOWN=0     -> bekleme YOK; tampon içindeki her gönderiye katılabilir
+//   COOLDOWN=      -> (boş) bekleme YOK; tampon içindeki her gönderiye katılabilir
+// Yazıldıysa SAYI olmak zorundadır; metin ya da NEGATİF değer verilirse sistem başlamaz.
+// Katılımı geri almak (toggle) bu süreye takılmaz.
+const COOLDOWN_RAW = String(process.env.COOLDOWN ?? '').trim();
+let AGREE_COOLDOWN_HOURS = 0; // 0 = sınır yok
+if (COOLDOWN_RAW !== '') {
+  const norm = COOLDOWN_RAW.replace(',', '.');
+  const parsedCd = Number(norm);
+  if (!/^\d+(\.\d+)?$/.test(norm) || !Number.isFinite(parsedCd) || parsedCd < 0) {
+    console.error(`\n[FATAL] COOLDOWN is invalid in your .env file.`);
+    console.error(`        It is the waiting time between two agreements (participations), in HOURS.`);
+    console.error(`        It must be a NON-NEGATIVE number (integer or decimal), or left empty.`);
+    console.error(`          COOLDOWN=2     -> one agreement every 2 hours`);
+    console.error(`          COOLDOWN=1.5   -> one agreement every 1 hour 30 minutes`);
+    console.error(`          COOLDOWN=0     -> no waiting time between agreements`);
+    console.error(`          COOLDOWN=      -> no waiting time between agreements`);
+    console.error(`        Negative or text values are not allowed. Current value: "${COOLDOWN_RAW}".`);
+    console.error(`        System cannot start. Exiting.\n`);
+    process.exit(1);
+  }
+  AGREE_COOLDOWN_HOURS = parsedCd;
+}
+
 // ==================== EVENT_TYPE_VALIDITY_UNITS ====================
 // "Validity period for the event type to be displayed".
 // Controls which time units the supervisor is allowed to enter when creating a
@@ -1306,8 +1336,11 @@ async function recomputeUserStats(userId) {
     await pool.query(
       `UPDATE public.users u SET
          num_events  = COALESCE(own.cnt, 0),
-         agreed_point = COALESCE(own.agrees, 0),
-         posts_point = COALESCE(2*own.agrees + own.kept, 0) + COALESCE(given.cnt, 0)
+         -- Silinmiş (is_active=false) kullanıcının puanları her zaman 0 kalır.
+         agreed_point = CASE WHEN COALESCE(u.is_active, true) THEN COALESCE(own.agrees, 0) ELSE 0 END,
+         posts_point = CASE WHEN COALESCE(u.is_active, true)
+                            THEN COALESCE(2*own.agrees + own.kept, 0) + COALESCE(given.cnt, 0)
+                            ELSE 0 END
        FROM (
          SELECT COUNT(*) AS cnt,
                 COUNT(*) FILTER (
@@ -2206,6 +2239,8 @@ async function ensureDbSqlHelpers() {
   await run('users rename liked_point->agreed_point', `DO $$ BEGIN IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='liked_point') AND NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='agreed_point') THEN ALTER TABLE public.users RENAME COLUMN liked_point TO agreed_point; END IF; END $$;`);
   await run('users add agreed_point',          `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS agreed_point integer DEFAULT 0`);
   await run('users add posts_point',          `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS posts_point integer DEFAULT 0`);
+  // Kullanıcının EN SON yeni katılım (agree) yaptığı an (.env: COOLDOWN kontrolü için)
+  await run('users add last_agree_at',        `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_agree_at timestamptz`);
 
   // İlk kurulum/mevcut veriler için tek seferlik geri-doldurma (backfill)
   await run('backfill user stats', `
@@ -2228,7 +2263,7 @@ async function ensureDbSqlHelpers() {
       WHERE created_by_id IS NOT NULL
       GROUP BY created_by_id
     ) sub
-    WHERE u.id = sub.uid
+    WHERE u.id = sub.uid AND COALESCE(u.is_active, true) = true
   `);
 
   // Hiç gönderi eklememiş ama başkalarının gönderilerine KATILMIŞ kullanıcılar için:
@@ -2243,7 +2278,15 @@ async function ensureDbSqlHelpers() {
         FROM public.users u2
        WHERE NOT EXISTS (SELECT 1 FROM public.event e3 WHERE e3.created_by_id = u2.id)
     ) given
-    WHERE u.id = given.uid AND COALESCE(given.cnt,0) > 0
+    WHERE u.id = given.uid AND COALESCE(given.cnt,0) > 0 AND COALESCE(u.is_active, true) = true
+  `);
+
+  // Silinmiş (is_active=false) kullanıcıların puanları 0'dır (liderlik tablosunda görünmezler).
+  await run('zero points of deleted users', `
+    UPDATE public.users
+       SET agreed_point = 0, posts_point = 0
+     WHERE COALESCE(is_active, true) = false
+       AND (COALESCE(agreed_point,0) <> 0 OR COALESCE(posts_point,0) <> 0)
   `);
 
   await tx('event_type unique(event_type_name)', async (c) => {
@@ -2777,6 +2820,8 @@ app.get('/api/config', (_req, res) => {
     zoomLevelBoundary: String(process.env.ZOOM_LEVEL_BOUNDARY || '').trim().toLowerCase(),
     // İki gönderi arasındaki bekleme süresi (saat). 0 => sınır yok.
     eventSubmitIntervalHours: EVENT_SUBMIT_INTERVAL_HOURS > 0 ? EVENT_SUBMIT_INTERVAL_HOURS : 0,
+    // İki katılım (agree) arasındaki bekleme süresi (saat, .env: COOLDOWN). 0 => sınır yok.
+    agreeCooldownHours: AGREE_COOLDOWN_HOURS > 0 ? AGREE_COOLDOWN_HOURS : 0,
     // Olay ekleme akışındaki tampon yarıçapı (metre). 0 => tampon yok.
     bufferRadius: BUFFER_RADIUS > 0 ? BUFFER_RADIUS : 0,
     // Rotalama: hedefe yaklaşma eşiği (metre). OSRM adresleri istemciye GÖNDERİLMEZ.
@@ -3450,6 +3495,30 @@ app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
         return res.status(403).json({ error: 'agree_out_of_range', message: getErrorMessage(req, 'agree_out_of_range') });
       }
     }
+
+    // Katılım bekleme süresi (.env: COOLDOWN, saat). Opener ve solver için ortaktır.
+    // Yalnızca YENİ katılımda kontrol edilir; katılımı geri almak serbesttir.
+    if (!already && AGREE_COOLDOWN_HOURS > 0) {
+      const lu = await client.query(
+        `SELECT last_agree_at FROM public.users WHERE id=$1 FOR UPDATE`,
+        [uid]
+      );
+      const lastAgreeAt = lu.rowCount && lu.rows[0].last_agree_at ? new Date(lu.rows[0].last_agree_at).getTime() : null;
+      if (lastAgreeAt != null && Number.isFinite(lastAgreeAt)) {
+        const nextAt = lastAgreeAt + AGREE_COOLDOWN_HOURS * 3600 * 1000;
+        const remainMs = nextAt - Date.now();
+        if (remainMs > 0) {
+          await client.query('ROLLBACK');
+          return res.status(429).json({
+            error: 'agree_cooldown_wait',
+            message: getErrorMessage(req, 'agree_cooldown_wait'),
+            cooldown_hours: AGREE_COOLDOWN_HOURS,
+            retry_after_seconds: Math.ceil(remainMs / 1000),
+            next_allowed_at: new Date(nextAt).toISOString()
+          });
+        }
+      }
+    }
     let agreed;
     if (already) {
       ids = ids.filter(x => x !== uid);
@@ -3468,6 +3537,8 @@ app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
         `UPDATE event SET num_agrees=$2, agreed_ids=$3::jsonb, last_agreed_date=now() WHERE event_id=$1`,
         [id, newCount, JSON.stringify(ids)]
       );
+      // Katılım bekleme süresi bu andan itibaren başlar (.env: COOLDOWN)
+      await client.query(`UPDATE public.users SET last_agree_at=now() WHERE id=$1`, [uid]);
     } else {
       await client.query(
         `UPDATE event SET num_agrees=$2, agreed_ids=$3::jsonb WHERE event_id=$1`,
@@ -3481,13 +3552,39 @@ app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
     // Katılan kullanıcının kendi puanı da güncellenir (her katılım +1 puan)
     try { if (uid !== cur.rows[0].created_by_id) await recomputeUserStats(uid); } catch {}
 
-    res.json({ ok: true, event_id: id, num_agrees: newCount, agreed });
+    res.json({
+      ok: true, event_id: id, num_agrees: newCount, agreed,
+      // Yeni katılımda bir sonraki katılım için beklenecek süre (saniye); 0 => bekleme yok
+      agree_retry_after_seconds: (agreed && AGREE_COOLDOWN_HOURS > 0) ? Math.ceil(AGREE_COOLDOWN_HOURS * 3600) : 0
+    });
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch {}
     console.error('POST /api/event/:id/agree error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   } finally {
     client.release();
+  }
+});
+
+
+/* =============== Katılım bekleme durumu (.env: COOLDOWN) ===============
+   İstemci, katılım (+) butonlarını soluk/aktif göstermek için kalan süreyi buradan alır. */
+app.get('/api/me/agree-status', requireAuth, async (req, res) => {
+  try {
+    if (req.user.role !== 'user' || !(AGREE_COOLDOWN_HOURS > 0)) {
+      return res.json({ ok: true, cooldown_hours: AGREE_COOLDOWN_HOURS > 0 ? AGREE_COOLDOWN_HOURS : 0, retry_after_seconds: 0 });
+    }
+    const r = await pool.query(`SELECT last_agree_at FROM public.users WHERE id=$1`, [req.user.id]);
+    let remain = 0;
+    if (r.rowCount && r.rows[0].last_agree_at) {
+      const nextAt = new Date(r.rows[0].last_agree_at).getTime() + AGREE_COOLDOWN_HOURS * 3600 * 1000;
+      const ms = nextAt - Date.now();
+      if (Number.isFinite(ms) && ms > 0) remain = Math.ceil(ms / 1000);
+    }
+    res.json({ ok: true, cooldown_hours: AGREE_COOLDOWN_HOURS, retry_after_seconds: remain });
+  } catch (e) {
+    console.error('GET /api/me/agree-status error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 });
 
@@ -4245,9 +4342,15 @@ app.post('/api/submit_olay', requireAuth, async (req, res) => {
     // Boş/0 ise sınır yoktur. Yalnızca 'user' (olay ekleyen) hesapları için geçerlidir.
     if (req.user.role === 'user' && EVENT_SUBMIT_INTERVAL_HOURS > 0) {
       try {
+        // Kullanıcının KENDİ SİLDİĞİ gönderiler bekleme süresine sayılmaz: en son
+        // gönderisini silerse (puanı da -1 düştüğü için) beklemeden yenisini ekleyebilir.
+        // Solver/supervisor tarafından kapatılan gönderiler ise süreyi etkilemeye devam eder.
         const last = await pool.query(
           `SELECT created_at FROM public.event
             WHERE created_by_id = $1 AND created_at IS NOT NULL
+              AND NOT (COALESCE(active, true) = false
+                       AND deactivated_by_id IS NOT NULL
+                       AND deactivated_by_id = created_by_id)
             ORDER BY created_at DESC LIMIT 1`,
           [req.user.id]
         );
@@ -4997,6 +5100,8 @@ app.delete('/api/admin/users/:id', adminOnly, async (req, res) => {
     const r = await client.query(
       `UPDATE users
        SET is_active=false,
+           agreed_point=0,
+           posts_point=0,
            deleted_by=$2,
            deleted_by_role=$3,
            deleted_by_id=$4,
