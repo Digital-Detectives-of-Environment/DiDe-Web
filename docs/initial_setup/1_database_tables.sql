@@ -33,8 +33,9 @@ CREATE TABLE IF NOT EXISTS public.users (
   registration_date    timestamptz,
   solver               boolean DEFAULT false,
   num_events           integer DEFAULT 0,
-  liked_point          integer DEFAULT 0,
-  posts_point          integer DEFAULT 0
+  agreed_point         integer DEFAULT 0,
+  posts_point          integer DEFAULT 0,
+  current_point        integer DEFAULT 0      -- posts_point - spent points (orders); may be negative
 );
 
 -- 1.2) event types
@@ -84,8 +85,18 @@ CREATE TABLE IF NOT EXISTS public.event (
   updated_at               timestamptz,
   photo_urls               text NOT NULL DEFAULT '[]',
   video_urls               text NOT NULL DEFAULT '[]',
-  num_likes                integer DEFAULT 0,
-  liked_ids                jsonb DEFAULT '[]'::jsonb
+  num_agrees               integer DEFAULT 0,      -- cached count of active rows in public.agrees
+  last_agreed_date         timestamptz
+);
+
+-- 1.4) agrees (one row per agreement; replaces the old event.agreed_ids JSONB list)
+--      agree_removed_date IS NULL  -> agreement is active
+--      agree_removed_date NOT NULL -> user withdrew the agreement on that date
+CREATE TABLE IF NOT EXISTS public.agrees (
+  event_id                 integer NOT NULL REFERENCES public.event(event_id) ON UPDATE CASCADE ON DELETE CASCADE,
+  agreed_user_id           integer NOT NULL,
+  agree_date               timestamptz NOT NULL DEFAULT now(),
+  agree_removed_date       timestamptz
 );
 
 -- 2) Indexes
@@ -94,6 +105,11 @@ CREATE INDEX IF NOT EXISTS users_email_idx    ON public.users (lower(btrim(email
 CREATE UNIQUE INDEX IF NOT EXISTS users_supervisor_totp_norm_uniq
   ON public.users (two_factor_norm_hash)
   WHERE role='supervisor' AND two_factor_norm_hash IS NOT NULL;
+-- a user can have only ONE active agreement per event
+CREATE UNIQUE INDEX IF NOT EXISTS agrees_event_user_active_uniq
+  ON public.agrees (event_id, agreed_user_id) WHERE agree_removed_date IS NULL;
+CREATE INDEX IF NOT EXISTS agrees_user_idx  ON public.agrees (agreed_user_id) WHERE agree_removed_date IS NULL;
+CREATE INDEX IF NOT EXISTS agrees_event_idx ON public.agrees (event_id);
 
 -- 3) Column defaults / type fixes (idempotent)
 ALTER TABLE public.event  ALTER COLUMN photo_urls SET DEFAULT '[]';
@@ -101,14 +117,14 @@ ALTER TABLE public.event  ALTER COLUMN photo_urls SET NOT NULL;
 ALTER TABLE public.event  ALTER COLUMN video_urls SET DEFAULT '[]';
 ALTER TABLE public.event  ALTER COLUMN video_urls SET NOT NULL;
 
--- 4) Newer columns (idempotent) — also auto-added by the app at runtime.
---    Listed here so a fresh/manual install and existing databases stay in sync.
+-- 4) Newer columns (idempotent)
 -- 4.1) users
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS registration_date timestamptz;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS solver            boolean DEFAULT false;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS num_events        integer DEFAULT 0;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS liked_point       integer DEFAULT 0;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS agreed_point      integer DEFAULT 0;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS posts_point       integer DEFAULT 0;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS current_point     integer DEFAULT 0;
 
 -- 4.2) event_type
 ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS is_line        boolean DEFAULT false;
@@ -117,5 +133,5 @@ ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS time_dependent boolean DE
 ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS valid_time     double precision;
 
 -- 4.3) event
-ALTER TABLE public.event ADD COLUMN IF NOT EXISTS num_likes integer DEFAULT 0;
-ALTER TABLE public.event ADD COLUMN IF NOT EXISTS liked_ids jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE public.event ADD COLUMN IF NOT EXISTS num_agrees       integer DEFAULT 0;
+ALTER TABLE public.event ADD COLUMN IF NOT EXISTS last_agreed_date timestamptz;

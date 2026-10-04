@@ -1344,6 +1344,47 @@ const EVENT_KEEPS_POINTS_SQL = `(
   )
 )`;
 
+// ==================== current_point (mevcut / harcanabilir puan) ====================
+// users.current_point = users.posts_point − Σ orders.points_spent
+//  - posts_point  : KAZANILAN puan (liderlik tablosunda gösterilir, harcamayla düşmez).
+//  - current_point: kullanıcının ŞU AN sahip olduğu puan. Sipariş (QR indirimi) ile
+//                   harcanan puan düşülür. 0'a SABİTLENMEZ: harcamadan sonra bir gönderisi
+//                   silinip posts_point düşerse current_point EKSİ değere inebilir ve
+//                   profilde olduğu gibi (ör. -3) gösterilir.
+//  - Silinmiş (is_active=false) kullanıcının current_point değeri 0'dır.
+let _ordersTableSeen = false;
+async function ordersTableExists(db = pool) {
+  if (_ordersTableSeen) return true;   // tablo bir kez oluştuktan sonra silinmez
+  try {
+    const t = await db.query(`SELECT to_regclass('public.orders') AS t`);
+    _ordersTableSeen = !!(t.rows[0] && t.rows[0].t);
+  } catch {}
+  return _ordersTableSeen;
+}
+async function currentPointSpentSql(db = pool) {
+  return (await ordersTableExists(db))
+    ? `COALESCE((SELECT SUM(COALESCE(o.points_spent,0)) FROM public.orders o
+                  WHERE o.person_placing_order = u.username), 0)`
+    : `0`;
+}
+// userId verilirse yalnızca o kullanıcı, verilmezse TÜM kullanıcılar güncellenir.
+async function syncCurrentPoint(userId = null, db = pool) {
+  try {
+    const spentSql = await currentPointSpentSql(db);
+    const where = userId == null ? 'TRUE' : 'u.id = $1';
+    await db.query(
+      `UPDATE public.users u
+          SET current_point = CASE WHEN COALESCE(u.is_active, true)
+                                   THEN COALESCE(u.posts_point, 0) - ${spentSql}
+                                   ELSE 0 END
+        WHERE ${where}`,
+      userId == null ? [] : [userId]
+    );
+  } catch (e) {
+    console.error('syncCurrentPoint error for user', userId, e.message);
+  }
+}
+
 // Bir kullanıcının olay/beğeni istatistiklerini event tablosundan yeniden hesaplar
 // ve users tablosuna yazar. Beğeni değişince, olay eklenince/kapatılınca çağrılır.
 //   num_events  = kullanıcının eklediği toplam olay (aktif+deaktif)
@@ -1376,13 +1417,17 @@ async function recomputeUserStats(userId) {
        (
          -- Kullanıcının KATILDIĞI (agree verdiği) gönderi sayısı → her katılım +1 puan.
          -- Opener ve solver için aynı şekilde işler; katılım geri alınırsa puan da düşer.
+         -- Kaynak: agrees tablosu (geri çekilmemiş = agree_removed_date IS NULL katılımlar).
          SELECT COUNT(*) AS cnt
-           FROM public.event
-          WHERE COALESCE(agreed_ids, '[]'::jsonb) @> to_jsonb($1::int)
+           FROM public.agrees a
+          WHERE a.agreed_user_id = $1
+            AND a.agree_removed_date IS NULL
        ) given
        WHERE u.id = $1`,
       [userId]
     );
+    // current_point = posts_point − harcanan puan (orders). EKSİYE DÜŞEBİLİR.
+    await syncCurrentPoint(userId);
     try { _userCache.delete(userId); } catch {}
   } catch (e) {
     console.error('recomputeUserStats error for user', userId, e.message);
@@ -2244,13 +2289,70 @@ async function ensureDbSqlHelpers() {
 
   // ===== Beğeni (like) ve puanlama altyapısı =====
   // event.num_agrees  : o gönderinin (olayın) aldığı toplam beğeni sayısı (dinamik güncellenir)
-  // event.agreed_ids  : gönderiyi beğenen kullanıcı ID'lerinin listesi (JSONB dizi)
+  // (Eski event.agreed_ids JSONB listesi artık public.agrees tablosunda tutulur; aşağıya bakınız.)
   await run('event rename num_likes->num_agrees', `DO $$ BEGIN IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='event' AND column_name='num_likes') AND NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='event' AND column_name='num_agrees') THEN ALTER TABLE public.event RENAME COLUMN num_likes TO num_agrees; END IF; END $$;`);
   await run('event rename liked_ids->agreed_ids', `DO $$ BEGIN IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='event' AND column_name='liked_ids') AND NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='event' AND column_name='agreed_ids') THEN ALTER TABLE public.event RENAME COLUMN liked_ids TO agreed_ids; END IF; END $$;`);
   await run('event add num_agrees',            `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS num_agrees integer DEFAULT 0`);
-  await run('event add agreed_ids',            `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS agreed_ids jsonb DEFAULT '[]'::jsonb`);
   await run('event num_agrees default 0',       `UPDATE public.event SET num_agrees=0 WHERE num_agrees IS NULL`);
-  await run('event agreed_ids default []',      `UPDATE public.event SET agreed_ids='[]'::jsonb WHERE agreed_ids IS NULL`);
+
+  // ===== agrees: katılım (agree) kayıtları =====
+  // event.agreed_ids (JSONB liste) sütununun YERİNE geçer. Her katılım AYRI bir satırdır:
+  //   event_id           : katılınan gönderi (FK → event.event_id)
+  //   agreed_user_id     : katılan kullanıcının id'si (TEK bir integer; liste DEĞİL)
+  //   agree_date         : katılım tarihi
+  //   agree_removed_date : katılım geri çekildiyse geri çekilme tarihi (NULL = katılım geçerli)
+  // Aynı gönderiye N katılım → aynı event_id ile N satır. Kullanıcı katılımını geri alıp
+  // tekrar katılırsa eski satır (agree_removed_date dolu) geçmiş olarak kalır, yeni satır açılır.
+  // Bir kullanıcının bir gönderide aynı anda yalnızca BİR geçerli katılımı olabilir (kısmi unique index).
+  await run('create agrees', `
+    CREATE TABLE IF NOT EXISTS public.agrees (
+      event_id           integer NOT NULL
+                         REFERENCES public.event(event_id) ON UPDATE CASCADE ON DELETE CASCADE,
+      agreed_user_id     integer NOT NULL,
+      agree_date         timestamptz NOT NULL DEFAULT now(),
+      agree_removed_date timestamptz
+    )`);
+  await run('agrees uniq active', `CREATE UNIQUE INDEX IF NOT EXISTS agrees_event_user_active_uniq
+                                     ON public.agrees (event_id, agreed_user_id) WHERE agree_removed_date IS NULL`);
+  await run('agrees idx user',    `CREATE INDEX IF NOT EXISTS agrees_user_idx ON public.agrees (agreed_user_id) WHERE agree_removed_date IS NULL`);
+  await run('agrees idx event',   `CREATE INDEX IF NOT EXISTS agrees_event_idx ON public.agrees (event_id)`);
+
+  // Eski event.agreed_ids verisini agrees tablosuna taşı ve sütunu SİL (tek seferlik, idempotent).
+  // Eski yapıda kişi başı katılım tarihi tutulmadığı için agree_date olarak gönderinin
+  // son katılım tarihi (yoksa oluşturulma tarihi) kullanılır.
+  await tx('migrate event.agreed_ids -> agrees', async (c) => {
+    const has = await c.query(
+      `SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='event' AND column_name='agreed_ids' LIMIT 1`
+    );
+    if (!has.rowCount) return;
+    await c.query(`
+      INSERT INTO public.agrees (event_id, agreed_user_id, agree_date)
+      SELECT DISTINCT e.event_id, x.v::int, COALESCE(e.last_agreed_date, e.created_at, now())
+        FROM public.event e
+        CROSS JOIN LATERAL jsonb_array_elements_text(
+               CASE WHEN jsonb_typeof(e.agreed_ids) = 'array' THEN e.agreed_ids ELSE '[]'::jsonb END
+             ) AS x(v)
+       WHERE x.v ~ '^[0-9]+$'
+         AND NOT EXISTS (SELECT 1 FROM public.agrees a
+                          WHERE a.event_id = e.event_id
+                            AND a.agreed_user_id = x.v::int
+                            AND a.agree_removed_date IS NULL)`);
+    await c.query(`ALTER TABLE public.event DROP COLUMN agreed_ids`);
+    console.log('[DB] event.agreed_ids migrated to public.agrees and dropped');
+  });
+
+  // event.num_agrees, agrees tablosundaki GEÇERLİ katılım sayısının önbelleğidir; eşitle.
+  await run('sync event.num_agrees from agrees', `
+    UPDATE public.event e
+       SET num_agrees = sub.cnt
+      FROM (SELECT e2.event_id, COUNT(a.event_id)::int AS cnt
+              FROM public.event e2
+              LEFT JOIN public.agrees a
+                     ON a.event_id = e2.event_id AND a.agree_removed_date IS NULL
+             GROUP BY e2.event_id) sub
+     WHERE e.event_id = sub.event_id
+       AND COALESCE(e.num_agrees, 0) <> sub.cnt`);
 
   // users (olay ekleyen "expert" hesapları) için agregat istatistikler:
   //   num_events  : kullanıcının eklediği toplam olay sayısı (aktif + deaktif)
@@ -2260,6 +2362,9 @@ async function ensureDbSqlHelpers() {
   await run('users rename liked_point->agreed_point', `DO $$ BEGIN IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='liked_point') AND NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='agreed_point') THEN ALTER TABLE public.users RENAME COLUMN liked_point TO agreed_point; END IF; END $$;`);
   await run('users add agreed_point',          `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS agreed_point integer DEFAULT 0`);
   await run('users add posts_point',          `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS posts_point integer DEFAULT 0`);
+  //   current_point: kullanıcının MEVCUT puanı = posts_point − harcanan puan (orders.points_spent).
+  //                  Eksiye düşebilir; profilde bu değer gösterilir.
+  await run('users add current_point',        `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS current_point integer DEFAULT 0`);
   // Kullanıcının EN SON yeni katılım (agree) yaptığı an (.env: COOLDOWN kontrolü için)
   await run('users add last_agree_at',        `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_agree_at timestamptz`);
   // EN SON katılım yapılan gönderi: bu katılım geri alınırsa bekleme süresi sıfırlanır
@@ -2271,8 +2376,8 @@ async function ensureDbSqlHelpers() {
       num_events  = COALESCE(sub.cnt, 0),
       agreed_point = COALESCE(sub.agrees, 0),
       posts_point = COALESCE(2*sub.agrees + sub.kept, 0)
-                    + COALESCE((SELECT COUNT(*) FROM public.event e2
-                                 WHERE COALESCE(e2.agreed_ids,'[]'::jsonb) @> to_jsonb(u.id)), 0)
+                    + COALESCE((SELECT COUNT(*) FROM public.agrees a2
+                                 WHERE a2.agreed_user_id = u.id AND a2.agree_removed_date IS NULL), 0)
     FROM (
       SELECT ev.created_by_id AS uid,
              COUNT(*) AS cnt,
@@ -2293,8 +2398,8 @@ async function ensureDbSqlHelpers() {
       posts_point = COALESCE(given.cnt, 0)
     FROM (
       SELECT u2.id AS uid,
-             (SELECT COUNT(*) FROM public.event e2
-               WHERE COALESCE(e2.agreed_ids,'[]'::jsonb) @> to_jsonb(u2.id)) AS cnt
+             (SELECT COUNT(*) FROM public.agrees a2
+               WHERE a2.agreed_user_id = u2.id AND a2.agree_removed_date IS NULL) AS cnt
         FROM public.users u2
        WHERE NOT EXISTS (SELECT 1 FROM public.event e3 WHERE e3.created_by_id = u2.id)
     ) given
@@ -2308,6 +2413,9 @@ async function ensureDbSqlHelpers() {
      WHERE COALESCE(is_active, true) = false
        AND (COALESCE(agreed_point,0) <> 0 OR COALESCE(posts_point,0) <> 0)
   `);
+
+  // current_point = posts_point − harcanan puan (tüm kullanıcılar için; eksiye düşebilir)
+  await syncCurrentPoint(null);
 
   await tx('event_type unique(event_type_name)', async (c) => {
     try {
@@ -3407,7 +3515,10 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
         o.photo_urls,
         o.video_urls,
         COALESCE(o.num_agrees, 0) AS num_agrees,
-        (COALESCE(o.agreed_ids, '[]'::jsonb) @> to_jsonb($3::int)) AS i_agreed,
+        EXISTS (SELECT 1 FROM public.agrees a
+                 WHERE a.event_id = o.event_id
+                   AND a.agreed_user_id = $3::int
+                   AND a.agree_removed_date IS NULL) AS i_agreed,
         ${POLYGON_PKS.map(p => `o."${p.safeName}"`).join(',\n        ')}${POLYGON_PKS.length > 0 ? ',' : ''}
         ((o.created_by_id = $1) OR (o.created_by_name = $2)) AS is_mine
       FROM event o
@@ -3462,10 +3573,49 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
   }
 });
 
+/* =============== Katılım bekleme süresi yardımcısı (.env: COOLDOWN) ===============
+   Kullanıcının bir sonraki YENİ katılımı için kalan bekleme süresini (ms) döndürür; 0 => bekleme yok.
+   EN SON katıldığı gönderi bir KİŞİ tarafından silindiyse (gönderi sahibi, supervisor ya da
+   solver; yani deactivated_by_id dolu) bekleme süresi SIFIRLANIR: zaman kontrolü yapılmadan
+   yeniden katılabilir. Süresi dolarak OTOMATİK kapanan gönderi (deactivated_by_id NULL) süreyi
+   sıfırlamaz. Gönderi satırı tamamen yoksa da sıfırlanır. */
+async function getAgreeCooldownRemainingMs(db, uid, lock = false) {
+  if (!(AGREE_COOLDOWN_HOURS > 0) || uid == null) return 0;
+  const r = await db.query(
+    `SELECT u.last_agree_at,
+            u.last_agree_event_id,
+            ( u.last_agree_event_id IS NOT NULL
+              AND ( e.event_id IS NULL
+                    OR (COALESCE(e.active, true) = false AND e.deactivated_by_id IS NOT NULL) )
+            ) AS last_event_deleted
+       FROM public.users u
+       LEFT JOIN public.event e ON e.event_id = u.last_agree_event_id
+      WHERE u.id = $1
+      ${lock ? 'FOR UPDATE OF u' : ''}`,
+    [uid]
+  );
+  if (!r.rowCount || !r.rows[0].last_agree_at) return 0;
+  const row = r.rows[0];
+  if (row.last_event_deleted === true) {
+    // En son katılınan gönderi silindi → bekleme süresi sıfırlanır
+    await db.query(
+      `UPDATE public.users SET last_agree_at=NULL, last_agree_event_id=NULL
+        WHERE id=$1 AND last_agree_event_id IS NOT DISTINCT FROM $2`,
+      [uid, row.last_agree_event_id]
+    );
+    return 0;
+  }
+  const ms = new Date(row.last_agree_at).getTime() + AGREE_COOLDOWN_HOURS * 3600 * 1000 - Date.now();
+  return (Number.isFinite(ms) && ms > 0) ? ms : 0;
+}
+
 /* =============== Beğeni (Like) toggle ===============
    Yalnızca 'user' rolündeki hesaplar (olay ekleyen + solver) beğenebilir.
    Aynı kullanıcı tekrar isterse beğeniyi geri alır (toggle).
-   num_agrees ve agreed_ids dinamik güncellenir; gönderi sahibinin puanı yeniden hesaplanır. */
+   Katılımlar public.agrees tablosunda satır satır tutulur:
+     - Yeni katılım     → yeni satır (event_id, agreed_user_id, agree_date=now()).
+     - Katılımı geri al → o satırın agree_removed_date alanı doldurulur (satır silinmez).
+   event.num_agrees (geçerli katılım sayısı) dinamik güncellenir; puanlar yeniden hesaplanır. */
 app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
   const id = +req.params.id;
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
@@ -3481,9 +3631,9 @@ app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // Gönderi satırı kilitlenir → aynı gönderiye eşzamanlı katılımlar sıraya girer.
     const cur = await client.query(
-      `SELECT event_id, created_by_id, COALESCE(num_agrees,0) AS num_agrees,
-              COALESCE(agreed_ids,'[]'::jsonb) AS agreed_ids,
+      `SELECT event_id, created_by_id,
               CASE WHEN $2::float8 IS NULL OR geom IS NULL THEN NULL
                    ELSE ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint($3::float8, $2::float8), 4326)::geography)
               END AS dist_m
@@ -3503,9 +3653,14 @@ app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'cannot_agree_own', message: getErrorMessage(req, 'cannot_agree_own') });
     }
 
-    let ids = [];
-    try { ids = Array.isArray(cur.rows[0].agreed_ids) ? cur.rows[0].agreed_ids.map(Number) : JSON.parse(cur.rows[0].agreed_ids).map(Number); } catch { ids = []; }
-    const already = ids.includes(uid);
+    // Bu kullanıcının bu gönderide GEÇERLİ (geri çekilmemiş) bir katılımı var mı?
+    const ex = await client.query(
+      `SELECT 1 FROM public.agrees
+        WHERE event_id=$1 AND agreed_user_id=$2 AND agree_removed_date IS NULL
+        LIMIT 1`,
+      [id, uid]
+    );
+    const already = ex.rowCount > 0;
 
     // Tampon kontrolü (yalnızca yeni katılımda; GPS sapması için küçük bir pay bırakılır)
     if (!already && BUFFER_RADIUS > 0) {
@@ -3518,52 +3673,61 @@ app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
 
     // Katılım bekleme süresi (.env: COOLDOWN, saat). Opener ve solver için ortaktır.
     // Yalnızca YENİ katılımda kontrol edilir; katılımı geri almak serbesttir.
+    // En son katılınan gönderi silindiyse süre sıfırlanmıştır (getAgreeCooldownRemainingMs).
     if (!already && AGREE_COOLDOWN_HOURS > 0) {
-      const lu = await client.query(
-        `SELECT last_agree_at FROM public.users WHERE id=$1 FOR UPDATE`,
-        [uid]
-      );
-      const lastAgreeAt = lu.rowCount && lu.rows[0].last_agree_at ? new Date(lu.rows[0].last_agree_at).getTime() : null;
-      if (lastAgreeAt != null && Number.isFinite(lastAgreeAt)) {
-        const nextAt = lastAgreeAt + AGREE_COOLDOWN_HOURS * 3600 * 1000;
-        const remainMs = nextAt - Date.now();
-        if (remainMs > 0) {
-          await client.query('ROLLBACK');
-          return res.status(429).json({
-            error: 'agree_cooldown_wait',
-            message: getErrorMessage(req, 'agree_cooldown_wait'),
-            cooldown_hours: AGREE_COOLDOWN_HOURS,
-            retry_after_seconds: Math.ceil(remainMs / 1000),
-            next_allowed_at: new Date(nextAt).toISOString()
-          });
-        }
+      const remainMs = await getAgreeCooldownRemainingMs(client, uid, true);
+      if (remainMs > 0) {
+        await client.query('ROLLBACK');
+        const nextAt = Date.now() + remainMs;
+        return res.status(429).json({
+          error: 'agree_cooldown_wait',
+          message: getErrorMessage(req, 'agree_cooldown_wait'),
+          cooldown_hours: AGREE_COOLDOWN_HOURS,
+          retry_after_seconds: Math.ceil(remainMs / 1000),
+          next_allowed_at: new Date(nextAt).toISOString()
+        });
       }
     }
+
     let agreed;
     if (already) {
-      ids = ids.filter(x => x !== uid);
+      // Katılımı geri çek: satır silinmez, geri çekilme tarihi yazılır
+      await client.query(
+        `UPDATE public.agrees SET agree_removed_date = now()
+          WHERE event_id=$1 AND agreed_user_id=$2 AND agree_removed_date IS NULL`,
+        [id, uid]
+      );
       agreed = false;
     } else {
-      ids.push(uid);
+      // Yeni katılım: her katılım ayrı bir satır
+      await client.query(
+        `INSERT INTO public.agrees (event_id, agreed_user_id, agree_date) VALUES ($1, $2, now())`,
+        [id, uid]
+      );
       agreed = true;
     }
-    const newCount = ids.length;
+
+    const cnt = await client.query(
+      `SELECT COUNT(*)::int AS c FROM public.agrees WHERE event_id=$1 AND agree_removed_date IS NULL`,
+      [id]
+    );
+    const newCount = cnt.rows[0].c;
 
     // YENİ bir katılımda son katılım tarihi güncellenir → zamana bağlı olayın ömrü,
     // bağlı olduğu olay türünün süresi kadar bu tarihten itibaren yeniden başlar.
     // Katılım geri alındığında tarih DEĞİŞMEZ (süre kısalmaz), created_at ise hiç değişmez.
     if (agreed) {
       await client.query(
-        `UPDATE event SET num_agrees=$2, agreed_ids=$3::jsonb, last_agreed_date=now() WHERE event_id=$1`,
-        [id, newCount, JSON.stringify(ids)]
+        `UPDATE event SET num_agrees=$2, last_agreed_date=now() WHERE event_id=$1`,
+        [id, newCount]
       );
       // Katılım bekleme süresi bu andan itibaren başlar (.env: COOLDOWN);
       // en son katılınan gönderi de saklanır.
       await client.query(`UPDATE public.users SET last_agree_at=now(), last_agree_event_id=$2 WHERE id=$1`, [uid, id]);
     } else {
       await client.query(
-        `UPDATE event SET num_agrees=$2, agreed_ids=$3::jsonb WHERE event_id=$1`,
-        [id, newCount, JSON.stringify(ids)]
+        `UPDATE event SET num_agrees=$2 WHERE event_id=$1`,
+        [id, newCount]
       );
       // EN SON katıldığı gönderideki katılımını geri aldıysa bekleme süresi sıfırlanır:
       // beklemeden yeni bir gönderiye katılabilir; yeni katılımla süre yeniden başlar.
@@ -3577,11 +3741,8 @@ app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
     // Bir sonraki yeni katılım için kalan bekleme süresi (saniye); 0 => bekleme yok
     let agreeRetryAfter = 0;
     if (AGREE_COOLDOWN_HOURS > 0) {
-      const la = await client.query(`SELECT last_agree_at FROM public.users WHERE id=$1`, [uid]);
-      if (la.rowCount && la.rows[0].last_agree_at) {
-        const ms = new Date(la.rows[0].last_agree_at).getTime() + AGREE_COOLDOWN_HOURS * 3600 * 1000 - Date.now();
-        if (Number.isFinite(ms) && ms > 0) agreeRetryAfter = Math.ceil(ms / 1000);
-      }
+      const ms = await getAgreeCooldownRemainingMs(client, uid);
+      if (ms > 0) agreeRetryAfter = Math.ceil(ms / 1000);
     }
     await client.query('COMMIT');
 
@@ -3607,19 +3768,15 @@ app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
 
 
 /* =============== Katılım bekleme durumu (.env: COOLDOWN) ===============
-   İstemci, katılım (+) butonlarını soluk/aktif göstermek için kalan süreyi buradan alır. */
+   İstemci, katılım (+) butonlarını soluk/aktif göstermek için kalan süreyi buradan alır.
+   En son katılınan gönderi silindiyse kalan süre 0 döner (bekleme sıfırlanmıştır). */
 app.get('/api/me/agree-status', requireAuth, async (req, res) => {
   try {
     if (req.user.role !== 'user' || !(AGREE_COOLDOWN_HOURS > 0)) {
       return res.json({ ok: true, cooldown_hours: AGREE_COOLDOWN_HOURS > 0 ? AGREE_COOLDOWN_HOURS : 0, retry_after_seconds: 0 });
     }
-    const r = await pool.query(`SELECT last_agree_at FROM public.users WHERE id=$1`, [req.user.id]);
-    let remain = 0;
-    if (r.rowCount && r.rows[0].last_agree_at) {
-      const nextAt = new Date(r.rows[0].last_agree_at).getTime() + AGREE_COOLDOWN_HOURS * 3600 * 1000;
-      const ms = nextAt - Date.now();
-      if (Number.isFinite(ms) && ms > 0) remain = Math.ceil(ms / 1000);
-    }
+    const ms = await getAgreeCooldownRemainingMs(pool, req.user.id);
+    const remain = ms > 0 ? Math.ceil(ms / 1000) : 0;
     res.json({ ok: true, cooldown_hours: AGREE_COOLDOWN_HOURS, retry_after_seconds: remain });
   } catch (e) {
     console.error('GET /api/me/agree-status error:', e);
@@ -3759,29 +3916,24 @@ app.get('/api/me/stats', requireAuth, async (req, res) => {
     // En güncel değerler için önce yeniden hesapla (olay ekleyen kullanıcılar için)
     if (req.user.role === 'user' && req.user.solver !== true) {
       try { await recomputeUserStats(req.user.id); } catch {}
+    } else {
+      // Solver için de mevcut puan (current_point) güncel tutulur
+      try { await syncCurrentPoint(req.user.id); } catch {}
     }
     const { rows } = await pool.query(
       `SELECT username, name, surname, role, COALESCE(solver,false) AS solver,
               COALESCE(num_events,0) AS num_events,
               COALESCE(agreed_point,0) AS agreed_point,
-              COALESCE(posts_point,0) AS posts_point
+              COALESCE(posts_point,0) AS posts_point,
+              COALESCE(current_point,0) AS current_point
          FROM users WHERE id=$1`,
       [req.user.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
 
     const u = rows[0];
-    // Sipariş harcaması: profildeki gösterilen puan = posts_point − Σ orders.points_spent
-    // (Her başarılı siparişte eşik puan kadar düşer; kazandıkça posts_point artar.)
-    let spent = 0;
-    try {
-      const t = await pool.query(`SELECT to_regclass('public.orders') AS t`);
-      if (t.rows[0].t) {
-        const s = await pool.query(`SELECT COALESCE(SUM(points_spent),0)::int AS s FROM public.orders WHERE person_placing_order=$1`, [u.username]);
-        spent = s.rows[0].s || 0;
-      }
-    } catch {}
-    const effectivePosts = Math.max(0, (u.posts_point || 0) - spent);
+    // Profilde gösterilen puan = users.current_point = posts_point − Σ orders.points_spent.
+    // 0'a sabitlenmez: kullanıcı eksiye düştüyse eksi değeri olduğu gibi görür.
     // Solver için "silinen olay" sayısını da hesapla (kendi kapattıkları)
     let closed_count = 0;
     if (u.solver === true) {
@@ -3796,7 +3948,8 @@ app.get('/api/me/stats', requireAuth, async (req, res) => {
       solver: u.solver === true,
       num_events: u.num_events,
       agreed_point: u.agreed_point,
-      posts_point: effectivePosts,
+      posts_point: u.posts_point,       // kazanılan puan (liderlik tablosu)
+      current_point: u.current_point,   // mevcut puan (eksi olabilir) → profilde gösterilir
       closed_count
     });
   } catch (e) {
@@ -3823,7 +3976,10 @@ app.get('/api/me/posts', requireAuth, async (req, res) => {
          o.deactivated_at,
          COALESCE(o.active,true) AS active,
          COALESCE(o.num_agrees,0) AS num_agrees,
-         (COALESCE(o.agreed_ids,'[]'::jsonb) @> to_jsonb($1::int)) AS i_agreed,
+         EXISTS (SELECT 1 FROM public.agrees a
+                  WHERE a.event_id = o.event_id
+                    AND a.agreed_user_id = $1::int
+                    AND a.agree_removed_date IS NULL) AS i_agreed,
          o.created_by_id,
          o.created_by_name AS created_by_username,
          o.created_by_role_name AS created_by_role_name,
@@ -3873,7 +4029,11 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
               o.photo_urls,
               o.video_urls,
               COALESCE(o.num_agrees, 0)      AS num_agrees,
-              COALESCE(o.agreed_ids, '[]'::jsonb) AS agreed_ids
+              -- Geçerli katılımcıların id listesi (agrees tablosundan; dışa aktarım biçimi korunur)
+              COALESCE((SELECT jsonb_agg(a.agreed_user_id ORDER BY a.agree_date, a.agreed_user_id)
+                          FROM public.agrees a
+                         WHERE a.event_id = o.event_id AND a.agree_removed_date IS NULL),
+                       '[]'::jsonb) AS agreed_ids
          FROM event o
          LEFT JOIN event_type l ON l.event_type_id = o.event_type
         WHERE o.created_by_id = $1
@@ -4381,19 +4541,19 @@ app.post('/api/submit_olay', requireAuth, async (req, res) => {
     // Boş/0 ise sınır yoktur. Yalnızca 'user' (olay ekleyen) hesapları için geçerlidir.
     if (req.user.role === 'user' && EVENT_SUBMIT_INTERVAL_HOURS > 0) {
       try {
-        // Kullanıcının KENDİ SİLDİĞİ gönderiler bekleme süresine sayılmaz: en son
-        // gönderisini silerse (puanı da -1 düştüğü için) beklemeden yenisini ekleyebilir.
-        // Solver/supervisor tarafından kapatılan gönderiler ise süreyi etkilemeye devam eder.
+        // Kullanıcının EN SON eklediği gönderi bir KİŞİ tarafından silindiyse (kendisi,
+        // supervisor ya da solver; deactivated_by_id dolu) bekleme süresi SIFIRLANIR:
+        // zaman kontrolü yapılmadan hemen yeni gönderi ekleyebilir.
+        // Süresi dolarak OTOMATİK kapanan gönderi (deactivated_by_id NULL) süreyi sıfırlamaz.
         const last = await pool.query(
-          `SELECT created_at FROM public.event
+          `SELECT created_at,
+                  (COALESCE(active, true) = false AND deactivated_by_id IS NOT NULL) AS deleted
+             FROM public.event
             WHERE created_by_id = $1 AND created_at IS NOT NULL
-              AND NOT (COALESCE(active, true) = false
-                       AND deactivated_by_id IS NOT NULL
-                       AND deactivated_by_id = created_by_id)
-            ORDER BY created_at DESC LIMIT 1`,
+            ORDER BY created_at DESC, event_id DESC LIMIT 1`,
           [req.user.id]
         );
-        if (last.rowCount) {
+        if (last.rowCount && last.rows[0].deleted !== true) {
           const lastAt = new Date(last.rows[0].created_at).getTime();
           const nextAt = lastAt + EVENT_SUBMIT_INTERVAL_HOURS * 3600 * 1000;
           const remainMs = nextAt - Date.now();
@@ -5146,6 +5306,7 @@ app.delete('/api/admin/users/:id', adminOnly, async (req, res) => {
        SET is_active=false,
            agreed_point=0,
            posts_point=0,
+           current_point=0,
            deleted_by=$2,
            deleted_by_role=$3,
            deleted_by_id=$4,
@@ -6064,7 +6225,8 @@ async function userEffectivePoints(username) {
     const s = await pool.query(`SELECT COALESCE(SUM(points_spent),0)::int AS s FROM public.orders WHERE person_placing_order=$1`, [row.username]);
     spent = s.rows[0].s || 0;
   }
-  return { id: row.id, username: row.username, name: row.name || '', surname: row.surname || '', posts_point: row.posts_point, spent, effective: Math.max(0, row.posts_point - spent) };
+  // effective = current_point ile aynı formül; 0'a sabitlenmez (eksi olabilir).
+  return { id: row.id, username: row.username, name: row.name || '', surname: row.surname || '', posts_point: row.posts_point, spent, effective: row.posts_point - spent };
 }
 
 // Opener/solver: kendi puanına göre tek kullanımlık QR üretir (5 dk geçerli)
@@ -6151,7 +6313,7 @@ app.post('/api/company/order', requireAuth, requireAnyRole(['company']), async (
     if (!ur.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'accountNotFound', message: getErrorMessage(req, 'accountNotFound') }); }
     const uname = ur.rows[0].username;
     const sp = await client.query(`SELECT COALESCE(SUM(points_spent),0)::int AS s FROM public.orders WHERE person_placing_order=$1`, [uname]);
-    const effective = Math.max(0, ur.rows[0].posts_point - (sp.rows[0].s || 0));
+    const effective = ur.rows[0].posts_point - (sp.rows[0].s || 0);   // eksi olabilir (current_point)
     if (effective < cfg.discount_threshold_point) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'not_eligible', message: getErrorMessage(req, 'not_eligible') }); }
     const before = Math.round(amount * 100) / 100;
     const after = Math.round(before * (1 - cfg.discount_percentage / 100) * 100) / 100;
@@ -6162,6 +6324,8 @@ app.post('/api/company/order', requireAuth, requireAnyRole(['company']), async (
       [cfg.company_id, uname, before, after, cfg.discount_percentage, cfg.discount_threshold_point, req.user.username]
     );
     await client.query('COMMIT');
+    // Harcamadan sonra kullanıcının mevcut puanını (current_point) güncelle
+    try { await syncCurrentPoint(ur.rows[0].id); } catch {}
     res.json({ ok: true, order_id: ins.rows[0].order_id, amount_before: before, amount_after: after, discount_percentage: cfg.discount_percentage, points_spent: cfg.discount_threshold_point, remaining_points: effective - cfg.discount_threshold_point });
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch {}

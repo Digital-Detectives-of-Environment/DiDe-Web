@@ -455,6 +455,20 @@ function ensureAgreeCooldownLoaded(){
   return __agreeCd.promise;
 }
 
+// Kalan süreyi sunucudan HEMEN yeniden alır (önbelleği yok sayar). En son katılınan gönderi
+// bu arada silindiyse sunucu 0 döndürür → bekleme sıfırlanır ve kullanıcı hemen katılabilir.
+function reloadAgreeCooldown(){
+  if (!agreeCooldownHours()) return Promise.resolve();
+  const key = _agreeCdUserKey();
+  if (!key) return Promise.resolve();
+  __agreeCd.key = key;
+  __agreeCd.promise = fetch('/api/me/agree-status', { cache: 'no-store' })
+    .then(r => r.ok ? r.json() : null)
+    .then(d => { if (d && __agreeCd.key === key) setAgreeCooldownSeconds(d.retry_after_seconds); })
+    .catch(() => {});
+  return __agreeCd.promise;
+}
+
 // Opener girişinde, oturumda bir kez, yeşil bilgi bandı (yalnızca .env'de süre tanımlıysa).
 const POST_INTERVAL_NOTICE_KEY = 'post_interval_notice';
 function maybeShowPostIntervalNotice(){
@@ -9773,7 +9787,13 @@ function addLikeControl(container, evt, opts = {}) {
     }
     // Katılım bekleme süresi dolmadı → kırmızı uyarı (katılımı geri almak serbesttir)
     if (btn.dataset.cdGated === '1' && !evt.i_agreed) {
-      const remainMs = agreeCooldownRemainingMs();
+      let remainMs = agreeCooldownRemainingMs();
+      // Yerelde bekleme görünüyorsa sunucuya bir kez daha sor: en son katılınan gönderi
+      // silindiyse süre sıfırlanmıştır ve beklemeden katılım yapılabilir.
+      if (remainMs > 0) {
+        try { await reloadAgreeCooldown(); } catch {}
+        remainMs = agreeCooldownRemainingMs();
+      }
       if (remainMs > 0) {
         applyLikeRangeState(btn);
         toast(t('agreeCooldownWait', { time: formatDurationSeconds(remainMs / 1000) }), 'error', 4000);
@@ -12138,6 +12158,9 @@ async function checkMe(){
       throw 0;
     }
     currentUser = (await r.json()).me;
+    // Giriş/yeniden girişte katılım bekleme süresi sunucudan taze alınsın
+    // (en son katılınan gönderi bu arada silinmişse süre sıfırlanmış olabilir).
+    try { __agreeCd.promise = null; __agreeCd.key = null; __agreeCd.nextAt = 0; } catch {}
   } catch { 
     currentUser = null;
     if (authToken) {
@@ -14154,10 +14177,11 @@ function pfRenderProfile(stats){
     role.classList.toggle('is-opener', !__pf.solver);
   }
   if (score) {
-    // Olay ekleyen: hesaplanan puan; Solver: kapattığı olay sayısını puan olarak gösterelim
-    // İndirim para birimi = harcanabilir puan (effective posts_point = posts_point − Σ points_spent).
-    // Sipariş verildikçe bu puan eşik kadar düşer; hem opener hem solver için burada gösterilir.
-    const val = (stats.posts_point != null ? stats.posts_point : 0);
+    // Profilde MEVCUT puan gösterilir: users.current_point = posts_point − Σ points_spent.
+    // Sipariş verildikçe eşik kadar düşer; gönderi silinince de düşer ve EKSİYE inebilir
+    // (0'a sabitlenmez). Liderlik tablosu ise kazanılan puanı (posts_point) göstermeye devam eder.
+    const val = (stats.current_point != null) ? stats.current_point
+              : (stats.posts_point != null ? stats.posts_point : 0);
     score.textContent = String(val);
   }
 
