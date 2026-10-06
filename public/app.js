@@ -10348,6 +10348,13 @@ async function submitOlay(){
     video_urls: Array.isArray(videoUrls) ? videoUrls : (videoUrls ? [videoUrls] : []),
   };
 
+  // restrictGNSS=true ve YENİ gönderi: konum butonuna basıldığı andaki yön gönderilir;
+  // o an yön henüz okunamadıysa şu anki yön kullanılır. Yön yoksa alan hiç gönderilmez.
+  if (!editingEventId && boolFromConfigValue(APP_CONFIG.restrictGnss)) {
+    const dir = (__gpsAddDirection != null) ? __gpsAddDirection : currentHeadingDeg();
+    if (dir != null) payload.direction = dir;
+  }
+
   if (!Number.isFinite(payload.latitude) || !Number.isFinite(payload.longitude)) 
     return setError(errEl, t('pleaseEnterLocation'));
   if (!payload.event_type) 
@@ -10399,6 +10406,7 @@ async function submitOlay(){
         throw new Error(d.message || d.error || r.status);
       }
       toast(t('eventAdded', {id: d.event_id}), 'success');
+      __gpsAddDirection = null;   // yön bu gönderiye kaydedildi; sonrakinde yeniden alınır
     }
     
     photoUrls = []; 
@@ -10498,6 +10506,7 @@ function geoFindMeStart() {
   navigator.geolocation.getCurrentPosition(
     (position) => {
       const { latitude, longitude } = position.coords;
+      captureGpsAddDirection();   // konum butonuyla eklenen gönderinin yönü
       const latEl = qs('#lat');
       const lngEl = qs('#lng');
       if (latEl) latEl.value = String(latitude);
@@ -10512,6 +10521,24 @@ function geoFindMeStart() {
 
 /* Header "add position" button: puts a BLACK marker at current location and opens the
    event form after a short delay. Live blue dot keeps tracking separately. */
+/* ===== Gönderi yönü (direction) =====
+   restrictGNSS=true iken gönderiler yalnızca konum (GPS) butonuyla eklenir. Bu durumda,
+   konum alındığı andaki cihaz yönü (yön konisinin baktığı yön) gönderiyle birlikte
+   veritabanına (event.direction) kaydedilir. Birim: derece, kuzeyden saat yönünde
+   (0 = K, 90 = D, 180 = G, 270 = B). Yön bilinmiyorsa gönderilmez (NULL kalır). */
+let __gpsAddDirection = null;
+function currentHeadingDeg(){
+  try {
+    if (typeof __hdg === 'undefined' || __hdg.unwrapped == null || !Number.isFinite(__hdg.unwrapped)) return null;
+    let d = Math.round(_normDeg(__hdg.unwrapped) * 10) / 10;
+    if (d >= 360) d = 0;
+    return d;
+  } catch { return null; }
+}
+function captureGpsAddDirection(){
+  __gpsAddDirection = currentHeadingDeg();
+}
+
 function geoFindMeWithPolygonFlow() {
   if (__polygonFlowLocked) return;
   const upBtn = qs('#btn-use-location-header');
@@ -10523,6 +10550,8 @@ function geoFindMeWithPolygonFlow() {
   navigator.geolocation.getCurrentPosition(
     (position) => {
       const { latitude, longitude } = position.coords;
+      // Konum alındığı andaki yön (koninin baktığı yön) bu gönderinin yönü olarak saklanır
+      captureGpsAddDirection();
 
       // Eklenecek noktayı SİYAH marker ile göster (canlı konumdan bağımsız; mavi noktanın üstünde).
       const ll = L.latLng(latitude, longitude);

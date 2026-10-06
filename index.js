@@ -187,6 +187,108 @@ if (COOLDOWN_RAW !== '') {
   AGREE_COOLDOWN_HOURS = parsedCd;
 }
 
+// ==================== EMAIL_ENCRYPTION_KEY ====================
+// users.email sütunu veritabanında AÇIK METİN olarak tutulmaz; bu anahtarla şifrelenir.
+// Algoritma: AES-256-GCM, "deterministik" (SIV benzeri) kullanım:
+//   - Anahtar (64 hex = 32 bayt) HKDF-SHA256 ile ikiye ayrılır: şifreleme anahtarı + IV anahtarı.
+//   - IV = HMAC-SHA256(IV anahtarı, normalize e-posta) ilk 12 bayt.
+//   - Aynı e-posta + aynı anahtar → HER ZAMAN aynı şifreli metin. Böylece giriş / parola
+//     sıfırlama / kayıt kontrolünde kullanıcının yazdığı e-posta aynı fonksiyonla şifrelenip
+//     veritabanındaki değerle karşılaştırılabilir. Anahtarı bilen, şifreyi geri çözebilir
+//     (docs/initial_setup/email-crypto-tool.js).
+//   - Saklanan biçim: "emenc:v1:" + base64url( IV(12) | TAG(16) | ŞİFRELİ METİN )
+//   - E-posta şifrelenmeden önce normalize edilir: baştaki/sondaki boşluk silinir, küçük harfe çevrilir.
+// Değer: TAM OLARAK 64 karakter onaltılık (0-9, a-f) sayı = 256 bit rastgele anahtar.
+//   Üretmek için: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+//   Örnek (KULLANMAYIN, yalnızca biçim): EMAIL_ENCRYPTION_KEY=3f9a1c0e7b25d84f6a1e9c3b7d50f2a8c4e61b9d0a3f7c25e8b14d6a9f0c3e72
+// Geçersiz örnekler: boş, 64'ten kısa/uzun, hex dışı karakter (g-z, boşluk, tire), tek karakter tekrarı (0000...).
+// ÖNEMLİ: Anahtar sisteme bir kez yazıldıktan sonra DEĞİŞTİRİLMEMELİ ve KAYBEDİLMEMELİDİR;
+// değişirse/kaybolursa mevcut e-postalar çözülemez, giriş ve parola sıfırlama e-postayla çalışmaz.
+// .env dosyasında tutulur; .env zaten .gitignore içindedir (GitHub'a yüklenmez).
+const EMAIL_ENCRYPTION_KEY_RAW = String(process.env.EMAIL_ENCRYPTION_KEY ?? '').trim();
+if (!/^[0-9a-fA-F]{64}$/.test(EMAIL_ENCRYPTION_KEY_RAW) || /^(.)\1+$/.test(EMAIL_ENCRYPTION_KEY_RAW)) {
+  console.error(`\n[FATAL] EMAIL_ENCRYPTION_KEY is missing or invalid in your .env file.`);
+  console.error(`        This parameter is REQUIRED. It is the secret key used to encrypt users' e-mail addresses`);
+  console.error(`        in the database (AES-256-GCM). It must be EXACTLY 64 hexadecimal characters (0-9, a-f).`);
+  console.error(`        Generate one with:`);
+  console.error(`          node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`);
+  console.error(`        Example format (do NOT use this value):`);
+  console.error(`          EMAIL_ENCRYPTION_KEY=3f9a1c0e7b25d84f6a1e9c3b7d50f2a8c4e61b9d0a3f7c25e8b14d6a9f0c3e72`);
+  console.error(`        Invalid: empty, shorter/longer than 64 chars, non-hex characters, a single repeated character.`);
+  console.error(`        Keep this key safe: if it is changed or lost, stored e-mails can no longer be decrypted.`);
+  console.error(`        Current length: ${EMAIL_ENCRYPTION_KEY_RAW.length}.`);
+  console.error(`        System cannot start. Exiting.\n`);
+  process.exit(1);
+}
+const EMAIL_ENC_PREFIX = 'emenc:v1:';
+const _EMAIL_MASTER_KEY = Buffer.from(EMAIL_ENCRYPTION_KEY_RAW, 'hex');
+const _EMAIL_ENC_KEY = Buffer.from(crypto.hkdfSync('sha256', _EMAIL_MASTER_KEY, Buffer.alloc(0), Buffer.from('dide-email-enc-v1'), 32));
+const _EMAIL_IV_KEY  = Buffer.from(crypto.hkdfSync('sha256', _EMAIL_MASTER_KEY, Buffer.alloc(0), Buffer.from('dide-email-iv-v1'), 32));
+
+function normalizeEmail(raw) { return String(raw ?? '').trim().toLowerCase(); }
+function isEncryptedEmail(v) { return typeof v === 'string' && v.startsWith(EMAIL_ENC_PREFIX); }
+function _b64urlEnc(buf) { return Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function _b64urlDec(str) { return Buffer.from(String(str).replace(/-/g, '+').replace(/_/g, '/'), 'base64'); }
+
+// Açık e-postayı şifreler (deterministik). Boş giriş → null. Zaten şifreliyse olduğu gibi döner.
+function encryptEmail(raw) {
+  if (isEncryptedEmail(raw)) return raw;
+  const email = normalizeEmail(raw);
+  if (!email) return null;
+  const iv = crypto.createHmac('sha256', _EMAIL_IV_KEY).update(email, 'utf8').digest().subarray(0, 12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', _EMAIL_ENC_KEY, iv);
+  const ct = Buffer.concat([cipher.update(email, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return EMAIL_ENC_PREFIX + _b64urlEnc(Buffer.concat([iv, tag, ct]));
+}
+// Şifreli e-postayı çözer. Eski (şifrelenmemiş) bir değer gelirse olduğu gibi döner.
+// Çözülemezse (yanlış anahtar / bozuk veri) null döner.
+function decryptEmail(stored) {
+  if (stored == null || stored === '') return null;
+  if (!isEncryptedEmail(stored)) return String(stored);
+  try {
+    const buf = _b64urlDec(String(stored).slice(EMAIL_ENC_PREFIX.length));
+    if (buf.length < 29) return null;
+    const iv = buf.subarray(0, 12), tag = buf.subarray(12, 28), ct = buf.subarray(28);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', _EMAIL_ENC_KEY, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8');
+  } catch {
+    return null;
+  }
+}
+// Arama yardımcıları: kullanıcının yazdığı e-posta aynı fonksiyonla şifrelenir ve
+// veritabanındaki şifreli değerle BİREBİR karşılaştırılır. Henüz şifrelenmemiş eski satırlar
+// (ör. SQL ile elle eklenen supervisor) açılıştaki/periyodik taramada şifrelenene kadar
+// açık metin karşılaştırmasıyla da bulunur.
+//   SQL: ${emailMatchSql('email', 1, 2)}  params: [...emailMatchParams(input)]
+function emailMatchSql(col, encIdx, plainIdx) {
+  return `(${col} = $${encIdx} OR (${col} NOT LIKE '${EMAIL_ENC_PREFIX}%' AND lower(btrim(${col})) = $${plainIdx}))`;
+}
+function emailMatchParams(raw) {
+  return [encryptEmail(raw) || '', normalizeEmail(raw)];
+}
+
+// İsim / soyisim veritabanına yalnızca İLK 2 KARAKTERİYLE yazılır (Türkçe İ, Ç, Ş vb. tek karakter sayılır).
+//   "İbrahim" → "İb", "Topçu" → "To". Boş → null.
+// İstemciden gelen yön (derece) değerini doğrular ve [0, 360) aralığına getirir; geçersizse null.
+// 0.1° hassasiyetle yuvarlanır (cihaz pusulaları bundan daha hassas değildir).
+function normalizeDirection(raw) {
+  if (raw == null || raw === '') return null;
+  const n = Number(String(raw).replace(',', '.'));
+  if (!Number.isFinite(n)) return null;
+  let d = ((n % 360) + 360) % 360;
+  d = Math.round(d * 10) / 10;
+  if (d >= 360) d = 0;
+  return d;
+}
+
+function shortNamePart(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  return Array.from(s).slice(0, 2).join('');
+}
+
 // ==================== EVENT_TYPE_VALIDITY_UNITS ====================
 // "Validity period for the event type to be displayed".
 // Controls which time units the supervisor is allowed to enter when creating a
@@ -360,11 +462,62 @@ ensureDbConnectionWithRetry()
     try { await ensureCompanyUsernameScope(); } catch (e) { console.warn('[USERS] username scope error:', e.message); }
     // Şirket tablosu / yeni kolonlar (instagram_link, deactivated_* ...) açılışta hazırlanır
     try { await ensureCompaniesSchema(); } catch (e) { console.warn('[COMPANIES] schema error:', e.message); }
+    // Gizlilik: mevcut kullanıcıların isim/soyisimlerini 2 karaktere indir, açık e-postaları şifrele
+    try { await migrateUserPrivacy(); } catch (e) { console.warn('[PRIVACY] migration error:', e.message); }
   })
   .catch((e) => {
     console.error('[FATAL] Database startup error:', e && e.message ? e.message : e);
   });
 
+
+/* ===================== Kullanıcı gizliliği (isim kısaltma + e-posta şifreleme) ===================== */
+// Açık metin (henüz şifrelenmemiş) e-postaları EMAIL_ENCRYPTION_KEY ile şifreler.
+// Açılışta ve periyodik olarak çalışır; SQL ile elle eklenen kullanıcılar (ör. supervisor)
+// da kısa süre içinde şifrelenir. İdempotenttir: şifreli satırlara dokunmaz.
+async function encryptPlaintextEmails() {
+  const r = await pool.query(
+    `SELECT id, email FROM public.users
+      WHERE email IS NOT NULL AND btrim(email) <> '' AND email NOT LIKE '${EMAIL_ENC_PREFIX}%'
+      ORDER BY id`
+  );
+  let done = 0;
+  for (const row of r.rows) {
+    try {
+      await pool.query(`UPDATE public.users SET email=$1 WHERE id=$2 AND email=$3`, [encryptEmail(row.email), row.id, row.email]);
+      done++;
+    } catch (e) {
+      console.warn(`[PRIVACY] e-mail encryption failed for user id=${row.id}: ${e.message}`);
+    }
+  }
+  if (done) console.log(`[PRIVACY] ${done} plaintext e-mail(s) encrypted`);
+  return done;
+}
+async function migrateUserPrivacy() {
+  // İsim / soyisim: yalnızca ilk 2 karakter kalır (trigger da aynı kuralı uygular)
+  try {
+    const n = await pool.query(
+      `UPDATE public.users
+          SET name    = NULLIF(left(btrim(name), 2), ''),
+              surname = NULLIF(left(btrim(surname), 2), '')
+        WHERE char_length(btrim(COALESCE(name, ''))) > 2
+           OR char_length(btrim(COALESCE(surname, ''))) > 2`
+    );
+    if (n.rowCount) console.log(`[PRIVACY] ${n.rowCount} user name/surname shortened to 2 characters`);
+  } catch (e) {
+    console.warn('[PRIVACY] name shortening error:', e.message);
+  }
+  await encryptPlaintextEmails();
+  // Anahtar kontrolü: şifreli bir e-posta çözülemiyorsa .env'deki anahtar değişmiş demektir
+  try {
+    const s = await pool.query(`SELECT email FROM public.users WHERE email LIKE '${EMAIL_ENC_PREFIX}%' LIMIT 1`);
+    if (s.rows.length && decryptEmail(s.rows[0].email) == null) {
+      console.error('[PRIVACY] WARNING: stored e-mails cannot be decrypted with the current EMAIL_ENCRYPTION_KEY. ' +
+                    'The key in .env was probably changed. E-mail login / password reset will not work.');
+    }
+  } catch {}
+  // SQL ile sonradan elle eklenen kullanıcıların e-postaları da şifrelensin (5 dakikada bir)
+  setInterval(() => { encryptPlaintextEmails().catch(() => {}); }, 5 * 60 * 1000);
+}
 
 /* ===================== SMTP (opsiyonel) ===================== */
 let transporter = null;
@@ -1280,7 +1433,7 @@ function getErrorMessage(req, errorKey) {
 }
 
 function signToken(user, expires = JWT_EXPIRES) {
-  return jwt.sign({ sub: user.id, role: user.role, username: user.username, email: user.email }, JWT_SECRET, { expiresIn: expires });
+  return jwt.sign({ sub: user.id, role: user.role, username: user.username, email: decryptEmail(user.email) }, JWT_SECRET, { expiresIn: expires });
 }
 function getTokenFrom(req) {
   return (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.split(' ')[1] : null) || req.cookies?.token || null;
@@ -1628,7 +1781,7 @@ async function requireAuth(req, res, next) {
       res.clearCookie('token', cookieOpts(0, req));
       return res.status(403).json({ error: 'user_inactive', message: getErrorMessage(req, 'user_inactive') });
     }
-    req.user = { id: u.id, username: u.username, role: u.role, email: u.email, solver: (u.solver === true) };
+    req.user = { id: u.id, username: u.username, role: u.role, email: decryptEmail(u.email), solver: (u.solver === true) };
     next();
   } catch {
     res.clearCookie('token', cookieOpts(0, req));
@@ -1656,7 +1809,7 @@ async function tryAuth(req, _res, next) {
     );
     if (rows.length && rows[0].is_active) {
       const u = rows[0];
-      req.user = { id: u.id, username: u.username, role: u.role, email: u.email, solver: (u.solver === true) };
+      req.user = { id: u.id, username: u.username, role: u.role, email: decryptEmail(u.email), solver: (u.solver === true) };
     }
   } catch {
     
@@ -2044,6 +2197,8 @@ async function ensureDbSqlHelpers() {
 
   await run('users_username_idx', `CREATE INDEX IF NOT EXISTS users_username_idx ON public.users (lower(btrim(username)))`);
   await run('users_email_idx',    `CREATE INDEX IF NOT EXISTS users_email_idx    ON public.users (lower(btrim(email)))`);
+  // Şifreli e-posta birebir (=) karşılaştırıldığı için düz indeks
+  await run('users_email_exact_idx', `CREATE INDEX IF NOT EXISTS users_email_exact_idx ON public.users (email)`);
 
 
   await run('users add is_active',          `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true`);
@@ -2256,6 +2411,22 @@ async function ensureDbSqlHelpers() {
   //    olayın süresi, bağlı olduğu olay türünün süresi kadar UZAR.
   //  - created_at HİÇ değişmez (ilk gönderim tarihi korunur).
   await run('event add last_agreed_date',          `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS last_agreed_date timestamptz`);
+
+  // direction: gönderinin eklendiği andaki kullanıcı/cihaz YÖNÜ (azimut).
+  //  - Birim: DERECE, double precision. 0 = Kuzey, 90 = Doğu, 180 = Güney, 270 = Batı
+  //    (kuzeyden SAAT YÖNÜNDE ölçülür; haritadaki yön konisiyle aynı değer).
+  //  - Aralık: 0 <= direction < 360 (CHECK kısıtı). 360 değeri 0 olarak saklanır.
+  //  - Yalnızca .env restrictGNSS=true iken, konum (GPS) butonuyla eklenen YENİ gönderilerde
+  //    ve cihaz yön bilgisi verebildiğinde dolar; aksi halde NULL (yön bilinmiyor).
+  //  - Enlem/boylam (geom) noktanın KONUMUNU, direction ise o noktadan BAKILAN yönü tarif eder.
+  await run('event add direction', `ALTER TABLE public.event ADD COLUMN IF NOT EXISTS direction double precision`);
+  await run('event direction check', `
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'event_direction_range_chk') THEN
+        ALTER TABLE public.event ADD CONSTRAINT event_direction_range_chk
+          CHECK (direction IS NULL OR (direction >= 0 AND direction < 360));
+      END IF;
+    END $$;`);
   await run('event backfill last_agreed_date',     `UPDATE public.event SET last_agreed_date = created_at WHERE last_agreed_date IS NULL AND created_at IS NOT NULL`);
 
   // Rename event_type."public" → "public_"  (idempotent: handles new & existing installs)
@@ -2553,6 +2724,9 @@ async function ensureDbSqlHelpers() {
     BEGIN
       IF NEW.username IS NOT NULL THEN NEW.username := NULLIF(btrim(NEW.username),''); END IF;
       IF NEW.email    IS NOT NULL THEN NEW.email    := NULLIF(btrim(NEW.email),   ''); END IF;
+      -- Gizlilik: isim / soyisim yalnızca ilk 2 karakteriyle saklanır (SQL ile elle eklenenler dahil)
+      IF NEW.name     IS NOT NULL THEN NEW.name     := NULLIF(left(btrim(NEW.name), 2),    ''); END IF;
+      IF NEW.surname  IS NOT NULL THEN NEW.surname  := NULLIF(left(btrim(NEW.surname), 2), ''); END IF;
 
       IF TG_OP='INSERT' THEN
         -- Kullanıcı adı: rol fark etmeksizin tablo genelinde benzersiz
@@ -2983,9 +3157,10 @@ async function failIfAnyDuplicate(usernameRaw, emailRaw) {
   );
   const usernameTaken = uq.rowCount > 0;
 
+  // E-posta şifreli saklandığı için girilen e-posta aynı fonksiyonla şifrelenip karşılaştırılır
   const eq = await pool.query(
-    `SELECT 1 FROM users WHERE lower(btrim(email))=lower($1) LIMIT 1`,
-    [email]
+    `SELECT 1 FROM users WHERE ${emailMatchSql('email', 1, 2)} LIMIT 1`,
+    emailMatchParams(email)
   );
   const emailTaken = eq.rowCount > 0;
 
@@ -3009,7 +3184,7 @@ app.post('/api/auth/register', async (req, res) => {
   const password = req.body?.password;
   const name = (req.body?.name || '').toString().trim() || null;
   const surname = (req.body?.surname || '').toString().trim() || null;
-  const email = norm(req.body?.email);
+  const email = norm(req.body?.email);   // açık e-posta: YALNIZCA doğrulama postası göndermek için bellekte kullanılır
 
   if (!username || !password || !email)
     return res.status(400).json({ error: 'eksik_bilgi', message: getErrorMessage(req, 'eksik_bilgi') });
@@ -3062,7 +3237,8 @@ app.post('/api/auth/register', async (req, res) => {
       `INSERT INTO users (username, password_hash, role, name, surname, email, email_verified, is_verified, verify_token, verify_expires, is_active)
        VALUES ($1, crypt($2, gen_salt('bf',10)), 'user', $3, $4, $5, false, false, $6, $7, true)
        RETURNING id, username, email`,
-      [username, password, name, surname, email, verifyToken, verifyExpires]
+      // Veritabanına: isim/soyisim ilk 2 karakter, e-posta ŞİFRELİ yazılır.
+      [username, password, shortNamePart(name), shortNamePart(surname), encryptEmail(email), verifyToken, verifyExpires]
     );
 
     await client.query('COMMIT');
@@ -3172,15 +3348,17 @@ app.post('/api/auth/login', async (req, res) => {
 
   try {
     const input = norm(usernameOrEmail);
+    // Kullanıcı adı ile ya da e-posta ile giriş: e-posta şifrelenip şifreli sütunla karşılaştırılır.
+    const [encIn, plainIn] = emailMatchParams(input);
     const { rows } = await pool.query(
       `SELECT id, username, password_hash, role, email, email_verified,
               two_factor_enabled, two_factor_secret, two_factor_norm_hash,
               COALESCE(is_active,true) AS is_active
        FROM users
-       WHERE (lower(btrim(username))=lower($1) OR lower(btrim(email))=lower($1))
+       WHERE (lower(btrim(username))=lower($1) OR ${emailMatchSql('email', 2, 3)})
        ORDER BY id DESC
        LIMIT 25`,
-      [input]
+      [input, encIn, plainIn]
     );
 
     if (!rows.length) {
@@ -3257,7 +3435,7 @@ app.post('/api/auth/login', async (req, res) => {
       token,
       token_type: 'Bearer',
       home_path: homePath,
-      user: { id: u.id, username: u.username, role: u.role, email: u.email }
+      user: { id: u.id, username: u.username, role: u.role, email: decryptEmail(u.email) }
     });
   } catch (e) {
     console.error('login error:', e);
@@ -3288,8 +3466,10 @@ app.post('/api/auth/forgot/start', async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      'SELECT id, username, email, COALESCE(is_active,true) AS is_active FROM users WHERE lower(btrim(email))=lower($1) AND role IS DISTINCT FROM \'company\' ORDER BY id LIMIT 1',
-      [email]
+      // Girilen e-posta şifrelenir ve veritabanındaki şifreli e-postayla karşılaştırılır
+      `SELECT id, username, email, COALESCE(is_active,true) AS is_active FROM users
+        WHERE ${emailMatchSql('email', 1, 2)} AND role IS DISTINCT FROM 'company' ORDER BY id LIMIT 1`,
+      emailMatchParams(email)
     );
 
     if (!rows.length) {
@@ -3333,7 +3513,8 @@ app.post('/api/auth/forgot/start', async (req, res) => {
         const _rc = _resetContent[resetLang] || _resetContent.en;
         await transporter.sendMail({
           from: MAIL_FROM,
-          to: u.email,
+          // Veritabanındaki şifreli e-posta çözülerek kullanıcının gerçek adresine gönderilir
+          to: decryptEmail(u.email) || normalizeEmail(email),
           subject: _rc.subject,
           html: _rc.html,
         });
@@ -3355,7 +3536,11 @@ app.post('/api/auth/forgot/verify', async (req, res) => {
   const code = norm(req.body?.code);
   if (!email || !code) return res.status(400).json({ error: 'eksik_bilgi', message: getErrorMessage(req, 'eksik_bilgi') });
   try {
-    const { rows } = await pool.query('SELECT id, reset_code, reset_expires FROM users WHERE lower(btrim(email))=lower($1) AND role IS DISTINCT FROM \'company\' ORDER BY id LIMIT 1', [email]);
+    const { rows } = await pool.query(
+      `SELECT id, reset_code, reset_expires FROM users
+        WHERE ${emailMatchSql('email', 1, 2)} AND role IS DISTINCT FROM 'company' ORDER BY id LIMIT 1`,
+      emailMatchParams(email)
+    );
     if (!rows.length) return res.status(404).json({ error: 'accountNotFound', message: getErrorMessage(req, 'accountNotFound') });
 
     const u = rows[0];
@@ -3394,8 +3579,9 @@ app.post('/api/auth/forgot/reset', async (req, res) => {
   const client = await pool.connect();
   try {
     const { rows } = await client.query(
-      'SELECT id, reset_code, reset_expires FROM users WHERE lower(btrim(email))=lower($1) AND role IS DISTINCT FROM \'company\' ORDER BY id LIMIT 1',
-      [email]
+      `SELECT id, reset_code, reset_expires FROM users
+        WHERE ${emailMatchSql('email', 1, 2)} AND role IS DISTINCT FROM 'company' ORDER BY id LIMIT 1`,
+      emailMatchParams(email)
     );
     if (!rows.length) {
       return res.status(404).json({ error: 'accountNotFound', message: getErrorMessage(req, 'accountNotFound') });
@@ -3520,6 +3706,7 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
         COALESCE(l.time_dependent, false) AS event_type_time_dependent,
         l.valid_time          AS event_type_valid_time,
         o.description,
+        o.direction,
         o.created_by_id              AS created_by_id,
         o.created_by_name            AS created_by_username,
         o.created_by_role_name       AS created_by_role_name,
@@ -4043,6 +4230,7 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
               o.photo_urls,
               o.video_urls,
               COALESCE(o.num_agrees, 0)      AS num_agrees,
+              o.direction                    AS direction,
               -- Geçerli katılımcıların id listesi (agrees tablosundan; dışa aktarım biçimi korunur)
               COALESCE((SELECT jsonb_agg(a.agreed_user_id ORDER BY a.agree_date, a.agreed_user_id)
                           FROM public.agrees a
@@ -4101,6 +4289,7 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
           photo_urls: photos,                      // ZIP içindeki photos/ dosya adları
           video_urls: videos,                      // ZIP içindeki videos/ dosya adları
           num_agrees: r.num_agrees,
+          direction: r.direction != null ? Number(r.direction) : null,   // derece, kuzeyden saat yönünde
           agreed_ids: r.agreed_ids
         }
       };
@@ -4587,6 +4776,9 @@ app.post('/api/submit_olay', requireAuth, async (req, res) => {
     }
 
     const { p_id, event_type, description, latitude, longitude } = req.body || {};
+    // Yön (azimut, derece): yalnızca restrictGNSS=true iken (olay SADECE konum butonuyla
+    // eklenebildiğinde) kaydedilir. Aksi halde haritaya tıklanan noktanın yönü anlamsızdır → NULL.
+    const direction = RESTRICT_GNSS ? normalizeDirection(req.body?.direction) : null;
     const lat = parseFloat(latitude), lng = parseFloat(longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng))
       return res.status(400).json({ error: 'gecersiz_koordinat', message: getErrorMessage(req, 'gecersiz_koordinat') });
@@ -4624,7 +4816,7 @@ app.post('/api/submit_olay', requireAuth, async (req, res) => {
     let pkColumns = '';
     let pkPlaceholders = '';
     const pkVals = [];
-    let pkIdx = 10; // next placeholder index after $9
+    let pkIdx = 11; // next placeholder index after $10 (direction)
 
     if (POLYGON_PKS.length > 0 && POLYGON_TABLE) {
       // Find which polygon contains this point and get its PK values
@@ -4658,12 +4850,12 @@ app.post('/api/submit_olay', requireAuth, async (req, res) => {
     const ins = await pool.query(
       `INSERT INTO event (latitude, longitude, event_type, description, geom,
                          created_by_name, created_by_role_name, created_by_id, active,
-                         photo_urls, video_urls, last_agreed_date${pkColumns})
+                         photo_urls, video_urls, last_agreed_date, direction${pkColumns})
        VALUES ($1,$2,$3,$4, ST_SetSRID(ST_MakePoint($2,$1),4326),
                $5, $6, $7, true,
-               $8::text, $9::text, now()${pkPlaceholders})
+               $8::text, $9::text, now(), $10${pkPlaceholders})
        RETURNING event_id`,
-      [lat, lng, olayTuruId, description ?? null, req.user.username, req.user.role, req.user.id, toJsonText(photoUrls), toJsonText(videoUrls), ...pkVals]
+      [lat, lng, olayTuruId, description ?? null, req.user.username, req.user.role, req.user.id, toJsonText(photoUrls), toJsonText(videoUrls), direction, ...pkVals]
     );
     const event_id = ins.rows[0].event_id;
 
@@ -4673,7 +4865,7 @@ app.post('/api/submit_olay', requireAuth, async (req, res) => {
     // Yeni olay eklendi → ekleyen kullanıcının istatistiklerini güncelle
     try { await recomputeUserStats(req.user.id); } catch {}
 
-    res.json({ success: true, event_id, photo_urls: photoUrls, video_urls: videoUrls });
+    res.json({ success: true, event_id, photo_urls: photoUrls, video_urls: videoUrls, direction });
   } catch (e) {
     console.error('submit_olay error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
@@ -5155,7 +5347,8 @@ app.get('/api/admin/users', adminOnly, async (req, res) => {
        WHERE ${where}
        ORDER BY id`
     );
-    res.json(rows);
+    // Panelde (alan adı filtresi vb.) okunabilir e-posta gösterilir: sunucuda çözülür
+    res.json(rows.map(r => ({ ...r, email: decryptEmail(r.email) })));
   } catch (e) {
     console.error('GET /api/admin/users error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
@@ -5225,7 +5418,7 @@ app.post('/api/admin/users', adminOnly, async (req, res) => {
                           two_factor_norm_hash, two_factor_enabled)
        VALUES ($1,$2,$3,$4,$5,$6,true,true,true,$7,$8)
        RETURNING id, username, role`,
-      [username, hashPw, role, name, surname, email, twoFactorSecretPlain, twoFactorEnabled]
+      [username, hashPw, role, shortNamePart(name), shortNamePart(surname), encryptEmail(email), twoFactorSecretPlain, twoFactorEnabled]
     );
 
     await client.query('COMMIT');
@@ -6043,7 +6236,7 @@ app.get('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
         ORDER BY id`,
       [req.params.id]
     );
-    res.json(r.rows);
+    res.json(r.rows.map(x => ({ ...x, email: decryptEmail(x.email) })));
   } catch (e) {
     console.error('GET company users error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
@@ -6086,12 +6279,13 @@ app.post('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
     const uq = await pool.query(`SELECT 1 FROM users WHERE lower(btrim(username))=lower($1) LIMIT 1`, [username]);
     if (uq.rowCount) return res.status(409).json({ error: 'usernameTaken', message: getErrorMessage(req, 'usernameTaken') });
 
+    const [encEm, plainEm] = emailMatchParams(email);
     const eq = await pool.query(
       `SELECT 1 FROM users
-        WHERE lower(btrim(email))=lower($1)
-          AND NOT (role='company' AND dependent_company=$2)
+        WHERE ${emailMatchSql('email', 1, 2)}
+          AND NOT (role='company' AND dependent_company=$3)
         LIMIT 1`,
-      [email, companyId]
+      [encEm, plainEm, companyId]
     );
     if (eq.rowCount) return res.status(409).json({ error: 'emailTakenOutsideCompany', message: getErrorMessage(req, 'emailTakenOutsideCompany') });
   } catch (e) {
@@ -6111,7 +6305,7 @@ app.post('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
                           two_factor_secret, two_factor_enabled, dependent_company)
        VALUES ($1,$2,'company',$3,$4,$5,true,true,true,$6,true,$7)
        RETURNING id, username, role, dependent_company`,
-      [username, hashPw, name, surname, email, twoFactorSecretPlain, companyId]
+      [username, hashPw, shortNamePart(name), shortNamePart(surname), encryptEmail(email), twoFactorSecretPlain, companyId]
     );
     await client.query('COMMIT');
     res.json({ ok: true, user: r.rows[0] });
