@@ -6226,12 +6226,43 @@ function verifyQrToken(token) {
     return json;
   } catch { return null; }
 }
+// ==================== İndirim uygunluk kuralı (TEK KAYNAK) ====================
+// Kullanıcı bir şirketin indiriminden YALNIZCA mevcut puanı (current_point) şirketin eşik
+// puanına EŞİT ya da ondan BÜYÜK ise yararlanır. İndirim sonrası puan ASLA eksiye düşmez.
+//   eşik 5,  puan 0   → yararlanamaz      eşik 5,  puan -10 → yararlanamaz
+//   eşik 10, puan 7   → yararlanamaz      eşik 10, puan 10  → yararlanır (kalan 0)
+// Eşik tanımsız / sayı değil / negatif ise indirim uygulanmaz (güvenli taraf).
+// QR tarama (/api/company/scan) ve sipariş (/api/company/order) bu fonksiyonu ortak kullanır.
+function discountDecision(effectivePoints, thresholdPoint) {
+  const pts = Number(effectivePoints);
+  const thr = Number(thresholdPoint);
+  if (thresholdPoint == null || !Number.isFinite(thr) || !Number.isInteger(thr) || thr < 0) {
+    return { eligible: false, remaining: Number.isFinite(pts) ? pts : 0 };
+  }
+  if (!Number.isFinite(pts)) return { eligible: false, remaining: 0 };
+  const remaining = pts - thr;
+  return { eligible: pts >= thr && remaining >= 0, remaining: pts >= thr ? remaining : pts };
+}
+
 // Kullanıcının harcanabilir puanı = posts_point − toplam harcanan (orders.points_spent)
-async function userEffectivePoints(username) {
-  const u = await pool.query(
-    `SELECT id, username, name, surname, COALESCE(posts_point,0) AS posts_point
-       FROM users WHERE lower(btrim(username))=lower($1) AND role IS DISTINCT FROM 'company' LIMIT 1`, [username]);
+// Yalnızca AKTİF 'user' (opener/solver) hesapları indirim kullanabilir; silinmiş hesaba
+// ait (silinmeden önce üretilmiş) QR ile indirim alınamaz.
+// refresh=true: okumadan önce puanlar event/agrees tablolarından yeniden hesaplanır,
+// böylece bayat (eski) bir posts_point ile eşik kontrolü yapılmaz.
+async function userEffectivePoints(username, refresh = false) {
+  const sel = `SELECT id, username, name, surname, COALESCE(posts_point,0) AS posts_point
+                 FROM users
+                WHERE lower(btrim(username))=lower($1)
+                  AND role = 'user'
+                  AND COALESCE(is_active, true) = true
+                LIMIT 1`;
+  let u = await pool.query(sel, [username]);
   if (!u.rows.length) return null;
+  if (refresh) {
+    try { await recomputeUserStats(u.rows[0].id); } catch {}
+    u = await pool.query(sel, [username]);
+    if (!u.rows.length) return null;
+  }
   const row = u.rows[0];
   let spent = 0;
   const t = await pool.query(`SELECT to_regclass('public.orders') AS t`);
@@ -6275,11 +6306,13 @@ app.post('/api/company/scan', requireAuth, requireAnyRole(['company']), async (r
     if (cfg.discount_threshold_point == null || cfg.discount_percentage == null) {
       return res.status(400).json({ error: 'company_params_missing', message: getErrorMessage(req, 'company_params_missing') });
     }
-    const eff = await userEffectivePoints(payload.u);
+    const eff = await userEffectivePoints(payload.u, true);
     if (!eff) return res.status(404).json({ error: 'accountNotFound', message: getErrorMessage(req, 'accountNotFound') });
+    // Puan eşiğe EŞİT ya da BÜYÜK değilse uygun değildir (0, eksi ya da eşiğin altı → ✕)
+    const decision = discountDecision(eff.effective, cfg.discount_threshold_point);
     res.json({
       ok: true,
-      eligible: eff.effective >= cfg.discount_threshold_point,
+      eligible: decision.eligible,
       username: eff.username, name: eff.name, surname: eff.surname,
       points: eff.effective, threshold: cfg.discount_threshold_point,
       discount_percentage: cfg.discount_percentage
@@ -6311,7 +6344,19 @@ app.post('/api/company/order', requireAuth, requireAnyRole(['company']), async (
     }
   } catch (e) { return res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') }); }
 
+  // Eşik negatif/tanımsız olamaz (güvenli taraf): böyle bir şirkette indirim uygulanmaz.
+  const thrNum = Number(cfg.discount_threshold_point);
+  if (!Number.isInteger(thrNum) || thrNum < 0) {
+    return res.status(400).json({ error: 'company_params_missing', message: getErrorMessage(req, 'company_params_missing') });
+  }
+
   await ensureOrdersSchema();
+  // Kontrolden önce kullanıcının puanını tazele (bayat posts_point ile karar verilmesin)
+  try {
+    const pre = await pool.query(
+      `SELECT id FROM users WHERE lower(btrim(username))=lower($1) AND role='user' LIMIT 1`, [payload.u]);
+    if (pre.rows.length) await recomputeUserStats(pre.rows[0].id);
+  } catch {}
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -6323,24 +6368,34 @@ app.post('/api/company/order', requireAuth, requireAnyRole(['company']), async (
       if (dup.code === '23505') return res.status(409).json({ error: 'qr_used', message: getErrorMessage(req, 'qr_used') });
       throw dup;
     }
-    const ur = await client.query(`SELECT id, username, COALESCE(posts_point,0) AS posts_point FROM users WHERE lower(btrim(username))=lower($1) AND role IS DISTINCT FROM 'company' FOR UPDATE`, [payload.u]);
+    // Kullanıcı satırı kilitlenir (FOR UPDATE): aynı kullanıcının iki QR'ı aynı anda iki
+    // şirkette okutulsa bile siparişler sırayla işlenir; ikincisi birincinin düştüğü puanı görür.
+    const ur = await client.query(
+      `SELECT id, username, COALESCE(posts_point,0) AS posts_point
+         FROM users
+        WHERE lower(btrim(username))=lower($1)
+          AND role = 'user'
+          AND COALESCE(is_active, true) = true
+        FOR UPDATE`, [payload.u]);
     if (!ur.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'accountNotFound', message: getErrorMessage(req, 'accountNotFound') }); }
     const uname = ur.rows[0].username;
     const sp = await client.query(`SELECT COALESCE(SUM(points_spent),0)::int AS s FROM public.orders WHERE person_placing_order=$1`, [uname]);
-    const effective = ur.rows[0].posts_point - (sp.rows[0].s || 0);   // eksi olabilir (current_point)
-    if (effective < cfg.discount_threshold_point) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'not_eligible', message: getErrorMessage(req, 'not_eligible') }); }
+    const effective = ur.rows[0].posts_point - (sp.rows[0].s || 0);   // = current_point (eksi olabilir)
+    // KESİN KURAL: puan eşiğe EŞİT ya da BÜYÜK olmalı; indirim sonrası puan eksiye düşemez.
+    const decision = discountDecision(effective, thrNum);
+    if (!decision.eligible) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'not_eligible', message: getErrorMessage(req, 'not_eligible') }); }
     const before = Math.round(amount * 100) / 100;
     const after = Math.round(before * (1 - cfg.discount_percentage / 100) * 100) / 100;
     const ins = await client.query(
       `INSERT INTO public.orders (company_id, person_placing_order, order_amount_before_discount, order_amount_after_discount, discount_percentage, points_spent, scanned_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING order_id`,
       // scanned_by: QR'ı okutan şirket kullanıcısının users.username değeri
-      [cfg.company_id, uname, before, after, cfg.discount_percentage, cfg.discount_threshold_point, req.user.username]
+      [cfg.company_id, uname, before, after, cfg.discount_percentage, thrNum, req.user.username]
     );
     await client.query('COMMIT');
     // Harcamadan sonra kullanıcının mevcut puanını (current_point) güncelle
     try { await syncCurrentPoint(ur.rows[0].id); } catch {}
-    res.json({ ok: true, order_id: ins.rows[0].order_id, amount_before: before, amount_after: after, discount_percentage: cfg.discount_percentage, points_spent: cfg.discount_threshold_point, remaining_points: effective - cfg.discount_threshold_point });
+    res.json({ ok: true, order_id: ins.rows[0].order_id, amount_before: before, amount_after: after, discount_percentage: cfg.discount_percentage, points_spent: thrNum, remaining_points: decision.remaining });
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch {}
     console.error('POST /api/company/order error:', e);
