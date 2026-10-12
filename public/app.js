@@ -664,6 +664,25 @@ let __geomLayers = []; // [{table, geomType, layer, visible, z}]
 let __eventsGeomLayers = [];
 let __eventTypeGroups = new Map(); // event_type_id -> {name, markers:Set, visible}
 
+/* Olay türü adı (dil seçimine göre):
+   EN dili seçiliyse veritabanındaki İngilizce çeviri (event_type_name_translations) gösterilir;
+   çeviri henüz yoksa ya da başka bir dil seçiliyse özgün ad (event_type_name) gösterilir. */
+function _isEnglishUI(){
+  try {
+    const lang = (typeof window.getLanguage === 'function') ? window.getLanguage() : '';
+    return String(lang || '').toLowerCase() === 'en';
+  } catch { return false; }
+}
+function etName(o, fallback){
+  if (!o) return fallback != null ? fallback : '';
+  const base = (o.event_type_name != null && o.event_type_name !== '') ? String(o.event_type_name) : '';
+  if (_isEnglishUI()) {
+    const en = o.event_type_name_translations;
+    if (en != null && String(en).trim() !== '') return String(en).trim();
+  }
+  return base || (fallback != null ? fallback : '');
+}
+
 function ensureLayerDrawer(mapInstance, listId){
   if(!mapInstance) return;
   if(!listId) listId = 'layer-list';
@@ -897,7 +916,7 @@ async function rebuildEventTypeLayerPanel(mapInstance){
   types.forEach(tp => {
     if (tp && tp.active !== false && tp.is_point !== false){
       activeIds.add(String(tp.event_type_id));
-      nameById.set(String(tp.event_type_id), tp.event_type_name);
+      nameById.set(String(tp.event_type_id), etName(tp));
     }
   });
   // DİKKAT: __geomLayers YERİNDE değiştirilir, yeniden ATANMAZ. loadRasterLayers() /
@@ -912,7 +931,7 @@ async function rebuildEventTypeLayerPanel(mapInstance){
     if (!activeIds.has(String(tid))) return;
     if (!grp.markers || grp.markers.size === 0) return;
     __geomLayers.push({
-      table: nameById.get(String(tid)) || grp.name || ('#' + tid),
+      table: nameById.get(String(tid)) || (grp.src ? etName(grp.src, '#' + tid) : grp.name) || ('#' + tid),
       geomType: 'point', __isEventType: true, __typeId: String(tid),
       visible: grp.visible !== false, z: 100
     });
@@ -1531,7 +1550,7 @@ function renderRecordsPages(records) {
       page.innerHTML = `
         ${mediaHtml}
         <div class="pr-info-section">
-          <div class="pr-info-type">${rec.event_type_name || '-'}</div>
+          <div class="pr-info-type">${escapeHtml(etName(rec, '-'))}</div>
           <div class="pr-info-date">${dateStr}</div>
           ${rec.description ? '<div class="pr-info-desc">' + rec.description + '</div>' : ''}
         </div>
@@ -2405,7 +2424,7 @@ function fillBufferTypeFilter(){
   (__bufferRecordsAll || []).forEach(r => {
     if (r.event_type == null) return;
     const id = String(r.event_type);
-    if (!seen.has(id)) seen.set(id, r.event_type_name || id);
+    if (!seen.has(id)) seen.set(id, etName(r, id));
   });
 
   let collator;
@@ -5763,7 +5782,7 @@ function addEventMarkerToLayer(e){
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
   const m = markerFor(e).addTo(markersLayer);
 
-  const turHtml = e.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(e.event_type_name)}<br>` : '';
+  const turHtml = e.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(etName(e))}<br>` : '';
   const creatorName = e.created_by_username ?? '';
   const creatorId = (e.created_by_id != null) ? String(e.created_by_id) : '-';
   const who = creatorName ? `${creatorName} (ID: ${creatorId})` : '-';
@@ -5935,7 +5954,7 @@ function syncEventsMapWithFilteredEvents(){
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const m = L.marker([lat,lng], { icon: iconForEvent(e) }).addTo(eventsMarkersLayer);
     
-    const turHtml = e.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(e.event_type_name)}<br>` : '';
+    const turHtml = e.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(etName(e))}<br>` : '';
     const creatorName = e.created_by_username ?? '';
     const creatorId = (e.created_by_id != null) ? String(e.created_by_id) : '-';
     const who = creatorName ? `${creatorName} (ID: ${creatorId})` : '-';
@@ -6316,7 +6335,7 @@ function syncRegionsEventMarkers() {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const m = L.marker([lat, lng], { icon: iconForEvent(e) });
 
-    const turHtml = e.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(e.event_type_name)}<br>` : '';
+    const turHtml = e.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(etName(e))}<br>` : '';
     const creatorName = e.created_by_username ?? '';
     const creatorId = (e.created_by_id != null) ? String(e.created_by_id) : '-';
     const who = creatorName ? `${creatorName} (ID: ${creatorId})` : '-';
@@ -6519,7 +6538,7 @@ function syncEventsMapWithSelection() {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const m = L.marker([lat, lng], { icon: iconForEvent(e) }).addTo(eventsMarkersLayer);
 
-    const turHtml = e.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(e.event_type_name)}<br>` : '';
+    const turHtml = e.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(etName(e))}<br>` : '';
     const creatorName = e.created_by_username ?? '';
     const creatorId = (e.created_by_id != null) ? String(e.created_by_id) : '-';
     const who = creatorName ? `${creatorName} (ID: ${creatorId})` : '-';
@@ -7012,23 +7031,26 @@ async function loadOlayTypes() {
         const aTd = isTdOf(a) ? 0 : 1;
         const bTd = isTdOf(b) ? 0 : 1;
         if (aTd !== bTd) return aTd - bTd; // zamana bağlı olanlar önce
-        return collator.compare(a.event_type_name || '', b.event_type_name || '');
+        return collator.compare(etName(a), etName(b));
       });
 
       sortedForPicker.forEach(o => {
         if(o.is_point === false) return;
         const opt = document.createElement('option');
         opt.value = String(o.event_type_id);
+        // Dil değişince seçenek metni yeniden yazılabilsin diye özgün ad + çeviri saklanır
+        opt.dataset.nameOrig = o.event_type_name || '';
+        opt.dataset.nameEn = o.event_type_name_translations || '';
         const isTd = isTdOf(o);
         if (isTd) {
           // Time-dependent event types: shown in a distinct color with a small clock logo.
-          opt.textContent = '⏱ ' + o.event_type_name;
+          opt.textContent = '⏱ ' + etName(o);
           opt.classList.add('td-option');
           opt.dataset.timeDependent = 'true';
           opt.style.color = '#b45309';
           opt.style.fontWeight = '600';
         } else {
-          opt.textContent = o.event_type_name;
+          opt.textContent = etName(o);
         }
         sel.appendChild(opt);
       });
@@ -7503,7 +7525,7 @@ async function refreshCompanyUsersList(companyId) {
   if (!list.length) { const d = document.createElement('div'); d.className = 'cd-empty'; d.textContent = t('noUsersYet'); wrap.appendChild(d); return; }
   list.forEach(u => {
     const row = document.createElement('div'); row.className = 'cd-user-row';
-    const nm = [u.name, u.surname].filter(Boolean).join(' ');
+    const nm = u.name || '';
     row.innerHTML = `<span class="cd-user-uname">${escapeHtml(u.username || '')}</span>${nm ? `<span class="cd-user-fn">${escapeHtml(nm)}</span>` : ''}${u.email ? `<span class="cd-user-em">${escapeHtml(u.email)}</span>` : ''}`;
     wrap.appendChild(row);
   });
@@ -8117,7 +8139,7 @@ function openOrderResult(data, token) {
     return;
   }
   if (verdict) { verdict.className = 'company-order-verdict good'; verdict.textContent = '✓'; }
-  const nm = _maskFullName(data.name, data.surname);
+  const nm = _maskFullName(data.name);
   if (userEl) userEl.innerHTML = `<div class="co-title">${escapeHtml(t('eligibleTitle'))}</div><div class="co-un">@${escapeHtml(data.username || '')}</div>${nm ? `<div class="co-fn">${escapeHtml(nm)}</div>` : ''}`;
   if (body) {
     // Ürün/menü seçimi kaldırıldı: hesap tutarı elle girilir, indirim anında hesaplanır.
@@ -9967,7 +9989,7 @@ async function populateEventMedia(container, evt){
 }
 function recreatePopupContent(evt, marker, opts = {}) {
   const readOnly = !!opts.readOnly; // profil haritası: yalnızca görüntüleme (buton yok)
-  const turHtml = evt.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(evt.event_type_name)}<br>` : '';
+  const turHtml = evt.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(etName(evt))}<br>` : '';
   const creatorName = evt.created_by_username ?? '';
   const creatorId = (evt.created_by_id != null) ? String(evt.created_by_id) : '-';
   const who = creatorName ? `${creatorName} (ID: ${creatorId})` : '-';
@@ -10113,11 +10135,11 @@ async function loadExistingEvents(opts = {}) {
       const __tid = (e2.event_type_id != null) ? String(e2.event_type_id) : '';
       if (__tid){
         let __grp = __eventTypeGroups.get(__tid);
-        if (!__grp){ __grp = { name: e2.event_type_name || ('#' + __tid), markers: new Set(), visible: true }; __eventTypeGroups.set(__tid, __grp); }
+        if (!__grp){ __grp = { name: etName(e2, '#' + __tid), src: { event_type_name: e2.event_type_name, event_type_name_translations: e2.event_type_name_translations }, markers: new Set(), visible: true }; __eventTypeGroups.set(__tid, __grp); }
         __grp.markers.add(m);
       }
 
-      const turHtml = e2.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(e2.event_type_name)}<br>` : '';
+      const turHtml = e2.event_type_name ? `<b>${t('type')}:</b> ${escapeHtml(etName(e2))}<br>` : '';
       const creatorName = e2.created_by_username ?? '';
       const creatorId = (e2.created_by_id != null) ? String(e2.created_by_id) : '-';
       const who = creatorName ? `${creatorName} (ID: ${creatorId})` : '-';
@@ -11856,13 +11878,11 @@ function resetRegisterForm(){
     e: qs('#reg-email'),
     p: qs('#reg-pass'),
     n: qs('#reg-name'),
-    s: qs('#reg-surname'),
   };
   if (f.u) f.u.value = ''; 
   if (f.e) f.e.value = ''; 
   if (f.p) f.p.value = '';
-  if (f.n) f.n.value = ''; 
-  if (f.s) f.s.value = '';
+  if (f.n) f.n.value = '';
   clearError(qs('#register-error'));
 }
 
@@ -12338,14 +12358,14 @@ async function register(){
   const username = qs('#reg-username')?.value.trim();
   const email = qs('#reg-email')?.value.trim();
   const password = qs('#reg-pass')?.value;
+  // İsim isteğe bağlıdır (boş bırakılabilir); soyisim artık alınmıyor.
   const name = qs('#reg-name')?.value.trim() || undefined;
-  const surname = qs('#reg-surname')?.value.trim() || undefined;
 
   if (!username || !email || !password) 
     return setError(qs('#register-error'), t('usernameEmailPasswordRequired'));
-  // İsim ve soyisim zorunlu (başkalarıyla aynı olabilir, sadece boş bırakılamaz)
-  if (!name || !surname)
-    return setError(qs('#register-error'), t('name_surname_required'));
+  // Kullanıcı adında boşluk olamaz
+  if (/\s/.test(username))
+    return setError(qs('#register-error'), t('usernameNoSpaces'));
   if (!isStrongPassword(password)) 
     return setError(qs('#register-error'), t('weakPassword'));
 
@@ -12355,7 +12375,7 @@ async function register(){
     const r = await fetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, email, password, name, surname, lang: getLanguage() })
+      body: JSON.stringify({ username, email, password, name, lang: getLanguage() })
     });
     const data = await r.json().catch(() => ({}));
 
@@ -13574,9 +13594,6 @@ async function updateUIWithNewLanguage() {
   const regName = qs('#reg-name');
   if (regName) regName.placeholder = t('firstNamePlaceholder');
   
-  const regSurname = qs('#reg-surname');
-  if (regSurname) regSurname.placeholder = t('lastNamePlaceholder');
-  
   const fgEmail = qs('#fg-email');
   if (fgEmail) fgEmail.placeholder = t('registeredEmailPlaceholder');
   
@@ -13639,7 +13656,6 @@ async function updateUIWithNewLanguage() {
     if (forAttr === 'reg-email') label.textContent = t('email') + ':';
     if (forAttr === 'reg-pass') label.textContent = t('password') + ':';
     if (forAttr === 'reg-name') label.textContent = t('name') + ':';
-    if (forAttr === 'reg-surname') label.textContent = t('surname') + ':';
   });
   
   const btnRegister = document.querySelector('#btn-register');
@@ -14179,14 +14195,15 @@ function pfStopLivePolling(){
   if (__pf.statsTimer){ clearInterval(__pf.statsTimer); __pf.statsTimer = null; }
 }
 
-// İsim/soyisim gizleme: "ibrahim" -> "ib***", "toprak" -> "to***"
+// İsim gizleme: "İbrahim" -> "İb..." (Türkçe karakterler tek karakter sayılır). Soyisim artık yok.
 function _maskNamePart(s) {
   s = (s == null ? '' : String(s)).trim();
   if (!s) return '';
-  return s.slice(0, Math.min(2, s.length)) + '***';
+  const chars = Array.from(s);
+  return chars.slice(0, Math.min(2, chars.length)).join('') + '...';
 }
-function _maskFullName(name, surname) {
-  return [_maskNamePart(name), _maskNamePart(surname)].filter(Boolean).join(' ');
+function _maskFullName(name) {
+  return _maskNamePart(name);
 }
 
 function pfRenderProfile(stats){
@@ -14196,7 +14213,7 @@ function pfRenderProfile(stats){
   const score = pfEl('profile-score-value');
   if (uname) uname.textContent = (stats && stats.username) ? stats.username : (currentUser ? currentUser.username : '');
   if (fullname) {
-    const fn = _maskFullName((stats && stats.name) ? stats.name : '', (stats && stats.surname) ? stats.surname : '');
+    const fn = _maskFullName((stats && stats.name) ? stats.name : '');
     fullname.textContent = fn;
     fullname.style.display = fn ? '' : 'none';
   }
@@ -14328,7 +14345,7 @@ function pfRenderPostsTable(){
     tr.dataset.eventId = p.event_id;
     if (String(__pf.highlightId) === String(p.event_id)) tr.classList.add('pf-row-highlight');
 
-    const typeName = p.event_type_name ? escapeHtml(p.event_type_name) : '-';
+    const typeName = p.event_type_name ? escapeHtml(etName(p)) : '-';
     const createdStr = p.created_at ? formatDate(p.created_at) : '-';
     const deacStr = p.deactivated_at ? formatDate(p.deactivated_at) : '-';
     const likes = (p.num_agrees != null ? p.num_agrees : 0);
@@ -15080,6 +15097,22 @@ function initProfileOverlay(){
       pfApplyLanguage();
     };
   }
+
+  // Dil değişince olay türü adlarını (EN → İngilizce çeviri) yeniden yaz
+  window.addEventListener('languagechange', () => {
+    try {
+      document.querySelectorAll('#event_type option[data-name-orig]').forEach(opt => {
+        const nm = etName({ event_type_name: opt.dataset.nameOrig, event_type_name_translations: opt.dataset.nameEn });
+        opt.textContent = (opt.dataset.timeDependent === 'true' ? '⏱ ' : '') + nm;
+      });
+    } catch {}
+    try { if (map && markersLayer) rebuildEventTypeLayerPanel(map); } catch {}
+    try { if (typeof fillBufferTypeFilter === 'function' && qs('#buffer-type-filter')) fillBufferTypeFilter(); } catch {}
+    try {
+      const ov = pfEl('profile-overlay');
+      if (ov && !ov.classList.contains('hidden') && typeof pfRenderPostsTable === 'function') pfRenderPostsTable();
+    } catch {}
+  });
 
   // Dil değişince (herhangi bir kaynaktan) overlay içeriğini de tazele
   window.addEventListener('languagechange', () => {

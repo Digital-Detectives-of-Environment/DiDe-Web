@@ -504,6 +504,7 @@ window.i18nLangs.it = {
 
     // Messaggi di errore auth (localizzati)
     usernameTaken: 'Il nome utente è già registrato. Scegli un nome utente diverso.',
+    usernameNoSpaces: 'Il nome utente non può contenere spazi. Inserisci un nome utente senza spazi.',
     emailTakenOutsideCompany: 'Questo indirizzo email appartiene a un altro utente. La stessa email può essere riutilizzata solo tra utenti della stessa azienda.',
     emailTakenOutsideCompanyWarn: 'Questo indirizzo email appartiene a un altro utente (altra azienda, opener/solver o supervisor). Solo gli utenti di questa azienda possono condividere la stessa email.',
     ordScannedBy: 'Scansionato da',

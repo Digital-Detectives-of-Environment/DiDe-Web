@@ -413,10 +413,9 @@
           <input id="reg-pass" type="password" data-i18n-placeholder="weakPasswordPlaceholder" autocomplete="new-password" />
           <button type="button" class="eye-btn" data-eye="reg-pass" title="Show/Hide">👁</button>
         </div>
-        <div class="row">
-          <div><label for="reg-name" data-i18n="firstName">First Name</label><input id="reg-name" type="text" autocomplete="off" required data-i18n-placeholder="firstNamePlaceholder" /></div>
-          <div><label for="reg-surname" data-i18n="lastName">Last Name</label><input id="reg-surname" type="text" autocomplete="off" required data-i18n-placeholder="lastNamePlaceholder" /></div>
-        </div>
+        <!-- İsim isteğe bağlıdır (boş bırakılabilir); soyisim alanı kaldırıldı -->
+        <label for="reg-name" data-i18n="firstName">First Name</label>
+        <input id="reg-name" type="text" autocomplete="off" data-i18n-placeholder="firstNamePlaceholder" />
         <button id="btn-register" class="btn primary" style="margin-top:10px;" data-i18n="signUp">Sign Up</button>
         <div class="muted" style="margin-top:8px;"><a href="#" id="toggle-login"><span data-i18n="alreadyHaveAccount">Already have an account?</span> <span data-i18n="login">Login</span></a></div>
       </section>

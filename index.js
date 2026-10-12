@@ -8,6 +8,7 @@ const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
+const https = require('https');
 const nodemailer = require('nodemailer');
 const speakeasy = require('speakeasy');
 
@@ -188,89 +189,146 @@ if (COOLDOWN_RAW !== '') {
 }
 
 // ==================== EMAIL_ENCRYPTION_KEY ====================
-// users.email sütunu veritabanında AÇIK METİN olarak tutulmaz; bu anahtarla şifrelenir.
-// Algoritma: AES-256-GCM, "deterministik" (SIV benzeri) kullanım:
-//   - Anahtar (64 hex = 32 bayt) HKDF-SHA256 ile ikiye ayrılır: şifreleme anahtarı + IV anahtarı.
-//   - IV = HMAC-SHA256(IV anahtarı, normalize e-posta) ilk 12 bayt.
-//   - Aynı e-posta + aynı anahtar → HER ZAMAN aynı şifreli metin. Böylece giriş / parola
-//     sıfırlama / kayıt kontrolünde kullanıcının yazdığı e-posta aynı fonksiyonla şifrelenip
-//     veritabanındaki değerle karşılaştırılabilir. Anahtarı bilen, şifreyi geri çözebilir
-//     (docs/initial_setup/email-crypto-tool.js).
-//   - Saklanan biçim: "emenc:v1:" + base64url( IV(12) | TAG(16) | ŞİFRELİ METİN )
-//   - E-posta şifrelenmeden önce normalize edilir: baştaki/sondaki boşluk silinir, küçük harfe çevrilir.
-// Değer: TAM OLARAK 64 karakter onaltılık (0-9, a-f) sayı = 256 bit rastgele anahtar.
-//   Üretmek için: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-//   Örnek (KULLANMAYIN, yalnızca biçim): EMAIL_ENCRYPTION_KEY=3f9a1c0e7b25d84f6a1e9c3b7d50f2a8c4e61b9d0a3f7c25e8b14d6a9f0c3e72
-// Geçersiz örnekler: boş, 64'ten kısa/uzun, hex dışı karakter (g-z, boşluk, tire), tek karakter tekrarı (0000...).
-// ÖNEMLİ: Anahtar sisteme bir kez yazıldıktan sonra DEĞİŞTİRİLMEMELİ ve KAYBEDİLMEMELİDİR;
-// değişirse/kaybolursa mevcut e-postalar çözülemez, giriş ve parola sıfırlama e-postayla çalışmaz.
-// .env dosyasında tutulur; .env zaten .gitignore içindedir (GitHub'a yüklenmez).
-const EMAIL_ENCRYPTION_KEY_RAW = String(process.env.EMAIL_ENCRYPTION_KEY ?? '').trim();
-if (!/^[0-9a-fA-F]{64}$/.test(EMAIL_ENCRYPTION_KEY_RAW) || /^(.)\1+$/.test(EMAIL_ENCRYPTION_KEY_RAW)) {
-  console.error(`\n[FATAL] EMAIL_ENCRYPTION_KEY is missing or invalid in your .env file.`);
-  console.error(`        This parameter is REQUIRED. It is the secret key used to encrypt users' e-mail addresses`);
-  console.error(`        in the database (AES-256-GCM). It must be EXACTLY 64 hexadecimal characters (0-9, a-f).`);
-  console.error(`        Generate one with:`);
-  console.error(`          node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`);
-  console.error(`        Example format (do NOT use this value):`);
-  console.error(`          EMAIL_ENCRYPTION_KEY=3f9a1c0e7b25d84f6a1e9c3b7d50f2a8c4e61b9d0a3f7c25e8b14d6a9f0c3e72`);
-  console.error(`        Invalid: empty, shorter/longer than 64 chars, non-hex characters, a single repeated character.`);
-  console.error(`        Keep this key safe: if it is changed or lost, stored e-mails can no longer be decrypted.`);
-  console.error(`        Current length: ${EMAIL_ENCRYPTION_KEY_RAW.length}.`);
+// users.email sütunu veritabanında AÇIK METİN olarak tutulmaz; .env'deki EMAIL_ENCRYPTION_KEY
+// parolasıyla şifrelenir. Bu dosyada (index.js) GİZLİ HİÇBİR DEĞER YOKTUR: algoritma herkese
+// açıktır, güvenlik yalnızca .env'deki parolanın gizli kalmasına dayanır. .env .gitignore'dadır.
+//
+// Algoritma (standart ve basit):
+//   1) Anahtar türetme : scrypt(EMAIL_ENCRYPTION_KEY) → 64 bayt
+//                        ilk 32 bayt = AES anahtarı, son 32 bayt = IV anahtarı
+//                        (scrypt'e verilen sabit etiket gizli değildir; yalnızca bu uygulamaya özgü kılar)
+//   2) Normalize      : e-posta → baştaki/sondaki boşluk silinir, küçük harfe çevrilir
+//   3) IV             : HMAC-SHA256(IV anahtarı, e-posta) → ilk 12 bayt
+//   4) Şifreleme      : AES-256-GCM (şifreli metin + 16 baytlık bütünlük etiketi)
+//   5) Saklanan değer : "emenc:v2:" + base64url( IV | ETİKET | ŞİFRELİ METİN )
+// IV e-postadan türetildiği için AYNI e-posta + AYNI parola → HER ZAMAN AYNI şifreli değer.
+// Böylece kayıt / giriş / parola sıfırlamada kullanıcının yazdığı e-posta aynı fonksiyonla
+// şifrelenir ve veritabanındaki değerle birebir (=) karşılaştırılır. Parolayı bilen (sunucu),
+// e-postayı geri çözebilir (mail gönderirken, panelde gösterirken).
+//
+// .env değeri kuralları (ayrıntı: README → Environment Variables):
+//   - Uzunluk 32–128 karakter
+//   - İzin verilen karakterler: A-Z a-z 0-9 ve  - _ . ~ ! @ % ^ * + =
+//     (boşluk, # , tırnaklar ' " ` , \ , $ , & , ; KULLANILAMAZ: .env satırını bozar)
+//   - En az bir harf VE en az bir rakam, en az 10 FARKLI karakter içermeli
+//
+// Parolayı DEĞİŞTİRMEK: eski değeri EMAIL_ENCRYPTION_KEY_PREVIOUS'a, yenisini EMAIL_ENCRYPTION_KEY'e
+// yazıp uygulamayı BİR KEZ başlatın; tüm e-postalar otomatik olarak yeni parolayla yeniden
+// şifrelenir. Sonra EMAIL_ENCRYPTION_KEY_PREVIOUS satırını silebilirsiniz.
+// Eski parola bilinmeden değiştirilirse mevcut e-postalar ÇÖZÜLEMEZ.
+const EMAIL_KEY_ALLOWED_RE = /^[A-Za-z0-9\-_.~!@%^*+=]{32,128}$/;
+function _emailKeyProblem(v) {
+  if (!v) return 'empty';
+  if (v.length < 32) return `too short (${v.length} characters, minimum 32)`;
+  if (v.length > 128) return `too long (${v.length} characters, maximum 128)`;
+  if (!EMAIL_KEY_ALLOWED_RE.test(v)) return 'contains a character that is not allowed';
+  if (!/[A-Za-z]/.test(v) || !/[0-9]/.test(v)) return 'must contain at least one letter and one digit';
+  if (new Set(v).size < 10) return 'too repetitive (needs at least 10 different characters)';
+  return null;
+}
+function _emailKeyFatal(name, problem) {
+  console.error(`\n[FATAL] ${name} is missing or invalid in your .env file: ${problem}.`);
+  console.error(`        ${name} is the secret used to ENCRYPT users' e-mail addresses in the database.`);
+  console.error(`        Rules: 32-128 characters; allowed characters: A-Z a-z 0-9 - _ . ~ ! @ % ^ * + =`);
+  console.error(`               at least one letter and one digit, at least 10 different characters.`);
+  console.error(`        Not allowed: spaces, # ' " \` \\ $ & ;`);
+  console.error(`        Write your OWN random value; keep it secret and never lose it.`);
   console.error(`        System cannot start. Exiting.\n`);
   process.exit(1);
 }
-const EMAIL_ENC_PREFIX = 'emenc:v1:';
-const _EMAIL_MASTER_KEY = Buffer.from(EMAIL_ENCRYPTION_KEY_RAW, 'hex');
-const _EMAIL_ENC_KEY = Buffer.from(crypto.hkdfSync('sha256', _EMAIL_MASTER_KEY, Buffer.alloc(0), Buffer.from('dide-email-enc-v1'), 32));
-const _EMAIL_IV_KEY  = Buffer.from(crypto.hkdfSync('sha256', _EMAIL_MASTER_KEY, Buffer.alloc(0), Buffer.from('dide-email-iv-v1'), 32));
+const EMAIL_ENCRYPTION_KEY_RAW = String(process.env.EMAIL_ENCRYPTION_KEY ?? '').trim();
+{ const pr = _emailKeyProblem(EMAIL_ENCRYPTION_KEY_RAW); if (pr) _emailKeyFatal('EMAIL_ENCRYPTION_KEY', pr); }
+// İsteğe bağlı: parola değiştirilirken ESKİ parola (yalnızca yeniden şifreleme için okunur)
+const EMAIL_ENCRYPTION_KEY_PREVIOUS_RAW = String(process.env.EMAIL_ENCRYPTION_KEY_PREVIOUS ?? '').trim();
+if (EMAIL_ENCRYPTION_KEY_PREVIOUS_RAW) {
+  const pr = _emailKeyProblem(EMAIL_ENCRYPTION_KEY_PREVIOUS_RAW);
+  if (pr) _emailKeyFatal('EMAIL_ENCRYPTION_KEY_PREVIOUS', pr);
+  if (EMAIL_ENCRYPTION_KEY_PREVIOUS_RAW === EMAIL_ENCRYPTION_KEY_RAW) {
+    console.warn('[PRIVACY] EMAIL_ENCRYPTION_KEY_PREVIOUS is the same as EMAIL_ENCRYPTION_KEY; it can be removed.');
+  }
+}
+
+const EMAIL_ENC_ANY_PREFIX = 'emenc:';      // tüm şifreli biçimler bu önekle başlar
+const EMAIL_ENC_PREFIX     = 'emenc:v2:';   // güncel biçim
+
+function _deriveEmailKeys(secret) {
+  const m = crypto.scryptSync(String(secret), 'DiDe-users-email-v2', 64);
+  return { enc: m.subarray(0, 32), iv: m.subarray(32, 64) };
+}
+const _EMAIL_KEYS      = _deriveEmailKeys(EMAIL_ENCRYPTION_KEY_RAW);
+const _EMAIL_KEYS_PREV = EMAIL_ENCRYPTION_KEY_PREVIOUS_RAW ? _deriveEmailKeys(EMAIL_ENCRYPTION_KEY_PREVIOUS_RAW) : null;
 
 function normalizeEmail(raw) { return String(raw ?? '').trim().toLowerCase(); }
-function isEncryptedEmail(v) { return typeof v === 'string' && v.startsWith(EMAIL_ENC_PREFIX); }
+function isEncryptedEmail(v) { return typeof v === 'string' && v.startsWith(EMAIL_ENC_ANY_PREFIX); }
 function _b64urlEnc(buf) { return Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
 function _b64urlDec(str) { return Buffer.from(String(str).replace(/-/g, '+').replace(/_/g, '/'), 'base64'); }
 
-// Açık e-postayı şifreler (deterministik). Boş giriş → null. Zaten şifreliyse olduğu gibi döner.
+function _aesGcmEncrypt(email, keys) {
+  const iv = crypto.createHmac('sha256', keys.iv).update(email, 'utf8').digest().subarray(0, 12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', keys.enc, iv);
+  const ct = Buffer.concat([cipher.update(email, 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), ct]);
+}
+function _aesGcmDecrypt(buf, encKey) {
+  try {
+    if (!buf || buf.length < 29) return null;
+    const decipher = crypto.createDecipheriv('aes-256-gcm', encKey, buf.subarray(0, 12));
+    decipher.setAuthTag(buf.subarray(12, 28));
+    return Buffer.concat([decipher.update(buf.subarray(28)), decipher.final()]).toString('utf8');
+  } catch {
+    return null;   // yanlış parola ya da bozuk veri (GCM etiketi tutmaz)
+  }
+}
+
+// Açık e-postayı GÜNCEL parolayla şifreler. Boş → null. Zaten şifreli bir değer gelirse aynen döner.
 function encryptEmail(raw) {
   if (isEncryptedEmail(raw)) return raw;
   const email = normalizeEmail(raw);
   if (!email) return null;
-  const iv = crypto.createHmac('sha256', _EMAIL_IV_KEY).update(email, 'utf8').digest().subarray(0, 12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', _EMAIL_ENC_KEY, iv);
-  const ct = Buffer.concat([cipher.update(email, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return EMAIL_ENC_PREFIX + _b64urlEnc(Buffer.concat([iv, tag, ct]));
+  return EMAIL_ENC_PREFIX + _b64urlEnc(_aesGcmEncrypt(email, _EMAIL_KEYS));
 }
-// Şifreli e-postayı çözer. Eski (şifrelenmemiş) bir değer gelirse olduğu gibi döner.
-// Çözülemezse (yanlış anahtar / bozuk veri) null döner.
+
+// Önceki sürümün (emenc:v1:, 64 hex anahtar + HKDF) değerlerini okuyabilmek için; yalnızca
+// açılıştaki otomatik yeniden şifrelemede kullanılır.
+function _legacyV1Decrypt(stored, secret) {
+  if (!/^[0-9a-fA-F]{64}$/.test(String(secret || ''))) return null;
+  const master = Buffer.from(secret, 'hex');
+  const enc = Buffer.from(crypto.hkdfSync('sha256', master, Buffer.alloc(0), Buffer.from('dide-email-enc-v1'), 32));
+  return _aesGcmDecrypt(_b64urlDec(String(stored).slice('emenc:v1:'.length)), enc);
+}
+
+// Şifreli e-postayı çözer. Şifrelenmemiş (eski) bir değer gelirse olduğu gibi döner.
+// Önce güncel, varsa ESKİ (PREVIOUS) parola denenir. Çözülemezse null döner.
 function decryptEmail(stored) {
   if (stored == null || stored === '') return null;
   if (!isEncryptedEmail(stored)) return String(stored);
-  try {
-    const buf = _b64urlDec(String(stored).slice(EMAIL_ENC_PREFIX.length));
-    if (buf.length < 29) return null;
-    const iv = buf.subarray(0, 12), tag = buf.subarray(12, 28), ct = buf.subarray(28);
-    const decipher = crypto.createDecipheriv('aes-256-gcm', _EMAIL_ENC_KEY, iv);
-    decipher.setAuthTag(tag);
-    return Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8');
-  } catch {
-    return null;
+  const s = String(stored);
+  if (s.startsWith(EMAIL_ENC_PREFIX)) {
+    const buf = _b64urlDec(s.slice(EMAIL_ENC_PREFIX.length));
+    return _aesGcmDecrypt(buf, _EMAIL_KEYS.enc) ?? (_EMAIL_KEYS_PREV ? _aesGcmDecrypt(buf, _EMAIL_KEYS_PREV.enc) : null);
   }
+  if (s.startsWith('emenc:v1:')) {
+    return _legacyV1Decrypt(s, EMAIL_ENCRYPTION_KEY_RAW) ?? _legacyV1Decrypt(s, EMAIL_ENCRYPTION_KEY_PREVIOUS_RAW);
+  }
+  return null;
 }
+// Değer GÜNCEL parolayla ve güncel biçimde mi şifrelenmiş?
+function _isCurrentEmailCipher(stored) {
+  const s = String(stored || '');
+  return s.startsWith(EMAIL_ENC_PREFIX) && _aesGcmDecrypt(_b64urlDec(s.slice(EMAIL_ENC_PREFIX.length)), _EMAIL_KEYS.enc) != null;
+}
+
 // Arama yardımcıları: kullanıcının yazdığı e-posta aynı fonksiyonla şifrelenir ve
 // veritabanındaki şifreli değerle BİREBİR karşılaştırılır. Henüz şifrelenmemiş eski satırlar
-// (ör. SQL ile elle eklenen supervisor) açılıştaki/periyodik taramada şifrelenene kadar
-// açık metin karşılaştırmasıyla da bulunur.
+// (ör. SQL ile elle eklenen supervisor) otomatik şifrelenene kadar açık metinle de bulunur.
 //   SQL: ${emailMatchSql('email', 1, 2)}  params: [...emailMatchParams(input)]
 function emailMatchSql(col, encIdx, plainIdx) {
-  return `(${col} = $${encIdx} OR (${col} NOT LIKE '${EMAIL_ENC_PREFIX}%' AND lower(btrim(${col})) = $${plainIdx}))`;
+  return `(${col} = $${encIdx} OR (${col} NOT LIKE '${EMAIL_ENC_ANY_PREFIX}%' AND lower(btrim(${col})) = $${plainIdx}))`;
 }
 function emailMatchParams(raw) {
   return [encryptEmail(raw) || '', normalizeEmail(raw)];
 }
 
-// İsim / soyisim veritabanına yalnızca İLK 2 KARAKTERİYLE yazılır (Türkçe İ, Ç, Ş vb. tek karakter sayılır).
-//   "İbrahim" → "İb", "Topçu" → "To". Boş → null.
 // İstemciden gelen yön (derece) değerini doğrular ve [0, 360) aralığına getirir; geçersizse null.
 // 0.1° hassasiyetle yuvarlanır (cihaz pusulaları bundan daha hassas değildir).
 function normalizeDirection(raw) {
@@ -283,10 +341,19 @@ function normalizeDirection(raw) {
   return d;
 }
 
-function shortNamePart(raw) {
+// İsim veritabanına kullanıcının yazdığı haliyle (baş/son boşluklar silinerek) kaydedilir.
+// İsim ZORUNLU DEĞİLDİR: boş bırakılırsa null. (Soyisim artık alınmıyor.)
+function cleanName(raw) {
   const s = String(raw ?? '').trim();
-  if (!s) return null;
-  return Array.from(s).slice(0, 2).join('');
+  return s ? s.slice(0, 100) : null;
+}
+// Kullanıcı adında boşluk (space, tab, satır sonu vb.) olamaz.
+function usernameHasSpace(username) {
+  return /\s/.test(String(username ?? ''));
+}
+// E-posta şablonlarına güvenli metin eklemek için
+function escapeMailHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 // ==================== EVENT_TYPE_VALIDITY_UNITS ====================
@@ -471,50 +538,69 @@ ensureDbConnectionWithRetry()
 
 
 /* ===================== Kullanıcı gizliliği (isim kısaltma + e-posta şifreleme) ===================== */
-// Açık metin (henüz şifrelenmemiş) e-postaları EMAIL_ENCRYPTION_KEY ile şifreler.
-// Açılışta ve periyodik olarak çalışır; SQL ile elle eklenen kullanıcılar (ör. supervisor)
-// da kısa süre içinde şifrelenir. İdempotenttir: şifreli satırlara dokunmaz.
-async function encryptPlaintextEmails() {
+// E-postaları GÜNCEL parolayla şifreli hale getirir:
+//   - açık metin e-postalar (ör. SQL ile elle eklenen supervisor) → şifrelenir
+//   - eski parolayla (EMAIL_ENCRYPTION_KEY_PREVIOUS) ya da eski biçimle (emenc:v1:) şifrelenmiş
+//     e-postalar → çözülüp güncel parolayla yeniden şifrelenir
+// fullCheck=false iken (periyodik tarama) yalnızca güncel biçimde OLMAYAN satırlara bakılır.
+// İdempotenttir: güncel parolayla şifreli satırlara dokunmaz.
+async function encryptPlaintextEmails(fullCheck = false) {
   const r = await pool.query(
-    `SELECT id, email FROM public.users
-      WHERE email IS NOT NULL AND btrim(email) <> '' AND email NOT LIKE '${EMAIL_ENC_PREFIX}%'
-      ORDER BY id`
+    fullCheck
+      ? `SELECT id, email FROM public.users WHERE email IS NOT NULL AND btrim(email) <> '' ORDER BY id`
+      : `SELECT id, email FROM public.users
+          WHERE email IS NOT NULL AND btrim(email) <> '' AND email NOT LIKE '${EMAIL_ENC_PREFIX}%'
+          ORDER BY id`
   );
-  let done = 0;
+  let plain = 0, rekeyed = 0, failed = 0;
   for (const row of r.rows) {
+    if (_isCurrentEmailCipher(row.email)) continue;
+    const clear = decryptEmail(row.email);   // açık metinse aynen, şifreliyse eski parolayla çözer
+    if (!clear) { failed++; continue; }
+    const enc = encryptEmail(clear);
+    const client = await pool.connect();
     try {
-      await pool.query(`UPDATE public.users SET email=$1 WHERE id=$2 AND email=$3`, [encryptEmail(row.email), row.id, row.email]);
-      done++;
+      await client.query('BEGIN');
+      // Tekrar kontrolünü bu işlem için kapat (bkz. users_prevent_global_dup)
+      await client.query(`SELECT set_config('app.email_crypto_migration', '1', true)`);
+      const u = await client.query(`UPDATE public.users SET email=$1 WHERE id=$2 AND email=$3`, [enc, row.id, row.email]);
+      await client.query('COMMIT');
+      if (u.rowCount) {
+        if (isEncryptedEmail(row.email)) rekeyed++; else plain++;
+        // Bilgi: bu e-postayı başka bir hesap da kullanıyorsa konsola yaz (veri olduğu gibi korunur)
+        try {
+          const d = await pool.query(`SELECT id FROM public.users WHERE email=$1 AND id<>$2 ORDER BY id`, [enc, row.id]);
+          if (d.rows.length) {
+            console.warn(`[PRIVACY] note: user id=${row.id} shares the same e-mail with user id(s) ${d.rows.map(x => x.id).join(', ')}`);
+          }
+        } catch {}
+      }
     } catch (e) {
+      try { await client.query('ROLLBACK'); } catch {}
       console.warn(`[PRIVACY] e-mail encryption failed for user id=${row.id}: ${e.message}`);
+    } finally {
+      client.release();
     }
   }
-  if (done) console.log(`[PRIVACY] ${done} plaintext e-mail(s) encrypted`);
-  return done;
+  if (plain)   console.log(`[PRIVACY] ${plain} plaintext e-mail(s) encrypted`);
+  if (rekeyed) console.log(`[PRIVACY] ${rekeyed} e-mail(s) re-encrypted with the current EMAIL_ENCRYPTION_KEY`);
+  if (failed && fullCheck) {
+    console.error(`[PRIVACY] WARNING: ${failed} stored e-mail(s) cannot be decrypted with EMAIL_ENCRYPTION_KEY` +
+                  (EMAIL_ENCRYPTION_KEY_PREVIOUS_RAW ? ' or EMAIL_ENCRYPTION_KEY_PREVIOUS' : '') +
+                  '. If you changed the key, put the OLD value into EMAIL_ENCRYPTION_KEY_PREVIOUS and restart.');
+  }
+  return plain + rekeyed;
 }
 async function migrateUserPrivacy() {
-  // İsim / soyisim: yalnızca ilk 2 karakter kalır (trigger da aynı kuralı uygular)
+  // Soyisim artık tutulmuyor: users.surname sütunu kaldırılır (idempotent).
   try {
-    const n = await pool.query(
-      `UPDATE public.users
-          SET name    = NULLIF(left(btrim(name), 2), ''),
-              surname = NULLIF(left(btrim(surname), 2), '')
-        WHERE char_length(btrim(COALESCE(name, ''))) > 2
-           OR char_length(btrim(COALESCE(surname, ''))) > 2`
-    );
-    if (n.rowCount) console.log(`[PRIVACY] ${n.rowCount} user name/surname shortened to 2 characters`);
+    await pool.query(`ALTER TABLE public.users DROP COLUMN IF EXISTS surname`);
   } catch (e) {
-    console.warn('[PRIVACY] name shortening error:', e.message);
+    console.warn('[PRIVACY] users.surname could not be dropped:', e.message);
   }
-  await encryptPlaintextEmails();
-  // Anahtar kontrolü: şifreli bir e-posta çözülemiyorsa .env'deki anahtar değişmiş demektir
-  try {
-    const s = await pool.query(`SELECT email FROM public.users WHERE email LIKE '${EMAIL_ENC_PREFIX}%' LIMIT 1`);
-    if (s.rows.length && decryptEmail(s.rows[0].email) == null) {
-      console.error('[PRIVACY] WARNING: stored e-mails cannot be decrypted with the current EMAIL_ENCRYPTION_KEY. ' +
-                    'The key in .env was probably changed. E-mail login / password reset will not work.');
-    }
-  } catch {}
+  // Açılışta TAM tarama: açık metinleri şifreler, parola değiştiyse yeniden şifreler,
+  // çözülemeyen değer varsa (parola değişmiş ama eskisi verilmemiş) uyarır.
+  await encryptPlaintextEmails(true);
   // SQL ile sonradan elle eklenen kullanıcıların e-postaları da şifrelensin (5 dakikada bir)
   setInterval(() => { encryptPlaintextEmails().catch(() => {}); }, 5 * 60 * 1000);
 }
@@ -1294,6 +1380,7 @@ app.post('/api/polygon/records', async (req, res) => {
         o.event_id,
         o.event_type,
         l.event_type_name AS event_type_name,
+        l.event_type_name_translations AS event_type_name_translations,
         o.description,
         o.photo_urls,
         o.video_urls,
@@ -1314,6 +1401,7 @@ app.post('/api/polygon/records', async (req, res) => {
       event_id: r.event_id,
       event_type: r.event_type,
       event_type_name: r.event_type_name,
+      event_type_name_translations: r.event_type_name_translations || null,
       description: r.description,
       photo_urls: parseJsonText(r.photo_urls),
       video_urls: parseJsonText(r.video_urls),
@@ -1345,6 +1433,7 @@ app.post('/api/nearby/records', requireAuth, async (req, res) => {
         o.event_id,
         o.event_type,
         l.event_type_name AS event_type_name,
+        l.event_type_name_translations AS event_type_name_translations,
         o.description,
         o.photo_urls,
         o.video_urls,
@@ -1365,6 +1454,7 @@ app.post('/api/nearby/records', requireAuth, async (req, res) => {
       event_id: r.event_id,
       event_type: r.event_type,
       event_type_name: r.event_type_name,
+      event_type_name_translations: r.event_type_name_translations || null,
       description: r.description,
       photo_urls: parseJsonText(r.photo_urls),
       video_urls: parseJsonText(r.video_urls),
@@ -1523,15 +1613,30 @@ async function currentPointSpentSql(db = pool) {
     : `0`;
 }
 // userId verilirse yalnızca o kullanıcı, verilmezse TÜM kullanıcılar güncellenir.
+// ---- 0 ALTINA İNMEME KURALI ----
+// current_point hiçbir zaman 0'ın altına inmez. Puanı düşüren bir olay (gönderi silinmesi,
+// katılımın geri alınması vb.) kullanıcının MEVCUT puanından fazlasını düşürecekse, puan
+// 0'da durur; düşülemeyen kısım users.forgiven_point sütununda biriktirilir (kullanıcıdan
+// "affedilen" puan). Böylece:
+//   - puan 0 iken düşüş olursa puan 0 kalır,
+//   - puan 3 iken 5'lik düşüş olursa puan 0 olur (eksi 2 olmaz),
+//   - sonradan kazanılan her puan 0'ın ÜSTÜNE eklenir (affedilen kısım geri istenmez).
+// Formül:  ham = posts_point − Σ orders.points_spent + forgiven_point
+//          current_point = max(0, ham);  ham < 0 ise forgiven_point += −ham
+// posts_point (liderlik tablosu) zaten mevcut gönderi/katılımlardan hesaplandığı için eksiye düşemez.
 async function syncCurrentPoint(userId = null, db = pool) {
   try {
     const spentSql = await currentPointSpentSql(db);
+    const rawSql = `(COALESCE(u.posts_point, 0) - ${spentSql} + COALESCE(u.forgiven_point, 0))`;
     const where = userId == null ? 'TRUE' : 'u.id = $1';
     await db.query(
       `UPDATE public.users u
-          SET current_point = CASE WHEN COALESCE(u.is_active, true)
-                                   THEN COALESCE(u.posts_point, 0) - ${spentSql}
-                                   ELSE 0 END
+          SET forgiven_point = CASE WHEN COALESCE(u.is_active, true)
+                                    THEN COALESCE(u.forgiven_point, 0) + GREATEST(0, -${rawSql})
+                                    ELSE COALESCE(u.forgiven_point, 0) END,
+              current_point  = CASE WHEN COALESCE(u.is_active, true)
+                                    THEN GREATEST(0, ${rawSql})
+                                    ELSE 0 END
         WHERE ${where}`,
       userId == null ? [] : [userId]
     );
@@ -2550,6 +2655,8 @@ async function ensureDbSqlHelpers() {
   //   current_point: kullanıcının MEVCUT puanı = posts_point − harcanan puan (orders.points_spent).
   //                  Eksiye düşebilir; profilde bu değer gösterilir.
   await run('users add current_point',        `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS current_point integer DEFAULT 0`);
+  //   forgiven_point: puan 0'ın altına inmesin diye DÜŞÜLMEYEN (affedilen) toplam puan (bkz. syncCurrentPoint)
+  await run('users add forgiven_point',       `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS forgiven_point integer NOT NULL DEFAULT 0`);
   // Kullanıcının EN SON yeni katılım (agree) yaptığı an (.env: COOLDOWN kontrolü için)
   await run('users add last_agree_at',        `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_agree_at timestamptz`);
   // EN SON katılım yapılan gönderi: bu katılım geri alınırsa bekleme süresi sıfırlanır
@@ -2724,9 +2831,11 @@ async function ensureDbSqlHelpers() {
     BEGIN
       IF NEW.username IS NOT NULL THEN NEW.username := NULLIF(btrim(NEW.username),''); END IF;
       IF NEW.email    IS NOT NULL THEN NEW.email    := NULLIF(btrim(NEW.email),   ''); END IF;
-      -- Gizlilik: isim / soyisim yalnızca ilk 2 karakteriyle saklanır (SQL ile elle eklenenler dahil)
-      IF NEW.name     IS NOT NULL THEN NEW.name     := NULLIF(left(btrim(NEW.name), 2),    ''); END IF;
-      IF NEW.surname  IS NOT NULL THEN NEW.surname  := NULLIF(left(btrim(NEW.surname), 2), ''); END IF;
+      -- E-posta şifreleme taraması (encryptPlaintextEmails) yalnızca MEVCUT e-postayı şifreli
+      -- biçimine çevirir; yeni bir kullanıcı adı / e-posta tekrarı oluşturmaz. Bu yüzden o
+      -- işlem sırasında tekrar kontrolü atlanır (aksi halde aynı e-postayı paylaşan eski kayıtlar
+      -- 'active_username_or_email_exists' hatasıyla HİÇ şifrelenemiyordu).
+      IF current_setting('app.email_crypto_migration', true) = '1' THEN RETURN NEW; END IF;
 
       IF TG_OP='INSERT' THEN
         -- Kullanıcı adı: rol fark etmeksizin tablo genelinde benzersiz
@@ -2984,8 +3093,9 @@ async function ensureDbSqlHelpers() {
       PERFORM app_api._check_password_policy(p_password);
       PERFORM set_config('app.password_plain', p_password, true);
 
-      INSERT INTO public.users (username, password_hash, role, name, surname, email, email_verified, is_verified, is_active)
-      VALUES (p_username, crypt(p_password, gen_salt('bf',10)), p_role, NULLIF(p_name,''), NULLIF(p_surname,''), p_email, TRUE, TRUE, TRUE)
+      -- p_surname geriye dönük uyumluluk için imzada duruyor; soyisim artık saklanmıyor.
+      INSERT INTO public.users (username, password_hash, role, name, email, email_verified, is_verified, is_active)
+      VALUES (p_username, crypt(p_password, gen_salt('bf',10)), p_role, NULLIF(p_name,''), p_email, TRUE, TRUE, TRUE)
       RETURNING id INTO v_id;
 
       PERFORM set_config('app.password_plain', NULL, true);
@@ -3182,15 +3292,15 @@ async function failIfAnyDuplicate(usernameRaw, emailRaw) {
 app.post('/api/auth/register', async (req, res) => {
   const username = norm(req.body?.username);
   const password = req.body?.password;
-  const name = (req.body?.name || '').toString().trim() || null;
-  const surname = (req.body?.surname || '').toString().trim() || null;
+  // İsim isteğe bağlıdır (boş bırakılabilir); soyisim artık alınmıyor.
+  const name = cleanName(req.body?.name);
   const email = norm(req.body?.email);   // açık e-posta: YALNIZCA doğrulama postası göndermek için bellekte kullanılır
 
   if (!username || !password || !email)
     return res.status(400).json({ error: 'eksik_bilgi', message: getErrorMessage(req, 'eksik_bilgi') });
-  // İsim/soyisim zorunlu (başka kullanıcılarla aynı olabilir, sadece boş bırakılamaz)
-  if (!name || !surname)
-    return res.status(400).json({ error: 'name_surname_required', message: getErrorMessage(req, 'name_surname_required') });
+  // Kullanıcı adında boşluk olamaz
+  if (usernameHasSpace(username))
+    return res.status(400).json({ error: 'usernameNoSpaces', message: getErrorMessage(req, 'usernameNoSpaces') });
   if (!isStrongPassword(password))
     return res.status(400).json({ error: 'zayif_sifre', message: getErrorMessage(req, 'zayif_sifre') });
   if (!isEmailAllowed(email)) {
@@ -3234,11 +3344,11 @@ app.post('/api/auth/register', async (req, res) => {
     await client.query(`SELECT set_config('app.password_plain', $1, true)`, [password]);
 
     const ins = await client.query(
-      `INSERT INTO users (username, password_hash, role, name, surname, email, email_verified, is_verified, verify_token, verify_expires, is_active)
-       VALUES ($1, crypt($2, gen_salt('bf',10)), 'user', $3, $4, $5, false, false, $6, $7, true)
+      `INSERT INTO users (username, password_hash, role, name, email, email_verified, is_verified, verify_token, verify_expires, is_active)
+       VALUES ($1, crypt($2, gen_salt('bf',10)), 'user', $3, $4, false, false, $5, $6, true)
        RETURNING id, username, email`,
-      // Veritabanına: isim/soyisim ilk 2 karakter, e-posta ŞİFRELİ yazılır.
-      [username, password, shortNamePart(name), shortNamePart(surname), encryptEmail(email), verifyToken, verifyExpires]
+      // Veritabanına: isim yazıldığı gibi, e-posta ŞİFRELİ yazılır.
+      [username, password, name, encryptEmail(email), verifyToken, verifyExpires]
     );
 
     await client.query('COMMIT');
@@ -3253,19 +3363,21 @@ app.post('/api/auth/register', async (req, res) => {
     try {
       const verifyLink = `${req.protocol}://${req.get('host')}/api/auth/verify?token=${verifyToken}`;
       const lang = _detectLang(req);
+      // Selamlama: isim girildiyse "Merhaba <isim>", boşsa "Merhaba <kullanıcı adı>"
+      const greetName = escapeMailHtml(name || username);
 
       const _verifyContent = {
         en: {
           subject: 'Email Verification',
-          html: `<p>Hello <b>${username}</b>,</p><p>Click <a href="${verifyLink}">here</a> to verify your account.</p><p>This link is valid for 24 hours.</p>`
+          html: `<p>Hello <b>${greetName}</b>,</p><p>Click <a href="${verifyLink}">here</a> to verify your account.</p><p>This link is valid for 24 hours.</p>`
         },
         tr: {
           subject: 'E-posta Doğrulama',
-          html: `<p>Merhaba <b>${username}</b>,</p><p>Hesabını doğrulamak için <a href="${verifyLink}">buraya tıkla</a>.</p><p>Bağlantı 24 saat geçerlidir.</p>`
+          html: `<p>Merhaba <b>${greetName}</b>,</p><p>Hesabını doğrulamak için <a href="${verifyLink}">buraya tıkla</a>.</p><p>Bağlantı 24 saat geçerlidir.</p>`
         },
         it: {
           subject: 'Verifica Email',
-          html: `<p>Ciao <b>${username}</b>,</p><p>Clicca <a href="${verifyLink}">qui</a> per verificare il tuo account.</p><p>Il link è valido per 24 ore.</p>`
+          html: `<p>Ciao <b>${greetName}</b>,</p><p>Clicca <a href="${verifyLink}">qui</a> per verificare il tuo account.</p><p>Il link è valido per 24 ore.</p>`
         }
       };
       const _vc = _verifyContent[lang] || _verifyContent.en;
@@ -3642,7 +3754,7 @@ app.post('/api/auth/forgot/reset', async (req, res) => {
 app.get('/api/public/event_types', async (req, res) => {
   try {
     const r = await pool.query(`
-      SELECT event_type_id, event_type_name, "public_" AS "public",
+      SELECT event_type_id, event_type_name, event_type_name_translations, "public_" AS "public",
              is_point, is_line, is_polygon,
              COALESCE(time_dependent, false) AS time_dependent, valid_time
       FROM event_type
@@ -3659,7 +3771,7 @@ app.get('/api/public/event_types', async (req, res) => {
 app.get('/api/event_types', requireAuth, async (req, res) => {
   try {
     const r = await pool.query(`
-      SELECT event_type_id, event_type_name, "public_" AS "public", created_by_id, created_by_name,
+      SELECT event_type_id, event_type_name, event_type_name_translations, "public_" AS "public", created_by_id, created_by_name,
              is_point, is_line, is_polygon,
              COALESCE(time_dependent, false) AS time_dependent, valid_time
       FROM event_type 
@@ -3702,6 +3814,7 @@ app.get('/api/events_all', tryAuth, async (req, res) => {
         o.longitude,
         o.event_type AS event_type_id,
         l.event_type_name     AS event_type_name,
+        l.event_type_name_translations AS event_type_name_translations,
         l."public_"      AS event_type_public,
         COALESCE(l.time_dependent, false) AS event_type_time_dependent,
         l.valid_time          AS event_type_valid_time,
@@ -4122,7 +4235,7 @@ app.get('/api/me/stats', requireAuth, async (req, res) => {
       try { await syncCurrentPoint(req.user.id); } catch {}
     }
     const { rows } = await pool.query(
-      `SELECT username, name, surname, role, COALESCE(solver,false) AS solver,
+      `SELECT username, name, role, COALESCE(solver,false) AS solver,
               COALESCE(num_events,0) AS num_events,
               COALESCE(agreed_point,0) AS agreed_point,
               COALESCE(posts_point,0) AS posts_point,
@@ -4144,7 +4257,6 @@ app.get('/api/me/stats', requireAuth, async (req, res) => {
     res.json({
       username: u.username,
       name: u.name || '',
-      surname: u.surname || '',
       role: u.role,
       solver: u.solver === true,
       num_events: u.num_events,
@@ -4171,6 +4283,7 @@ app.get('/api/me/posts', requireAuth, async (req, res) => {
          o.event_id, o.latitude, o.longitude,
          o.event_type AS event_type_id,
          l.event_type_name AS event_type_name,
+        l.event_type_name_translations AS event_type_name_translations,
          COALESCE(l.time_dependent,false) AS event_type_time_dependent,
          o.description,
          o.created_at,
@@ -4692,6 +4805,7 @@ app.get('/api/qfield/events', tryAuth, async (req, res) => {
         o.description,
         o.event_type,
         l.event_type_name AS event_type_name,
+        l.event_type_name_translations AS event_type_name_translations,
         o.photo_urls,
         o.video_urls,
         o.created_by_id,
@@ -4707,6 +4821,7 @@ app.get('/api/qfield/events', tryAuth, async (req, res) => {
         event_id: row.event_id,
         event_type_id: row.event_type,
         event_type_name: row.event_type_name,
+        event_type_name_translations: row.event_type_name_translations || null,
         description: row.description,
         photo_urls: parseJsonText(row.photo_urls),
         video_urls: parseJsonText(row.video_urls),
@@ -5149,6 +5264,8 @@ app.post('/api/admin/event_types', adminOnly, async (req, res) => {
       [event_type_name, isPublic, req.user.username, req.user.role, req.user.id, timeDependent, validTime]
     );
     res.json({ ok: true, created: r.rows[0] });
+    // Yeni türün adını hemen İngilizceye çevir (arka planda; yanıtı bekletmez)
+    translateEventTypeNames().catch(() => {});
   } catch (e) {
     console.error('admin add event_type error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
@@ -5211,6 +5328,8 @@ app.patch('/api/admin/event_type/:id', adminOnly, async (req, res) => {
     const r = await pool.query(sql, values);
     
     res.json({ ok: true, message: 'Olay türü güncellendi', updated: r.rows[0] });
+    // Ad değiştiyse trigger çeviriyi temizledi → yeni adı hemen İngilizceye çevir
+    translateEventTypeNames().catch(() => {});
   } catch (e) {
     console.error('admin patch event_type error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
@@ -5337,7 +5456,7 @@ app.get('/api/admin/users', adminOnly, async (req, res) => {
 
     const where = includeInactive ? 'TRUE' : 'COALESCE(is_active,true)=true';
     const { rows } = await pool.query(
-      `SELECT id, username, name, surname, email, role, email_verified, is_verified,
+      `SELECT id, username, name, email, role, email_verified, is_verified,
               COALESCE(is_active, true) AS is_active, deleted_by, deleted_by_role, deleted_by_id, deleted_at,
               registration_date, COALESCE(solver, false) AS solver,
               COALESCE(num_events, 0)  AS num_events,
@@ -5359,12 +5478,12 @@ app.post('/api/admin/users', adminOnly, async (req, res) => {
   const username = norm(req.body?.username);
   const password = req.body?.password;
   const role = req.body?.role;
-  const name = req.body?.name || null;
-  const surname = req.body?.surname || null;
+  const name = cleanName(req.body?.name);
   const email = norm(req.body?.email);
   const base32Raw = norm(req.body?.BASE32Code || req.body?.base32 || req.body?.base32Code || req.body?.totp || '');
 
   if (!username || !password || !role || !email) return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
+  if (usernameHasSpace(username)) return res.status(400).json({ error: 'usernameNoSpaces', message: getErrorMessage(req, 'usernameNoSpaces') });
   if (!['supervisor', 'admin', 'user'].includes(role)) return res.status(400).json({ error: 'gecersiz_rol', message: getErrorMessage(req, 'gecersiz_rol') });
   if (!isStrongPassword(password)) return res.status(400).json({ error: 'zayif_sifre', message: getErrorMessage(req, 'zayif_sifre') });
   if (!isEmailAllowed(email)) {
@@ -5414,11 +5533,11 @@ app.post('/api/admin/users', adminOnly, async (req, res) => {
     }
 
     const r = await client.query(
-      `INSERT INTO users (username, password_hash, role, name, surname, email, email_verified, is_verified, is_active,
+      `INSERT INTO users (username, password_hash, role, name, email, email_verified, is_verified, is_active,
                           two_factor_norm_hash, two_factor_enabled)
-       VALUES ($1,$2,$3,$4,$5,$6,true,true,true,$7,$8)
+       VALUES ($1,$2,$3,$4,$5,true,true,true,$6,$7)
        RETURNING id, username, role`,
-      [username, hashPw, role, shortNamePart(name), shortNamePart(surname), encryptEmail(email), twoFactorSecretPlain, twoFactorEnabled]
+      [username, hashPw, role, name, encryptEmail(email), twoFactorSecretPlain, twoFactorEnabled]
     );
 
     await client.query('COMMIT');
@@ -5788,6 +5907,7 @@ app.post('/api/export/geojson', requireAuth, async (req, res) => {
       SELECT 
         ${selectCols},
         l.event_type_name AS event_type_name,
+        l.event_type_name_translations AS event_type_name_translations,
         l."public_" AS event_type_public
       FROM event o
       LEFT JOIN event_type l ON l.event_type_id = o.event_type
@@ -6230,7 +6350,7 @@ app.get('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
     const col = await pool.query(`SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='dependent_company'`);
     if (!col.rows.length) return res.json([]);
     const r = await pool.query(
-      `SELECT id, username, name, surname, email
+      `SELECT id, username, name, email
          FROM users
         WHERE dependent_company=$1 AND role='company' AND COALESCE(is_active,true)=true
         ORDER BY id`,
@@ -6249,16 +6369,15 @@ app.post('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
   if (!Number.isInteger(companyId)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
   const username = norm(req.body?.username);
   const password = req.body?.password;
-  const name = req.body?.name || null;
-  // company rolünde soyad istenmez (NULL). E-posta ZORUNLUDUR; ancak şirket kullanıcıları
-  // arasında (ve diğer kullanıcılarla) aynı e-posta tekrar kullanılabilir.
-  const surname = null;
+  const name = cleanName(req.body?.name);
+  // E-posta ZORUNLUDUR; ancak şirket kullanıcıları arasında aynı e-posta tekrar kullanılabilir.
   const email = norm(req.body?.email);
   const base32Raw = norm(req.body?.BASE32Code || req.body?.base32 || req.body?.base32Code || req.body?.totp || '');
 
   if (!email) return res.status(400).json({ error: 'email_required', message: getErrorMessage(req, 'email_required') });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'gecersiz_eposta', message: getErrorMessage(req, 'gecersiz_eposta') });
   if (!username || !password || !base32Raw) return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
+  if (usernameHasSpace(username)) return res.status(400).json({ error: 'usernameNoSpaces', message: getErrorMessage(req, 'usernameNoSpaces') });
   if (!isStrongPassword(password)) return res.status(400).json({ error: 'zayif_sifre', message: getErrorMessage(req, 'zayif_sifre') });
   if (!isValidBase32Secret(base32Raw)) return res.status(400).json({ error: 'base32_gecersiz', message: getErrorMessage(req, 'base32_gecersiz') });
 
@@ -6301,11 +6420,11 @@ app.post('/api/admin/companies/:id/users', adminOnly, async (req, res) => {
     const hashPw = await bcrypt.hash(password, 10);
     const twoFactorSecretPlain = normalizeBase32(base32Raw);
     const r = await client.query(
-      `INSERT INTO users (username, password_hash, role, name, surname, email, email_verified, is_verified, is_active,
+      `INSERT INTO users (username, password_hash, role, name, email, email_verified, is_verified, is_active,
                           two_factor_secret, two_factor_enabled, dependent_company)
-       VALUES ($1,$2,'company',$3,$4,$5,true,true,true,$6,true,$7)
+       VALUES ($1,$2,'company',$3,$4,true,true,true,$5,true,$6)
        RETURNING id, username, role, dependent_company`,
-      [username, hashPw, shortNamePart(name), shortNamePart(surname), encryptEmail(email), twoFactorSecretPlain, companyId]
+      [username, hashPw, name, encryptEmail(email), twoFactorSecretPlain, companyId]
     );
     await client.query('COMMIT');
     res.json({ ok: true, user: r.rows[0] });
@@ -6444,7 +6563,8 @@ function discountDecision(effectivePoints, thresholdPoint) {
 // refresh=true: okumadan önce puanlar event/agrees tablolarından yeniden hesaplanır,
 // böylece bayat (eski) bir posts_point ile eşik kontrolü yapılmaz.
 async function userEffectivePoints(username, refresh = false) {
-  const sel = `SELECT id, username, name, surname, COALESCE(posts_point,0) AS posts_point
+  const sel = `SELECT id, username, name, COALESCE(posts_point,0) AS posts_point,
+                      COALESCE(forgiven_point,0) AS forgiven_point
                  FROM users
                 WHERE lower(btrim(username))=lower($1)
                   AND role = 'user'
@@ -6464,8 +6584,9 @@ async function userEffectivePoints(username, refresh = false) {
     const s = await pool.query(`SELECT COALESCE(SUM(points_spent),0)::int AS s FROM public.orders WHERE person_placing_order=$1`, [row.username]);
     spent = s.rows[0].s || 0;
   }
-  // effective = current_point ile aynı formül; 0'a sabitlenmez (eksi olabilir).
-  return { id: row.id, username: row.username, name: row.name || '', surname: row.surname || '', posts_point: row.posts_point, spent, effective: row.posts_point - spent };
+  // effective = current_point ile aynı formül (0'ın altına inmez)
+  return { id: row.id, username: row.username, name: row.name || '', posts_point: row.posts_point, spent,
+           effective: Math.max(0, row.posts_point - spent + (row.forgiven_point || 0)) };
 }
 
 // Opener/solver: kendi puanına göre tek kullanımlık QR üretir (5 dk geçerli)
@@ -6507,7 +6628,7 @@ app.post('/api/company/scan', requireAuth, requireAnyRole(['company']), async (r
     res.json({
       ok: true,
       eligible: decision.eligible,
-      username: eff.username, name: eff.name, surname: eff.surname,
+      username: eff.username, name: eff.name,
       points: eff.effective, threshold: cfg.discount_threshold_point,
       discount_percentage: cfg.discount_percentage
     });
@@ -6565,7 +6686,7 @@ app.post('/api/company/order', requireAuth, requireAnyRole(['company']), async (
     // Kullanıcı satırı kilitlenir (FOR UPDATE): aynı kullanıcının iki QR'ı aynı anda iki
     // şirkette okutulsa bile siparişler sırayla işlenir; ikincisi birincinin düştüğü puanı görür.
     const ur = await client.query(
-      `SELECT id, username, COALESCE(posts_point,0) AS posts_point
+      `SELECT id, username, COALESCE(posts_point,0) AS posts_point, COALESCE(forgiven_point,0) AS forgiven_point
          FROM users
         WHERE lower(btrim(username))=lower($1)
           AND role = 'user'
@@ -6574,7 +6695,8 @@ app.post('/api/company/order', requireAuth, requireAnyRole(['company']), async (
     if (!ur.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'accountNotFound', message: getErrorMessage(req, 'accountNotFound') }); }
     const uname = ur.rows[0].username;
     const sp = await client.query(`SELECT COALESCE(SUM(points_spent),0)::int AS s FROM public.orders WHERE person_placing_order=$1`, [uname]);
-    const effective = ur.rows[0].posts_point - (sp.rows[0].s || 0);   // = current_point (eksi olabilir)
+    // = current_point (0'ın altına inmez)
+    const effective = Math.max(0, ur.rows[0].posts_point - (sp.rows[0].s || 0) + (ur.rows[0].forgiven_point || 0));
     // KESİN KURAL: puan eşiğe EŞİT ya da BÜYÜK olmalı; indirim sonrası puan eksiye düşemez.
     const decision = discountDecision(effective, thrNum);
     if (!decision.eligible) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'not_eligible', message: getErrorMessage(req, 'not_eligible') }); }
@@ -6652,6 +6774,91 @@ app.get(
 );
 
 /* ===================== Server ===================== */
+/* ===================== Olay türü adlarının İngilizce çevirisi ===================== */
+// event_type.event_type_name değerleri otomatik olarak İngilizceye çevrilip
+// event_type.event_type_name_translations sütununa yazılır. Çeviri:
+//   - açılışta, her dakika (yalnızca çevirisi BOŞ olan türler için) ve
+//   - bir tür eklendiğinde / adı güncellendiğinde hemen yapılır.
+// Ad değişirse trigger çeviriyi temizler ve görev yenisini yazar ("sürekli" güncel kalır).
+// Kaynak dil otomatik algılanır (TR, IT, ...). Ad zaten İngilizceyse aynen yazılır.
+// Çeviri servisine ulaşılamazsa sütun boş kalır, arayüz özgün adı gösterir; 10 dk sonra tekrar denenir.
+// Çeviri yanlışsa supervisor/pgAdmin ile sütun elle düzeltilebilir; ad değişmedikçe elle yazılan korunur.
+function _httpGetJson(url, timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (DiDe)' } }, (res) => {
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { data += c; if (data.length > 1e6) req.destroy(new Error('response too large')); });
+      res.on('end', () => {
+        if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode));
+        try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('timeout')));
+  });
+}
+async function translateTextToEnglish(text) {
+  const src = String(text || '').trim();
+  if (!src) return null;
+  const q = encodeURIComponent(src);
+  // 1) Google Translate (kaynak dil otomatik algılanır)
+  try {
+    const j = await _httpGetJson(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${q}`);
+    if (Array.isArray(j) && Array.isArray(j[0])) {
+      const out = j[0].map(seg => (Array.isArray(seg) && seg[0]) ? String(seg[0]) : '').join('').trim();
+      if (out) return out;
+    }
+  } catch (e) { /* yedeğe geç */ }
+  // 2) Yedek: MyMemory (kaynak dil = .env DEFAULT_LANG)
+  try {
+    const from = DEFAULT_LANG.toLowerCase();
+    if (from !== 'en') {
+      const j = await _httpGetJson(`https://api.mymemory.translated.net/get?q=${q}&langpair=${encodeURIComponent(from)}|en`);
+      const out = j && j.responseData && j.responseData.translatedText;
+      if (out && Number(j.responseStatus) === 200) return String(out).trim();
+    }
+  } catch (e) { /* çeviri yapılamadı */ }
+  return null;
+}
+const _etTranslateRetryAt = new Map();   // event_type_id -> tekrar denenebileceği zaman
+let _etTranslateBusy = false;
+async function translateEventTypeNames() {
+  if (_etTranslateBusy) return;
+  _etTranslateBusy = true;
+  try {
+    const r = await pool.query(
+      `SELECT event_type_id, event_type_name
+         FROM public.event_type
+        WHERE COALESCE(btrim(event_type_name), '') <> ''
+          AND COALESCE(btrim(event_type_name_translations), '') = ''
+        ORDER BY event_type_id
+        LIMIT 50`
+    );
+    let done = 0;
+    for (const row of r.rows) {
+      const retryAt = _etTranslateRetryAt.get(row.event_type_id);
+      if (retryAt && retryAt > Date.now()) continue;
+      const en = await translateTextToEnglish(row.event_type_name);
+      if (!en) { _etTranslateRetryAt.set(row.event_type_id, Date.now() + 10 * 60 * 1000); continue; }
+      _etTranslateRetryAt.delete(row.event_type_id);
+      // Ad bu arada değiştiyse yazma (yeni ad bir sonraki turda çevrilir)
+      const u = await pool.query(
+        `UPDATE public.event_type SET event_type_name_translations = $1
+          WHERE event_type_id = $2 AND event_type_name = $3
+            AND COALESCE(btrim(event_type_name_translations), '') = ''`,
+        [en.slice(0, 200), row.event_type_id, row.event_type_name]
+      );
+      if (u.rowCount) done++;
+    }
+    if (done) console.log(`[I18N] ${done} event type name(s) translated to English`);
+  } catch (e) {
+    if (!/event_type_name_translations/.test(String(e.message))) console.warn('[I18N] event type translation error:', e.message);
+  } finally {
+    _etTranslateBusy = false;
+  }
+}
+
 async function ensureOlaylarSchema(){
   const client = await pool.connect();
   try {
@@ -6662,6 +6869,27 @@ async function ensureOlaylarSchema(){
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS attribute_column text`);
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS time_dependent boolean DEFAULT false`);
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS valid_time double precision`);
+    // event_type_name_translations: event_type_name'in İNGİLİZCE karşılığı (otomatik çevrilir,
+    // bkz. translateEventTypeNames). Arayüzde EN dili seçilince bu değer gösterilir.
+    await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS event_type_name_translations text`);
+    // Ad değişince (uygulamadan ya da pgAdmin'den) eski çeviri temizlenir; arka plan görevi yeniden çevirir.
+    // Aynı UPDATE içinde çeviri de elle değiştirildiyse elle yazılan değer korunur.
+    await client.query(`
+      CREATE OR REPLACE FUNCTION public.event_type_reset_translation()
+      RETURNS trigger LANGUAGE plpgsql AS $fn$
+      BEGIN
+        IF NEW.event_type_name IS DISTINCT FROM OLD.event_type_name
+           AND NEW.event_type_name_translations IS NOT DISTINCT FROM OLD.event_type_name_translations THEN
+          NEW.event_type_name_translations := NULL;
+        END IF;
+        RETURN NEW;
+      END
+      $fn$;`);
+    await client.query(`DROP TRIGGER IF EXISTS trg_event_type_reset_translation ON public.event_type`);
+    await client.query(`
+      CREATE TRIGGER trg_event_type_reset_translation
+      BEFORE UPDATE OF event_type_name ON public.event_type
+      FOR EACH ROW EXECUTE FUNCTION public.event_type_reset_translation()`);
     // Menü/ürün özelliği kaldırıldı → ilgili kolonlar açılışta düşürülür (varsa).
     try { await client.query(`ALTER TABLE public.companies DROP COLUMN IF EXISTS menu`); } catch (e) {}
     try { await client.query(`ALTER TABLE public.orders DROP COLUMN IF EXISTS items`); } catch (e) {}
@@ -6689,6 +6917,12 @@ ensureOlaylarSchema().then(() => {
   // is refreshing the map. The reads (/api/events_all) also sweep on demand.
   deactivateExpiredEvents().catch(() => {});
   setInterval(() => { deactivateExpiredEvents().catch(() => {}); }, 60 * 1000);
+
+  // Olay türü adlarının İngilizce çevirisi: açılışta ve her dakika (tek worker'da)
+  if (!process.env.WORKER_ID || process.env.WORKER_ID === '0') {
+    setTimeout(() => { translateEventTypeNames().catch(() => {}); }, 5000);
+    setInterval(() => { translateEventTypeNames().catch(() => {}); }, 60 * 1000);
+  }
 });
 
 // QField ve LISTEN/NOTIFY sadece worker 0'da calissin (tekrar onleme)
