@@ -172,7 +172,7 @@ CREATE TABLE IF NOT EXISTS public.newsletter (
   photo_url           text NOT NULL,
   link                text,
   instagram_link      text,
-  description         text NOT NULL,
+  description         text,                     -- optional
   start_date          date,
   end_date            date,
   active              boolean NOT NULL DEFAULT true,
@@ -186,6 +186,7 @@ CREATE TABLE IF NOT EXISTS public.newsletter (
     type = 'news' OR (start_date IS NOT NULL AND end_date IS NOT NULL AND end_date >= start_date))
 );
 CREATE INDEX IF NOT EXISTS newsletter_active_idx ON public.newsletter (active, created_at DESC);
+ALTER TABLE public.newsletter ALTER COLUMN description DROP NOT NULL;
 CREATE OR REPLACE FUNCTION public.newsletter_normalize()
 RETURNS trigger LANGUAGE plpgsql AS $fn$
 BEGIN

@@ -15069,8 +15069,8 @@ function closeNewsletterForm(){
 }
 
 /* Tür seçimine göre alanlar ve etiketler değişir:
-   Haber    → ad*, fotoğraf*, link (isteğe bağlı), açıklama*
-   Etkinlik → ad*, fotoğraf*, link + Instagram linki (isteğe bağlı), açıklama*, başlangıç* / bitiş* tarihi
+   Haber    → ad*, fotoğraf*, link (isteğe bağlı), açıklama (isteğe bağlı)
+   Etkinlik → ad*, fotoğraf*, link + Instagram linki (isteğe bağlı), açıklama (isteğe bağlı), başlangıç* / bitiş* tarihi
    Tür değiştirildiğinde ortak alanlar (ad, fotoğraf, link, açıklama) korunur. */
 function nlApplyType(){
   const type = (qs('#nl-type') && qs('#nl-type').value) || '';
@@ -15173,7 +15173,6 @@ async function submitNewsletter(){
   };
   if (!body.name) { mark('#nl-name'); toast(t('newsletter_name_required'), 'error', 4000); return; }
   if (!body.photo_url) { mark('#nl-photo-btn'); toast(t('newsletter_photo_required'), 'error', 4000); return; }
-  if (!body.description) { mark('#nl-desc'); toast(t('newsletter_description_required'), 'error', 4000); return; }
   if (isAct) {
     const today = _nlTodayIso();
     if (!body.start_date || !body.end_date) {
@@ -15347,17 +15346,20 @@ function _nlPageHtml(it, idx){
          <div class="nl-date-chip"><span class="nl-date-k">${escapeHtml(t('nlEnds'))}</span><span class="nl-date-v">${escapeHtml(_nlFmtDate(it.end_date))}</span></div>
        </div>`
     : '';
+  const desc = String(it.description || '').trim();
+  // Fotoğraf kartın ~%80'i; altındaki bilgi alanı (ad, tarihler, Instagram, açıklama)
+  // kalan kısımda durur ve uzunsa KENDİ İÇİNDE dikey kayar.
   return `
     <div class="nl-media" style="--nl-bg:url('${photo.replace(/'/g, '%27')}')">
       <div class="nl-media-bg" aria-hidden="true"></div>
       ${media}
       ${badge}
     </div>
-    ${igBtn}
     <div class="pr-info-section nl-info">
       <div class="nl-name">${name}</div>
       ${dates}
-      <div class="pr-info-desc nl-desc">${escapeHtml(it.description || '')}</div>
+      ${igBtn}
+      ${desc ? `<div class="pr-info-desc nl-desc">${escapeHtml(desc)}</div>` : ''}
     </div>`;
 }
 function renderNewsletterPages(){

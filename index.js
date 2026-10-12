@@ -6214,7 +6214,7 @@ async function companiesTableExists() {
      photo_url       fotoğraf URL'si (/uploads/...)                  — zorunlu
      link            haber / etkinlik bağlantısı                    — isteğe bağlı
      instagram_link  etkinliğin Instagram bağlantısı                — isteğe bağlı, yalnızca etkinlik
-     description     açıklama                                       — zorunlu
+     description     açıklama                                       — isteğe bağlı (boşsa NULL)
      start_date      etkinlik başlangıç tarihi                      — etkinlikte zorunlu, haberde NULL
      end_date        etkinlik bitiş tarihi (>= start_date)          — etkinlikte zorunlu, haberde NULL
      active          false → silinmiş ya da süresi dolmuş (ön yüzde gösterilmez)
@@ -6238,7 +6238,7 @@ async function _ensureNewsletterSchema() {
       photo_url           text NOT NULL,
       link                text,
       instagram_link      text,
-      description         text NOT NULL,
+      description         text,
       start_date          date,
       end_date            date,
       active              boolean NOT NULL DEFAULT true,
@@ -6249,6 +6249,8 @@ async function _ensureNewsletterSchema() {
       deactivated_at      timestamptz,
       deactivated_by_name text
     )`);
+  // Açıklama isteğe bağlı: eski kurulumlardaki NOT NULL kısıtı kaldırılır
+  await pool.query(`ALTER TABLE public.newsletter ALTER COLUMN description DROP NOT NULL`);
   await pool.query(`
     DO $$ BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'newsletter_type_chk') THEN
@@ -6330,8 +6332,8 @@ function _validateNewsletterBody(req, body, existing) {
   if (!name) return fail('newsletter_name_required');
   const photo = String(body?.photo_url || '').trim();
   if (!photo || !(/^\/uploads\//.test(photo) || /^https?:\/\//i.test(photo))) return fail('newsletter_photo_required');
+  // Açıklama isteğe bağlıdır (boş bırakılırsa NULL)
   const description = String(body?.description || '').trim();
-  if (!description) return fail('newsletter_description_required');
   const link = normalizeLink(body?.link);
   if (String(body?.link || '').trim() && !link) return fail('newsletter_link_invalid');
   let instagram = null, start = null, end = null;
@@ -6356,7 +6358,7 @@ function _validateNewsletterBody(req, body, existing) {
       photo_url: photo.slice(0, 500),
       link,
       instagram_link: instagram,
-      description: description.slice(0, 5000),
+      description: description ? description.slice(0, 5000) : null,
       start_date: start,
       end_date: end,
     }
