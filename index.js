@@ -531,6 +531,8 @@ ensureDbConnectionWithRetry()
     try { await ensureCompaniesSchema(); } catch (e) { console.warn('[COMPANIES] schema error:', e.message); }
     // Gizlilik: mevcut kullanıcıların isim/soyisimlerini 2 karaktere indir, açık e-postaları şifrele
     try { await migrateUserPrivacy(); } catch (e) { console.warn('[PRIVACY] migration error:', e.message); }
+    // Bülten (haber / etkinlik) tablosu
+    try { await ensureNewsletterSchema(); } catch (e) { console.warn('[NEWSLETTER] schema error:', e.message); }
   })
   .catch((e) => {
     console.error('[FATAL] Database startup error:', e && e.message ? e.message : e);
@@ -6201,6 +6203,272 @@ async function companiesTableExists() {
   return !!(r.rows[0] && r.rows[0].t);
 }
 
+/* ===================== BÜLTEN (NEWSLETTER): HABER / ETKİNLİK =====================
+   Supervisor panelindeki "Bülten" sekmesinden eklenir; giriş yapmadan açılan ana ekranda
+   header'daki bülten butonuyla (kupanın sağında) kaydırmalı kartlar halinde gösterilir.
+
+   Tablo: public.newsletter
+     newsletter_id   serial PK
+     type            'news' (haber) | 'activity' (etkinlik)        — veritabanında İngilizce
+     name            haber / etkinlik adı                           — zorunlu
+     photo_url       fotoğraf URL'si (/uploads/...)                  — zorunlu
+     link            haber / etkinlik bağlantısı                    — isteğe bağlı
+     instagram_link  etkinliğin Instagram bağlantısı                — isteğe bağlı, yalnızca etkinlik
+     description     açıklama                                       — zorunlu
+     start_date      etkinlik başlangıç tarihi                      — etkinlikte zorunlu, haberde NULL
+     end_date        etkinlik bitiş tarihi (>= start_date)          — etkinlikte zorunlu, haberde NULL
+     active          false → silinmiş ya da süresi dolmuş (ön yüzde gösterilmez)
+   Haberde start_date / end_date / instagram_link bir trigger ile OTOMATİK NULL yapılır.
+   Etkinliğin bitiş tarihi geçince (bitiş günü sonunda) active=false olur; sanki silinmiş gibi
+   ön yüzden ve supervisor listesinden kalkar (deactivated_by_name NULL kalır). */
+const NEWSLETTER_TYPES = ['news', 'activity'];
+let __newsletterSchemaReady = null;
+function ensureNewsletterSchema() {
+  if (!__newsletterSchemaReady) {
+    __newsletterSchemaReady = _ensureNewsletterSchema().catch((e) => { __newsletterSchemaReady = null; throw e; });
+  }
+  return __newsletterSchemaReady;
+}
+async function _ensureNewsletterSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.newsletter (
+      newsletter_id       serial PRIMARY KEY,
+      type                text NOT NULL,
+      name                text NOT NULL,
+      photo_url           text NOT NULL,
+      link                text,
+      instagram_link      text,
+      description         text NOT NULL,
+      start_date          date,
+      end_date            date,
+      active              boolean NOT NULL DEFAULT true,
+      created_at          timestamptz NOT NULL DEFAULT now(),
+      created_by_name     text,
+      updated_at          timestamptz,
+      updated_by_name     text,
+      deactivated_at      timestamptz,
+      deactivated_by_name text
+    )`);
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'newsletter_type_chk') THEN
+        ALTER TABLE public.newsletter ADD CONSTRAINT newsletter_type_chk CHECK (type IN ('news', 'activity'));
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'newsletter_dates_chk') THEN
+        ALTER TABLE public.newsletter ADD CONSTRAINT newsletter_dates_chk CHECK (
+          type = 'news'
+          OR (start_date IS NOT NULL AND end_date IS NOT NULL AND end_date >= start_date));
+      END IF;
+    END $$;`);
+  // Haber: tarih ve Instagram alanları her zaman NULL (tür sonradan habere çevrilse bile)
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION public.newsletter_normalize()
+    RETURNS trigger LANGUAGE plpgsql AS $fn$
+    BEGIN
+      IF NEW.type = 'news' THEN
+        NEW.start_date := NULL;
+        NEW.end_date := NULL;
+        NEW.instagram_link := NULL;
+      END IF;
+      RETURN NEW;
+    END
+    $fn$;`);
+  await pool.query(`DROP TRIGGER IF EXISTS trg_newsletter_normalize ON public.newsletter`);
+  await pool.query(`
+    CREATE TRIGGER trg_newsletter_normalize
+    BEFORE INSERT OR UPDATE ON public.newsletter
+    FOR EACH ROW EXECUTE FUNCTION public.newsletter_normalize()`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS newsletter_active_idx ON public.newsletter (active, created_at DESC)`);
+}
+
+// Sunucunun yerel tarihi (YYYY-MM-DD). Veritabanı UTC'de olsa bile gün değişimi yerel saate göre olur.
+function _localTodayIso(offsetDays = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+// 'YYYY-MM-DD' doğrulaması (gerçek bir takvim günü olmalı)
+function _parseIsoDate(raw) {
+  const s = String(raw ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [y, m, d] = s.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return null;
+  return s;
+}
+
+// Bitiş tarihi geçmiş etkinlikleri pasif yap (bitiş günü dahil gösterilir, ertesi gün kalkar)
+async function deactivateExpiredNewsletters() {
+  try {
+    await ensureNewsletterSchema();
+    const r = await pool.query(
+      `UPDATE public.newsletter
+          SET active = false, deactivated_at = now()
+        WHERE type = 'activity' AND active = true AND end_date < $1::date`,
+      [_localTodayIso()]
+    );
+    if (r.rowCount) console.log(`[NEWSLETTER] ${r.rowCount} finished activit(y/ies) deactivated`);
+  } catch (e) {
+    console.warn('[NEWSLETTER] expiry error:', e.message);
+  }
+}
+
+const NEWSLETTER_COLS = `
+  newsletter_id, type, name, photo_url, link, instagram_link, description,
+  to_char(start_date, 'YYYY-MM-DD') AS start_date,
+  to_char(end_date,   'YYYY-MM-DD') AS end_date,
+  active, created_at, created_by_name, updated_at, updated_by_name`;
+
+/* Gövdeyi doğrular. existing: güncellemede mevcut kayıt (başlangıç tarihi değişmediyse,
+   geçmişte kalmış olsa bile kabul edilir — devam eden etkinlik düzenlenebilsin). */
+function _validateNewsletterBody(req, body, existing) {
+  const fail = (key) => ({ error: key, message: getErrorMessage(req, key) });
+  const type = String(body?.type || '').trim().toLowerCase();
+  if (!NEWSLETTER_TYPES.includes(type)) return fail('newsletter_type_required');
+  const name = String(body?.name || '').trim();
+  if (!name) return fail('newsletter_name_required');
+  const photo = String(body?.photo_url || '').trim();
+  if (!photo || !(/^\/uploads\//.test(photo) || /^https?:\/\//i.test(photo))) return fail('newsletter_photo_required');
+  const description = String(body?.description || '').trim();
+  if (!description) return fail('newsletter_description_required');
+  const link = normalizeLink(body?.link);
+  if (String(body?.link || '').trim() && !link) return fail('newsletter_link_invalid');
+  let instagram = null, start = null, end = null;
+  if (type === 'activity') {
+    instagram = normalizeLink(body?.instagram_link);
+    if (String(body?.instagram_link || '').trim() && !instagram) return fail('newsletter_link_invalid');
+    start = _parseIsoDate(body?.start_date);
+    end = _parseIsoDate(body?.end_date);
+    if (!start || !end) return fail('newsletter_dates_required');
+    // Saat dilimi farkları için 1 gün tolerans (istemci zaten bugünden öncesini seçtirmez)
+    const minDay = _localTodayIso(-1);
+    const startUnchanged = existing && existing.type === 'activity' && existing.start_date === start;
+    if (!startUnchanged && start < minDay) return fail('newsletter_start_past');
+    if (end < minDay) return fail('newsletter_end_past');
+    if (end < start) return fail('newsletter_end_before_start');
+  }
+  return {
+    ok: true,
+    values: {
+      type,
+      name: name.slice(0, 200),
+      photo_url: photo.slice(0, 500),
+      link,
+      instagram_link: instagram,
+      description: description.slice(0, 5000),
+      start_date: start,
+      end_date: end,
+    }
+  };
+}
+
+// Supervisor listesi (aktif olanlar; en yeni en üstte)
+app.get('/api/admin/newsletters', requireAuth, requireAnyRole(['supervisor', 'admin']), async (req, res) => {
+  try {
+    await deactivateExpiredNewsletters();
+    const r = await pool.query(
+      `SELECT ${NEWSLETTER_COLS} FROM public.newsletter WHERE active = true ORDER BY created_at DESC, newsletter_id DESC`
+    );
+    res.json(r.rows);
+  } catch (e) {
+    console.error('GET /api/admin/newsletters error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+// Ekle
+app.post('/api/admin/newsletters', requireAuth, requireAnyRole(['supervisor', 'admin']), async (req, res) => {
+  try {
+    await ensureNewsletterSchema();
+    const v = _validateNewsletterBody(req, req.body, null);
+    if (!v.ok) return res.status(400).json(v);
+    const x = v.values;
+    const r = await pool.query(
+      `INSERT INTO public.newsletter (type, name, photo_url, link, instagram_link, description, start_date, end_date, created_by_name)
+       VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8::date,$9)
+       RETURNING ${NEWSLETTER_COLS}`,
+      [x.type, x.name, x.photo_url, x.link, x.instagram_link, x.description, x.start_date, x.end_date, req.user.username]
+    );
+    res.json({ ok: true, item: r.rows[0] });
+  } catch (e) {
+    console.error('POST /api/admin/newsletters error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+// Güncelle (tür dahil tüm alanlar; habere çevrilirse tarih/Instagram otomatik NULL olur)
+app.patch('/api/admin/newsletters/:id', requireAuth, requireAnyRole(['supervisor', 'admin']), async (req, res) => {
+  try {
+    const id = +req.params.id;
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
+    await ensureNewsletterSchema();
+    const cur = await pool.query(
+      `SELECT ${NEWSLETTER_COLS} FROM public.newsletter WHERE newsletter_id = $1 AND active = true`, [id]);
+    if (!cur.rows.length) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    const v = _validateNewsletterBody(req, req.body, cur.rows[0]);
+    if (!v.ok) return res.status(400).json(v);
+    const x = v.values;
+    const r = await pool.query(
+      `UPDATE public.newsletter
+          SET type=$1, name=$2, photo_url=$3, link=$4, instagram_link=$5, description=$6,
+              start_date=$7::date, end_date=$8::date, updated_at=now(), updated_by_name=$9
+        WHERE newsletter_id=$10 AND active = true
+        RETURNING ${NEWSLETTER_COLS}`,
+      [x.type, x.name, x.photo_url, x.link, x.instagram_link, x.description, x.start_date, x.end_date, req.user.username, id]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    res.json({ ok: true, item: r.rows[0] });
+  } catch (e) {
+    console.error('PATCH /api/admin/newsletters/:id error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+// Sil (soft delete)
+app.delete('/api/admin/newsletters/:id', requireAuth, requireAnyRole(['supervisor', 'admin']), async (req, res) => {
+  try {
+    const id = +req.params.id;
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
+    await ensureNewsletterSchema();
+    const r = await pool.query(
+      `UPDATE public.newsletter
+          SET active = false, deactivated_at = now(), deactivated_by_name = $2
+        WHERE newsletter_id = $1 AND active = true
+        RETURNING newsletter_id`,
+      [id, req.user.username]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('DELETE /api/admin/newsletters/:id error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+// Herkese açık liste (giriş gerektirmez): aktif haberler + bitmemiş etkinlikler
+app.get('/api/newsletters', async (req, res) => {
+  try {
+    await deactivateExpiredNewsletters();
+    const r = await pool.query(
+      `SELECT newsletter_id, type, name, photo_url, link, instagram_link, description,
+              to_char(start_date, 'YYYY-MM-DD') AS start_date,
+              to_char(end_date,   'YYYY-MM-DD') AS end_date,
+              created_at
+         FROM public.newsletter
+        WHERE active = true
+          AND (type = 'news' OR end_date >= $1::date)
+        ORDER BY created_at DESC, newsletter_id DESC
+        LIMIT 200`,
+      [_localTodayIso()]
+    );
+    res.json(r.rows);
+  } catch (e) {
+    console.error('GET /api/newsletters error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
 // Şirket oluştur (supervisor/admin)
 app.post('/api/admin/companies', requireAuth, requireAnyRole(['supervisor', 'admin']), async (req, res) => {
   try {
@@ -6990,6 +7258,9 @@ ensureOlaylarSchema().then(() => {
   // is refreshing the map. The reads (/api/events_all) also sweep on demand.
   deactivateExpiredEvents().catch(() => {});
   setInterval(() => { deactivateExpiredEvents().catch(() => {}); }, 60 * 1000);
+
+  // Bülten: bitiş tarihi geçen etkinlikler her dakika pasif yapılır
+  setInterval(() => { deactivateExpiredNewsletters().catch(() => {}); }, 60 * 1000);
 
   // Olay türü adlarının İngilizce çevirisi: açılışta ve her dakika (tek worker'da)
   if (!process.env.WORKER_ID || process.env.WORKER_ID === '0') {

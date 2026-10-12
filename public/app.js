@@ -1735,6 +1735,8 @@ function setupInstagramSwiper(container, track, opts) {
   let wheelResetTimer = null;
 
   container.addEventListener('wheel', (e) => {
+    // İsteğe bağlı: dikey tekerlek hareketi sayfa değiştirmez, içerik dikey kayar (bülten kartları)
+    if (opts.wheelVerticalScroll && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) return;
     e.preventDefault();
     if (isAnimating || wheelLocked) return;
     const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
@@ -8336,9 +8338,11 @@ function initTabs() {
         }
       } catch {}
       if (targetTab === 'companies-tab') { try { loadCompanies(); } catch {} }
+      if (targetTab === 'newsletter-tab') { try { loadNewsletters(); } catch {} }
     });
   });
   try { initCompaniesUI(); } catch(e){ console.warn('initCompaniesUI', e); }
+  try { initNewsletterAdminUI(); } catch(e){ console.warn('initNewsletterAdminUI', e); }
 }
 
 /* ==================== PAGE SIZE SETTINGS ==================== */
@@ -11944,6 +11948,10 @@ function reflectAuth(){
   // Giriş yapıldığında kupa profil ekranında (puanın üstünde) yer alır.
   const lbBtn = qs('#btn-leaderboard');
   if (lbBtn) lbBtn.classList.toggle('hidden', !!currentUser);
+  // Bülten butonu da YALNIZCA giriş yapılmadan (kupanın sağında) görünür
+  const nlBtn = qs('#btn-newsletter');
+  if (nlBtn) nlBtn.classList.toggle('hidden', !!currentUser);
+  if (currentUser) { try { closeNewsletterViewer(); } catch {} }
   const body = document.body;
   const adminCard = qs('#admin-card');
   const olayCard  = qs('#olay-card');
@@ -14964,6 +14972,453 @@ function closeLeaderboard(){
     if (e.key !== 'Escape') return;
     const ov = qs('#leaderboard-overlay');
     if (ov && !ov.classList.contains('hidden')) closeLeaderboard();
+  });
+})();
+
+/* ===================== BÜLTEN (NEWSLETTER) — HABER / ETKİNLİK =====================
+   Supervisor paneli → "Bülten" sekmesi: + ile yeni haber/etkinlik ekleme, güncelleme, silme.
+   Giriş yapılmadan açılan ekranda header'daki bülten butonu (kupanın sağında) ile
+   kayıtlar, "mevcut kayıtlar" ekranındakiyle aynı Instagram tarzı kaydırmalı kartlarda gösterilir.
+   Veritabanında tür İngilizce tutulur: 'news' (haber) | 'activity' (etkinlik). */
+const NL_PHOTO_EXT  = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+const NL_PHOTO_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const __nl = {
+  data: [], page: 1, perPage: 6, _rz: null,          // supervisor listesi
+  editItem: null, photoUrl: '',                       // form durumu
+  publicData: [], publicPage: 0, publicLoading: false  // herkese açık görüntüleyici
+};
+
+function _nlLocale(){
+  const l = String((typeof getLanguage === 'function' ? getLanguage() : '') || '').toLowerCase();
+  return l === 'tr' ? 'tr-TR' : l === 'it' ? 'it-IT' : 'en-GB';
+}
+// Cihazın (bilgisayar / telefon) YEREL tarihi — takvimde bugünden öncesi seçilemez
+function _nlTodayIso(){
+  const d = new Date(); const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+function _nlFmtDate(iso){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+  if (!m) return iso || '';
+  try { return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(_nlLocale(), { day: 'numeric', month: 'long', year: 'numeric' }); }
+  catch { return iso; }
+}
+function _nlTypeLabel(type){ return t(type === 'activity' ? 'newsletterTypeActivity' : 'newsletterTypeNews'); }
+function _nlSafeHttp(u){ const s = String(u || '').trim(); return /^https?:\/\//i.test(s) ? s : ''; }
+// Instagram logosu (şirket pop-up'ındakiyle aynı); gradyan kimliği her kart için benzersiz
+function _nlInstagramSvg(uid){
+  const g = 'nlIgGrad' + uid;
+  return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+    `<defs><linearGradient id="${g}" x1="0" y1="1" x2="1" y2="0">` +
+      '<stop offset="0" stop-color="#f9ce34"/><stop offset="0.45" stop-color="#ee2a7b"/>' +
+      '<stop offset="1" stop-color="#6228d7"/></linearGradient></defs>' +
+    `<rect class="nl-ig-frame" x="2.4" y="2.4" width="19.2" height="19.2" rx="5.4" ry="5.4" fill="none" stroke="url(#${g})" stroke-width="2"/>` +
+    `<circle class="nl-ig-lens" cx="12" cy="12" r="4.3" fill="none" stroke="url(#${g})" stroke-width="2"/>` +
+    `<circle class="nl-ig-dot" cx="17.2" cy="6.8" r="1.35" fill="url(#${g})"/>` +
+  '</svg>';
+}
+
+/* ---------- Supervisor: form ---------- */
+function initNewsletterAdminUI(){
+  const addBtn = qs('#newsletter-add-btn'); if (addBtn) addBtn.onclick = () => openNewsletterForm(null);
+  const closeBtn = qs('#newsletter-form-close'); if (closeBtn) closeBtn.onclick = closeNewsletterForm;
+  const typeSel = qs('#nl-type'); if (typeSel) typeSel.onchange = () => { typeSel.classList.remove('input-error'); nlApplyType(); };
+  const pBtn = qs('#nl-photo-btn'), pFile = qs('#nl-photo-file');
+  if (pBtn && pFile) { pBtn.onclick = () => pFile.click(); pFile.onchange = () => nlHandlePhoto(pFile.files && pFile.files[0]); }
+  const st = qs('#nl-start'), en = qs('#nl-end');
+  if (st) st.addEventListener('change', () => nlOnDateChange('start'));
+  if (en) en.addEventListener('change', () => nlOnDateChange('end'));
+  ['#nl-name', '#nl-link', '#nl-instagram', '#nl-desc', '#nl-start', '#nl-end'].forEach(sel => {
+    const el = qs(sel); if (el) el.addEventListener('input', () => el.classList.remove('input-error'));
+  });
+  const save = qs('#nl-save'); if (save) save.onclick = submitNewsletter;
+  const ov = qs('#newsletter-form-overlay');
+  if (ov) ov.addEventListener('click', (e) => { if (e.target === ov) closeNewsletterForm(); });
+  window.addEventListener('resize', () => {
+    clearTimeout(__nl._rz);
+    __nl._rz = setTimeout(() => { const tab = qs('#newsletter-tab'); if (tab && tab.classList.contains('active')) renderNewslettersTable(); }, 150);
+  });
+}
+
+function openNewsletterForm(item){
+  __nl.editItem = item || null;
+  __nl.photoUrl = item ? (item.photo_url || '') : '';
+  const title = qs('#newsletter-form-title');
+  if (title) title.textContent = t(item ? 'newsletterFormEditTitle' : 'newsletterFormAddTitle');
+  const set = (sel, v) => { const el = qs(sel); if (el) { el.value = v || ''; el.classList.remove('input-error'); } };
+  const typeSel = qs('#nl-type');
+  if (typeSel) { typeSel.value = item ? item.type : ''; typeSel.classList.remove('input-error'); }
+  set('#nl-name', item && item.name);
+  set('#nl-link', item && item.link);
+  set('#nl-instagram', item && item.instagram_link);
+  set('#nl-desc', item && item.description);
+  set('#nl-start', item && item.start_date);
+  set('#nl-end', item && item.end_date);
+  const prev = qs('#nl-photo-preview');
+  if (prev) { prev.src = __nl.photoUrl || ''; prev.hidden = !__nl.photoUrl; }
+  const ps = qs('#nl-photo-status'); if (ps) ps.textContent = __nl.photoUrl ? t('nlPhotoSelected') : '';
+  const pf = qs('#nl-photo-file'); if (pf) pf.value = '';
+  const pb = qs('#nl-photo-btn'); if (pb) pb.classList.remove('input-error');
+  nlApplyType();
+  const ov = qs('#newsletter-form-overlay');
+  if (ov) { ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false'); }
+}
+function closeNewsletterForm(){
+  const ov = qs('#newsletter-form-overlay');
+  if (ov) { ov.classList.add('hidden'); ov.setAttribute('aria-hidden', 'true'); }
+}
+
+/* Tür seçimine göre alanlar ve etiketler değişir:
+   Haber    → ad*, fotoğraf*, link (isteğe bağlı), açıklama*
+   Etkinlik → ad*, fotoğraf*, link + Instagram linki (isteğe bağlı), açıklama*, başlangıç* / bitiş* tarihi
+   Tür değiştirildiğinde ortak alanlar (ad, fotoğraf, link, açıklama) korunur. */
+function nlApplyType(){
+  const type = (qs('#nl-type') && qs('#nl-type').value) || '';
+  const fields = qs('#nl-fields');
+  if (fields) fields.classList.toggle('hidden', !type);
+  const isAct = type === 'activity';
+  document.querySelectorAll('#newsletter-form-overlay .nl-activity-only').forEach(el => el.classList.toggle('hidden', !isAct));
+  const lbl = (sel, key) => { const el = qs(sel); if (el) el.textContent = t(key); };
+  lbl('#nl-name-label',  isAct ? 'nlActivityName' : 'nlNewsName');
+  lbl('#nl-photo-label', isAct ? 'nlActivityPhoto' : 'nlNewsPhoto');
+  lbl('#nl-link-label',  isAct ? 'nlActivityLink' : 'nlNewsLink');
+  lbl('#nl-desc-label',  isAct ? 'nlActivityDescription' : 'nlNewsDescription');
+  const save = qs('#nl-save'); if (save) save.textContent = t(__nl.editItem ? 'nlSaveButton' : 'nlAddButton');
+  const title = qs('#newsletter-form-title');
+  if (title) title.textContent = t(__nl.editItem ? 'newsletterFormEditTitle' : 'newsletterFormAddTitle');
+  nlApplyDateLimits();
+}
+
+// Takvimde bugünden önceki günler (bitişte ayrıca başlangıçtan önceki günler) soluk ve seçilemez
+function nlApplyDateLimits(){
+  const today = _nlTodayIso();
+  const st = qs('#nl-start'), en = qs('#nl-end');
+  if (st) st.min = today;
+  if (en) {
+    const s = st && st.value;
+    en.min = (s && s > today) ? s : today;
+  }
+}
+// Güncellemede, geçmişte başlamış (devam eden) bir etkinliğin başlangıcı değiştirilmediyse kabul edilir
+function _nlStartUnchanged(v){
+  const it = __nl.editItem;
+  return !!(it && it.type === 'activity' && it.start_date && it.start_date === v);
+}
+function nlOnDateChange(which){
+  const today = _nlTodayIso();
+  const st = qs('#nl-start'), en = qs('#nl-end');
+  if (which === 'start' && st && st.value) {
+    if (st.value < today && !_nlStartUnchanged(st.value)) {
+      toast(t('newsletter_start_past'), 'error', 4000);
+      st.value = ''; st.classList.add('input-error');
+    }
+    if (en && en.value && st.value && en.value < st.value) {
+      toast(t('newsletter_end_before_start'), 'error', 4000);
+      en.value = ''; en.classList.add('input-error');
+    }
+  }
+  if (which === 'end' && en && en.value) {
+    if (en.value < today) {
+      toast(t('newsletter_end_past'), 'error', 4000);
+      en.value = ''; en.classList.add('input-error');
+    } else if (st && st.value && en.value < st.value) {
+      toast(t('newsletter_end_before_start'), 'error', 4000);
+      en.value = ''; en.classList.add('input-error');
+    }
+  }
+  nlApplyDateLimits();
+}
+
+function nlHandlePhoto(file){
+  if (!file) return;
+  const ext = String(file.name || '').toLowerCase().split('.').pop();
+  const st = qs('#nl-photo-status');
+  if (!NL_PHOTO_EXT.includes(ext) || (file.type && !NL_PHOTO_MIME.includes(file.type))) {
+    toast(t('nlInvalidPhoto'), 'error', 4000);
+    const f = qs('#nl-photo-file'); if (f) f.value = '';
+    return;
+  }
+  if (st) st.textContent = '…';
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const url = await uploadDataUrl('/api/upload/photo', reader.result);
+      __nl.photoUrl = url;
+      const prev = qs('#nl-photo-preview'); if (prev) { prev.src = url; prev.hidden = false; }
+      const pb = qs('#nl-photo-btn'); if (pb) pb.classList.remove('input-error');
+      if (st) st.textContent = t('nlPhotoSelected');
+    } catch (e) {
+      if (st) st.textContent = '';
+      toast(t('unknownError') + ': ' + ((e && e.message) || ''), 'error');
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+async function submitNewsletter(){
+  const val = (sel) => ((qs(sel) && qs(sel).value) || '').trim();
+  const mark = (sel) => { const el = qs(sel); if (el) el.classList.add('input-error'); };
+  const type = val('#nl-type');
+  if (!type) { mark('#nl-type'); toast(t('newsletter_type_required'), 'error', 4000); return; }
+  const isAct = type === 'activity';
+  const body = {
+    type,
+    name: val('#nl-name'),
+    photo_url: __nl.photoUrl,
+    link: val('#nl-link'),
+    description: val('#nl-desc'),
+    instagram_link: isAct ? val('#nl-instagram') : '',
+    start_date: isAct ? val('#nl-start') : null,
+    end_date: isAct ? val('#nl-end') : null
+  };
+  if (!body.name) { mark('#nl-name'); toast(t('newsletter_name_required'), 'error', 4000); return; }
+  if (!body.photo_url) { mark('#nl-photo-btn'); toast(t('newsletter_photo_required'), 'error', 4000); return; }
+  if (!body.description) { mark('#nl-desc'); toast(t('newsletter_description_required'), 'error', 4000); return; }
+  if (isAct) {
+    const today = _nlTodayIso();
+    if (!body.start_date || !body.end_date) {
+      if (!body.start_date) mark('#nl-start');
+      if (!body.end_date) mark('#nl-end');
+      toast(t('newsletter_dates_required'), 'error', 4000); return;
+    }
+    if (body.start_date < today && !_nlStartUnchanged(body.start_date)) { mark('#nl-start'); toast(t('newsletter_start_past'), 'error', 4000); return; }
+    if (body.end_date < today) { mark('#nl-end'); toast(t('newsletter_end_past'), 'error', 4000); return; }
+    if (body.end_date < body.start_date) { mark('#nl-end'); toast(t('newsletter_end_before_start'), 'error', 4000); return; }
+  }
+  const editing = __nl.editItem;
+  const btn = qs('#nl-save'); if (btn) btn.disabled = true;
+  try {
+    const r = await fetch(editing ? `/api/admin/newsletters/${editing.newsletter_id}` : '/api/admin/newsletters', {
+      method: editing ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); return; }
+    toast(t(editing ? 'nlUpdated' : 'nlAdded'), 'success');
+    closeNewsletterForm();
+    await loadNewsletters(editing ? __nl.page : 1);
+  } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); }
+  finally { if (btn) btn.disabled = false; }
+}
+
+async function deleteNewsletter(item){
+  if (!confirm(t('nlConfirmDelete'))) return;
+  try {
+    const r = await fetch(`/api/admin/newsletters/${item.newsletter_id}`, { method: 'DELETE' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); return; }
+    toast(t('nlDeleted'), 'success');
+    await loadNewsletters(__nl.page);
+  } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); }
+}
+
+/* ---------- Supervisor: liste + dinamik sayfalama ---------- */
+async function loadNewsletters(page){
+  try {
+    const r = await fetch('/api/admin/newsletters');
+    if (!r.ok) throw 0;
+    const d = await r.json();
+    __nl.data = Array.isArray(d) ? d : [];
+  } catch { __nl.data = []; }
+  __nl.page = page || 1;
+  renderNewslettersTable();
+}
+// Sayfa başına satır: listenin ekranda kapladığı yüksekliğe göre (ekran / pencere boyu değiştikçe yeniden hesaplanır)
+function _nlPerPage(){
+  const wrap = qs('.nl-table-wrap');
+  const rowH = 74;
+  let avail = 0;
+  try { avail = wrap ? wrap.clientHeight : 0; } catch {}
+  if (!avail || avail < 140) { const vh = window.innerHeight || 700; avail = Math.max(240, Math.floor(vh * 0.5)); }
+  return Math.max(3, Math.floor(avail / rowH));
+}
+function renderNewslettersTable(){
+  const tb = qs('#newsletter-tbody'); if (!tb) return;
+  const per = _nlPerPage(); __nl.perPage = per;
+  const total = __nl.data.length;
+  const pages = Math.max(1, Math.ceil(total / per));
+  if (__nl.page > pages) __nl.page = pages;
+  if (__nl.page < 1) __nl.page = 1;
+  const start = (__nl.page - 1) * per;
+  const rows = __nl.data.slice(start, start + per);
+  tb.innerHTML = '';
+  if (!total) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td'); td.className = 'company-empty'; td.colSpan = 2; td.textContent = t('nlEmptyAdmin');
+    tr.appendChild(td); tb.appendChild(tr);
+  } else {
+    rows.forEach(it => {
+      const tr = document.createElement('tr'); tr.className = 'company-row nl-row';
+      const td = document.createElement('td'); td.className = 'company-cell nl-cell';
+      const img = document.createElement('img'); img.className = 'nl-cell-thumb'; img.src = it.photo_url || ''; img.alt = '';
+      const box = document.createElement('div'); box.className = 'nl-cell-text';
+      const top = document.createElement('div'); top.className = 'nl-cell-top';
+      const badge = document.createElement('span');
+      badge.className = 'nl-type-badge nl-type-' + (it.type === 'activity' ? 'activity' : 'news');
+      badge.textContent = _nlTypeLabel(it.type);
+      const nm = document.createElement('span'); nm.className = 'company-cell-name nl-cell-name'; nm.textContent = it.name || '';
+      top.appendChild(badge); top.appendChild(nm); box.appendChild(top);
+      if (it.type === 'activity' && it.start_date && it.end_date) {
+        const dt = document.createElement('div'); dt.className = 'nl-cell-dates';
+        dt.textContent = `📅 ${_nlFmtDate(it.start_date)} – ${_nlFmtDate(it.end_date)}`;
+        box.appendChild(dt);
+      }
+      td.appendChild(img); td.appendChild(box); tr.appendChild(td);
+      const ta = document.createElement('td'); ta.className = 'company-actions-cell';
+      const up = document.createElement('button'); up.type = 'button'; up.className = 'company-action-btn'; up.textContent = t('nlUpdate');
+      up.onclick = (e) => { e.stopPropagation(); openNewsletterForm(it); };
+      const del = document.createElement('button'); del.type = 'button'; del.className = 'company-action-btn danger'; del.textContent = t('nlDelete');
+      del.onclick = (e) => { e.stopPropagation(); deleteNewsletter(it); };
+      ta.appendChild(up); ta.appendChild(del); tr.appendChild(ta);
+      tb.appendChild(tr);
+    });
+  }
+  const info = qs('#newsletter-pagination-info'), ctr = qs('#newsletter-pagination-controls');
+  if (info) { const s = total ? start + 1 : 0; const e = Math.min(start + per, total); info.textContent = total ? `${s}-${e} / ${total}` : ''; }
+  if (ctr) {
+    ctr.innerHTML = '';
+    if (pages > 1) {
+      const mk = (label, pg, dis) => { const b = document.createElement('button'); b.className = 'btn pagination-btn'; b.textContent = label; b.disabled = !!dis; b.onclick = () => { __nl.page = pg; renderNewslettersTable(); }; return b; };
+      ctr.appendChild(mk('‹', Math.max(1, __nl.page - 1), __nl.page <= 1));
+      const cur = document.createElement('span'); cur.className = 'pagination-current'; cur.textContent = `${__nl.page}/${pages}`; ctr.appendChild(cur);
+      ctr.appendChild(mk('›', Math.min(pages, __nl.page + 1), __nl.page >= pages));
+    }
+  }
+}
+
+/* ---------- Herkese açık görüntüleyici (header'daki bülten butonu) ---------- */
+let __nlCounterTimer = null;
+async function openNewsletterViewer(){
+  const ov = qs('#newsletter-overlay'); if (!ov) return;
+  ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('nl-viewer-open');
+  const sw = qs('#newsletter-swiper');
+  if (sw) sw.innerHTML = `<div class="nl-empty">${escapeHtml(t('nlLoading'))}</div>`;
+  const cnt = qs('#newsletter-count'); if (cnt) cnt.textContent = '';
+  const dots = qs('#newsletter-dots'); if (dots) dots.innerHTML = '';
+  __nl.publicLoading = true;
+  try {
+    const r = await fetch('/api/newsletters', { cache: 'no-store' });
+    const d = r.ok ? await r.json() : [];
+    __nl.publicData = Array.isArray(d) ? d : [];
+  } catch { __nl.publicData = []; }
+  __nl.publicLoading = false;
+  __nl.publicPage = 0;
+  if (!ov.classList.contains('hidden')) renderNewsletterPages();
+}
+function closeNewsletterViewer(){
+  const ov = qs('#newsletter-overlay'); if (!ov) return;
+  ov.classList.add('hidden'); ov.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('nl-viewer-open');
+  try { ov.querySelectorAll('video').forEach(v => v.pause()); } catch {}
+}
+function _nlUpdateIndicator(){
+  const total = __nl.publicData.length;
+  const dots = qs('#newsletter-dots');
+  if (dots) dots.querySelectorAll('span').forEach((s, i) => s.classList.toggle('active', i === __nl.publicPage));
+  const fc = qs('#newsletter-float-counter');
+  if (fc && total > 1) {
+    fc.textContent = (__nl.publicPage + 1) + '/' + total;
+    fc.classList.add('visible');
+    clearTimeout(__nlCounterTimer);
+    __nlCounterTimer = setTimeout(() => fc.classList.remove('visible'), 1000);
+  }
+  const cnt = qs('#newsletter-count');
+  if (cnt) cnt.textContent = total ? t('newsletterCount', { count: total }) : '';
+}
+function _nlPageHtml(it, idx){
+  const isAct = it.type === 'activity';
+  const link = _nlSafeHttp(it.link);
+  const ig = isAct ? _nlSafeHttp(it.instagram_link) : '';
+  const photo = escapeHtml(it.photo_url || '');
+  const name = escapeHtml(it.name || '');
+  const badge = `<span class="nl-type-badge nl-type-${isAct ? 'activity' : 'news'} nl-type-float">${escapeHtml(_nlTypeLabel(it.type))}</span>`;
+  const img = `<img class="nl-media-img" src="${photo}" alt="${name}" loading="lazy" draggable="false"/>`;
+  const media = link
+    ? `<a class="nl-media-link" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(t('nlOpenLink'))}">${img}<span class="nl-link-hint">🔗 ${escapeHtml(t('nlOpenLink'))}</span></a>`
+    : img;
+  const igBtn = ig
+    ? `<div class="nl-ig-row"><a class="company-instagram-btn nl-ig-btn" href="${escapeHtml(ig)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(t('instagramLink'))}">${_nlInstagramSvg(idx)}<span class="company-instagram-label">${escapeHtml(t('instagramLink'))}</span></a></div>`
+    : '';
+  const dates = (isAct && it.start_date && it.end_date)
+    ? `<div class="nl-dates">
+         <div class="nl-date-chip"><span class="nl-date-k">${escapeHtml(t('nlStarts'))}</span><span class="nl-date-v">${escapeHtml(_nlFmtDate(it.start_date))}</span></div>
+         <div class="nl-date-chip"><span class="nl-date-k">${escapeHtml(t('nlEnds'))}</span><span class="nl-date-v">${escapeHtml(_nlFmtDate(it.end_date))}</span></div>
+       </div>`
+    : '';
+  return `
+    <div class="nl-media" style="--nl-bg:url('${photo.replace(/'/g, '%27')}')">
+      <div class="nl-media-bg" aria-hidden="true"></div>
+      ${media}
+      ${badge}
+    </div>
+    ${igBtn}
+    <div class="pr-info-section nl-info">
+      <div class="nl-name">${name}</div>
+      ${dates}
+      <div class="pr-info-desc nl-desc">${escapeHtml(it.description || '')}</div>
+    </div>`;
+}
+function renderNewsletterPages(){
+  const sw = qs('#newsletter-swiper'); if (!sw) return;
+  const items = __nl.publicData;
+  sw.innerHTML = '';
+  const dots = qs('#newsletter-dots'); if (dots) dots.innerHTML = '';
+  if (!items.length) {
+    sw.innerHTML = `<div class="nl-empty">📰<span>${escapeHtml(t('nlEmptyPublic'))}</span></div>`;
+    _nlUpdateIndicator();
+    return;
+  }
+  if (__nl.publicPage > items.length - 1) __nl.publicPage = items.length - 1;
+  const track = document.createElement('div'); track.className = 'pr-swiper-track';
+  items.forEach((it, i) => {
+    const page = document.createElement('div');
+    page.className = 'polygon-record-page nl-page';
+    page.innerHTML = _nlPageHtml(it, i);
+    track.appendChild(page);
+  });
+  sw.appendChild(track);
+  if (dots && items.length > 1) {
+    for (let i = 0; i < items.length; i++) { const s = document.createElement('span'); if (i === __nl.publicPage) s.className = 'active'; dots.appendChild(s); }
+  }
+  // Fareyle sürükleyip bırakınca altta kalan bağlantı açılmasın (yalnızca gerçek tıklamada açılır)
+  if (!sw.__nlClickGuard) {
+    sw.__nlClickGuard = true;
+    let downX = 0, downY = 0;
+    sw.addEventListener('mousedown', (e) => { downX = e.clientX; downY = e.clientY; }, true);
+    sw.addEventListener('click', (e) => {
+      if (Math.abs(e.clientX - downX) > 8 || Math.abs(e.clientY - downY) > 8) { e.preventDefault(); e.stopPropagation(); }
+    }, true);
+  }
+  // "Mevcut kayıtlar" ekranındaki kaydırma bileşeni (aynı hassasiyet ve animasyon)
+  setupInstagramSwiper(sw, track, {
+    getPageCount: () => items.length,
+    getCurrentPage: () => __nl.publicPage,
+    onPageChange: (p) => { __nl.publicPage = p; _nlUpdateIndicator(); },
+    wheelVerticalScroll: true   // fare tekerleği ile uzun açıklama dikey kaydırılabilsin
+  });
+  _nlUpdateIndicator();
+}
+
+(function wireNewsletter(){
+  document.addEventListener('click', (e) => {
+    const tg = e.target; if (!tg || !tg.closest) return;
+    if (tg.closest('#btn-newsletter')) { openNewsletterViewer(); return; }
+    if (tg.closest('#newsletter-close')) { closeNewsletterViewer(); return; }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const ov = qs('#newsletter-overlay');
+    if (ov && !ov.classList.contains('hidden')) { closeNewsletterViewer(); return; }
+    const fo = qs('#newsletter-form-overlay');
+    if (fo && !fo.classList.contains('hidden')) closeNewsletterForm();
+  });
+  // Dil değişince: form etiketleri, supervisor listesi ve açık görüntüleyici yeniden yazılır
+  window.addEventListener('languagechange', () => {
+    try { const fo = qs('#newsletter-form-overlay'); if (fo && !fo.classList.contains('hidden')) nlApplyType(); } catch {}
+    try { const tab = qs('#newsletter-tab'); if (tab && tab.classList.contains('active')) renderNewslettersTable(); } catch {}
+    try { const ov = qs('#newsletter-overlay'); if (ov && !ov.classList.contains('hidden') && !__nl.publicLoading) renderNewsletterPages(); } catch {}
   });
 })();
 

@@ -160,3 +160,44 @@ DO $$ BEGIN
     ALTER TABLE public.agrees ADD CONSTRAINT agrees_pkey PRIMARY KEY (agree_id);
   END IF;
 END $$;
+
+-- 5) newsletter (news / activity shown with the header newsletter button; also created by the app at startup)
+--    type = 'news' -> start_date, end_date and instagram_link are always NULL (enforced by a trigger)
+--    type = 'activity' -> start_date and end_date are required, end_date >= start_date;
+--                         the app sets active = false automatically after end_date
+CREATE TABLE IF NOT EXISTS public.newsletter (
+  newsletter_id       serial PRIMARY KEY,
+  type                text NOT NULL CONSTRAINT newsletter_type_chk CHECK (type IN ('news', 'activity')),
+  name                text NOT NULL,
+  photo_url           text NOT NULL,
+  link                text,
+  instagram_link      text,
+  description         text NOT NULL,
+  start_date          date,
+  end_date            date,
+  active              boolean NOT NULL DEFAULT true,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  created_by_name     text,
+  updated_at          timestamptz,
+  updated_by_name     text,
+  deactivated_at      timestamptz,
+  deactivated_by_name text,
+  CONSTRAINT newsletter_dates_chk CHECK (
+    type = 'news' OR (start_date IS NOT NULL AND end_date IS NOT NULL AND end_date >= start_date))
+);
+CREATE INDEX IF NOT EXISTS newsletter_active_idx ON public.newsletter (active, created_at DESC);
+CREATE OR REPLACE FUNCTION public.newsletter_normalize()
+RETURNS trigger LANGUAGE plpgsql AS $fn$
+BEGIN
+  IF NEW.type = 'news' THEN
+    NEW.start_date := NULL;
+    NEW.end_date := NULL;
+    NEW.instagram_link := NULL;
+  END IF;
+  RETURN NEW;
+END
+$fn$;
+DROP TRIGGER IF EXISTS trg_newsletter_normalize ON public.newsletter;
+CREATE TRIGGER trg_newsletter_normalize
+BEFORE INSERT OR UPDATE ON public.newsletter
+FOR EACH ROW EXECUTE FUNCTION public.newsletter_normalize();

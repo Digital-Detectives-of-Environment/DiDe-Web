@@ -335,6 +335,11 @@
         <button id="btn-leaderboard" class="trophy-btn" type="button"
                 data-i18n-title="leaderboard" data-i18n-aria-label="leaderboard"
                 title="Leaderboard" aria-label="Leaderboard"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" shape-rendering="geometricPrecision"><path class="ic-fill" d="M7 4h10v5a5 5 0 0 1-10 0V4z" fill="currentColor"/><path class="ic-stroke" d="M7 5.5H4.6a.6.6 0 0 0-.6.6V8a3.4 3.4 0 0 0 3.4 3.4H7.6M17 5.5h2.4a.6.6 0 0 1 .6.6V8a3.4 3.4 0 0 1-3.4 3.4h-.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path class="ic-stroke" d="M12 14v3.4M9 20.4h6M9.6 20.4c0-1.7.9-3 2.4-3s2.4 1.3 2.4 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <!-- Bülten (haber / etkinlik) — yalnızca giriş yapılmadan, kupanın sağında görünür -->
+        <button id="btn-newsletter" class="newsletter-btn" type="button"
+                data-i18n-title="newsletterButton" data-i18n-aria-label="newsletterButton"
+                title="Newsletter" aria-label="Newsletter"><img src="/newsletter.png" alt="" draggable="false"
+                onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect x=%223%22 y=%224%22 width=%2218%22 height=%2216%22 rx=%222.5%22 fill=%22none%22 stroke=%22%232563eb%22 stroke-width=%221.8%22/%3E%3Cpath d=%22M7 8h10M7 12h10M7 16h6%22 stroke=%22%232563eb%22 stroke-width=%221.8%22 stroke-linecap=%22round%22/%3E%3C/svg%3E';" /></button>
       </div>
       <div class="auth">
         <div class="language-selector">
@@ -614,6 +619,7 @@
           <button class="tab-btn" data-tab="users-tab" data-i18n="users">Users</button>
           <button class="tab-btn" data-tab="events-tab" data-i18n="events">Events</button>
           <button class="tab-btn" data-tab="companies-tab" data-i18n="companies">Companies</button>
+          <button class="tab-btn" data-tab="newsletter-tab" data-i18n="newsletterTab">Newsletter</button>
           <button class="tab-btn" data-tab="veri-tipi-tab" data-i18n="existingData">Existing Data</button>
           <button class="tab-btn" data-tab="regions-tab" id="btn-regions-tab" data-i18n="findMyRegion" style="display:none;">Find My Region</button>
         </div>
@@ -677,6 +683,34 @@
         </div>
 
         <!-- Companies Tab -->
+        <!-- BÜLTEN (haber / etkinlik) -->
+        <div id="newsletter-tab" class="tab-content">
+          <div class="panel">
+            <div class="nl-admin-head">
+              <div class="nl-admin-titles">
+                <div class="nl-admin-title" data-i18n="newsletterStudioTitle">Newsletter Studio</div>
+                <div class="nl-admin-sub" data-i18n="newsletterStudioSub">Tap + to share news and activities.</div>
+              </div>
+              <button type="button" id="newsletter-add-btn" class="btn company-add-btn nl-add-btn"
+                      data-i18n-title="newsletterAdd" data-i18n-aria-label="newsletterAdd" title="Add newsletter" aria-label="Add newsletter">
+                <span class="company-add-plus">+</span>
+              </button>
+            </div>
+            <div class="table-wrap company-table-wrap nl-table-wrap">
+              <table id="newsletter-table" class="company-table">
+                <thead>
+                  <tr><th data-i18n="nlColumnItem">Newsletter</th><th class="company-actions-th"></th></tr>
+                </thead>
+                <tbody id="newsletter-tbody"></tbody>
+              </table>
+            </div>
+            <div class="pagination">
+              <div class="pagination-info" id="newsletter-pagination-info"></div>
+              <div class="pagination-controls" id="newsletter-pagination-controls"></div>
+            </div>
+          </div>
+        </div>
+
         <div id="companies-tab" class="tab-content">
           <div class="panel">
             <div class="company-form">
@@ -1065,6 +1099,22 @@
       <p id="nav-arrive-text" class="nav-arrive-text"></p>
       <button id="nav-arrive-ok" class="btn nav-arrive-ok" type="button" data-i18n="navOk">OK</button>
     </div>
+  </div>
+
+  <!-- Bülten görüntüleyici (tam ekran, Instagram tarzı sağa-sola kaydırmalı kartlar) -->
+  <div id="newsletter-overlay" class="newsletter-overlay hidden" aria-hidden="true">
+    <div class="nl-viewer-head">
+      <div class="nl-viewer-title">
+        <img src="/newsletter.png" alt="" class="nl-viewer-logo" onerror="this.style.display='none'" />
+        <span data-i18n="newsletterViewerTitle">Newsletter</span>
+        <span id="newsletter-count" class="nl-viewer-count"></span>
+      </div>
+      <button id="newsletter-close" class="leaderboard-close nl-close" type="button"
+              aria-label="Close" data-i18n-title="close" title="Close">&#10005;</button>
+    </div>
+    <div id="newsletter-float-counter" class="pr-float-counter nl-float-counter"></div>
+    <div id="newsletter-swiper" class="nl-swiper"></div>
+    <div id="newsletter-dots" class="pr-records-dots nl-dots"></div>
   </div>
 
   <!-- Liderlik tablosu (tam ekran, kaydırmasız) -->
@@ -1463,6 +1513,62 @@
         <div class="company-note" data-i18n="newLogoOptional">New logo (optional — leave empty to keep the current one)</div>
         <div class="company-form-row">
           <button type="button" id="company-update-save" class="btn cd-user-add" data-i18n="saveChanges">Save changes</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Bülten ekle / güncelle (supervisor) -->
+  <div id="newsletter-form-overlay" class="company-map-overlay hidden" aria-hidden="true">
+    <div class="company-map-card company-update-card nl-form-card">
+      <div class="company-map-head">
+        <span id="newsletter-form-title">New newsletter</span>
+        <button type="button" id="newsletter-form-close" class="company-map-close" aria-label="Close" data-i18n-title="close">&#10005;</button>
+      </div>
+      <div class="company-form nl-form">
+        <label class="nl-label" for="nl-type"><span data-i18n="newsletterTypeLabel">Newsletter type</span> <span class="nl-req">*</span></label>
+        <select id="nl-type" class="company-input nl-select">
+          <option value="" disabled selected data-i18n="newsletterTypeSelect">Select a newsletter type</option>
+          <option value="news" data-i18n="newsletterTypeNews">News</option>
+          <option value="activity" data-i18n="newsletterTypeActivity">Activity</option>
+        </select>
+
+        <div id="nl-fields" class="nl-fields hidden">
+          <label class="nl-label" for="nl-name"><span id="nl-name-label">Name</span> <span class="nl-req">*</span></label>
+          <input id="nl-name" type="text" class="company-input" maxlength="200" autocomplete="off" />
+
+          <div class="nl-label"><span id="nl-photo-label">Photo</span> <span class="nl-req">*</span></div>
+          <div class="company-form-row nl-photo-row">
+            <img id="nl-photo-preview" class="nl-photo-preview" alt="" hidden />
+            <button type="button" id="nl-photo-btn" class="btn company-logo-btn" data-i18n="nlChoosePhoto">Choose photo</button>
+            <input id="nl-photo-file" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif" hidden />
+            <span id="nl-photo-status" class="company-logo-status"></span>
+          </div>
+
+          <label class="nl-label" for="nl-link"><span id="nl-link-label">Link</span> <span class="nl-opt" data-i18n="nlOptional">(optional)</span></label>
+          <input id="nl-link" type="url" class="company-input" inputmode="url" autocomplete="off" placeholder="https://" />
+
+          <div class="nl-activity-only hidden">
+            <label class="nl-label" for="nl-instagram"><span data-i18n="nlActivityInstagram">Instagram link</span> <span class="nl-opt" data-i18n="nlOptional">(optional)</span></label>
+            <input id="nl-instagram" type="url" class="company-input" inputmode="url" autocomplete="off" placeholder="https://instagram.com/..." />
+          </div>
+
+          <label class="nl-label" for="nl-desc"><span id="nl-desc-label">Description</span> <span class="nl-req">*</span></label>
+          <textarea id="nl-desc" class="company-input nl-textarea" rows="4" maxlength="5000"></textarea>
+
+          <div class="nl-activity-only nl-dates-row hidden">
+            <div class="nl-date-field">
+              <label class="nl-label" for="nl-start"><span data-i18n="nlStartDate">Start date</span> <span class="nl-req">*</span></label>
+              <input id="nl-start" type="date" class="company-input" />
+            </div>
+            <div class="nl-date-field">
+              <label class="nl-label" for="nl-end"><span data-i18n="nlEndDate">End date</span> <span class="nl-req">*</span></label>
+              <input id="nl-end" type="date" class="company-input" />
+            </div>
+          </div>
+
+          <div class="company-form-row">
+            <button type="button" id="nl-save" class="btn cd-user-add nl-save">Add</button>
+          </div>
         </div>
       </div>
     </div>
