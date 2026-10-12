@@ -7832,22 +7832,21 @@ function companyPopupNode(c){
   const pct = Number(c && c.discount_percentage);
   const thr = Number(c && c.discount_threshold_point);
   const hasDiscount = Number.isFinite(pct) && pct > 0 && Number.isFinite(thr) && thr > 0;
-  // İndirim kartı: Instagram renk geçişli (sarı → turuncu → pembe → mor), büyük yüzde değeri
+  // İndirim şeridi: Instagram renk geçişli, Instagram butonuyla aynı yükseklikte (tema uyumlu)
   const disc = document.createElement('div');
   disc.className = 'company-marker-discount' + (hasDiscount ? ' is-ig' : ' is-none');
   if (hasDiscount) {
     disc.setAttribute('role', 'note');
     disc.setAttribute('aria-label', t('companyDiscountLine', { threshold: thr, percent: pct }));
+    // Tek satır: [ikon] İNDİRİM  %10  [1 puan ile]  — Instagram butonuyla aynı yükseklikte
     disc.innerHTML =
-      '<div class="cmd-top">' +
-        '<span class="cmd-icon" aria-hidden="true">' +
-          '<svg viewBox="0 0 24 24" focusable="false"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z" ' +
-          'fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><circle cx="7.5" cy="7.5" r="1.6" fill="#fff"/></svg>' +
-        '</span>' +
-        `<span class="cmd-badge">${escapeHtml(t('companyDiscountBadge'))}</span>` +
-      '</div>' +
-      `<div class="cmd-pct">${escapeHtml(t('companyDiscountPercent', { percent: pct }))}</div>` +
-      `<div class="cmd-sub">${escapeHtml(t('companyDiscountFor', { threshold: thr }))}</div>`;
+      '<span class="cmd-icon" aria-hidden="true">' +
+        '<svg viewBox="0 0 24 24" focusable="false"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z" ' +
+        'stroke-width="2" stroke-linejoin="round"/><circle cx="7.5" cy="7.5" r="1.6"/></svg>' +
+      '</span>' +
+      `<span class="cmd-badge">${escapeHtml(t('companyDiscountBadge'))}</span>` +
+      `<span class="cmd-pct">${escapeHtml(t('companyDiscountPercent', { percent: pct }))}</span>` +
+      `<span class="cmd-sub">${escapeHtml(t('companyDiscountFor', { threshold: thr }))}</span>`;
   } else {
     disc.textContent = t('companyNoDiscount');
   }

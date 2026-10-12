@@ -3996,57 +3996,99 @@ path.live-buffer-circle{
 :root.theme-dark .company-marker-popup .company-marker-discount{ background:rgba(59,130,246,.18); color:#93c5fd; }
 :root.theme-dark .company-marker-popup .company-marker-discount.is-none{ background:rgba(148,163,184,.18); color:#cbd5e1; }
 
-/* İndirim kartı — Instagram renk geçişi (sarı → turuncu → pembe → mor → mavi), büyük ve okunaklı.
-   Açık ve koyu temada aynı görünür (beyaz yazı, renkli zemin). */
+/* İndirim kartı — Instagram butonuyla AYNI yükseklikte, tek satırlık ince şerit.
+   Açık tema : Instagram renk geçişli zemin + fosforlu sarı yüzde ve fosforlu "puan" etiketi.
+   Koyu tema : koyu zemin + Instagram renk geçişli ince çerçeve + neon (parlayan) yazılar. */
 .company-marker-popup .company-marker-discount.is-ig{
   position:relative;
   overflow:hidden;
-  margin-top:10px;
-  padding:12px 14px 13px;
-  border-radius:16px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-wrap:wrap;
+  gap:6px 8px;
+  margin-top:8px;
+  padding:6px 10px;              /* Instagram butonu: 7px 10px + 1.5px çerçeve → aynı yükseklik */
+  min-height:36px;
+  box-sizing:border-box;
+  border:1.5px solid transparent;
+  border-radius:10px;            /* Instagram butonuyla aynı köşe yuvarlaklığı */
   color:#fff;
-  text-align:center;
+  line-height:1.2;
   background:
-    radial-gradient(circle at 30% 107%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285AEB 90%);
-  box-shadow:0 6px 18px rgba(214,36,159,.35), 0 2px 6px rgba(0,0,0,.18);
-  text-shadow:0 1px 2px rgba(0,0,0,.25);
-  animation:cmdPop .35s ease-out both;
+    linear-gradient(45deg, #feda75 0%, #fa7e1e 22%, #d62976 50%, #962fbf 75%, #4f5bd5 100%) border-box;
+  box-shadow:0 3px 10px rgba(214,41,118,.30);
+  animation:cmdPop .3s ease-out both;
 }
-/* hafif parlama çizgisi */
+/* hafif kayan parlama */
 .company-marker-popup .company-marker-discount.is-ig::after{
   content:'';
-  position:absolute; top:-60%; left:-40%;
-  width:40%; height:220%;
-  background:linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.35), rgba(255,255,255,0));
+  position:absolute; top:-80%; left:-40%;
+  width:30%; height:260%;
+  background:linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.30), rgba(255,255,255,0));
   transform:rotate(20deg);
-  animation:cmdShine 3.2s ease-in-out 0.4s infinite;
+  animation:cmdShine 3.6s ease-in-out .4s infinite;
   pointer-events:none;
 }
-.company-marker-discount.is-ig .cmd-top{
-  display:flex; align-items:center; justify-content:center; gap:6px;
-}
 .company-marker-discount.is-ig .cmd-icon{
-  display:inline-flex; width:22px; height:22px; border-radius:7px;
-  background:rgba(255,255,255,.22);
-  align-items:center; justify-content:center;
+  display:inline-flex; align-items:center; justify-content:center;
+  width:20px; height:20px; flex:0 0 auto;
 }
-.company-marker-discount.is-ig .cmd-icon svg{ width:15px; height:15px; display:block; }
+.company-marker-discount.is-ig .cmd-icon svg{ width:18px; height:18px; display:block; }
+.company-marker-discount.is-ig .cmd-icon svg path{ stroke:#fff; fill:none; }
+.company-marker-discount.is-ig .cmd-icon svg circle{ fill:#fff; }
 .company-marker-discount.is-ig .cmd-badge{
-  font-size:11.5px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; opacity:.95;
+  font-size:12px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+  color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.35);
 }
+/* Fosforlu sarı yüzde */
 .company-marker-discount.is-ig .cmd-pct{
-  font-size:34px; font-weight:900; line-height:1.05; margin-top:4px; letter-spacing:-.01em;
+  font-size:19px; font-weight:900; letter-spacing:-.01em; line-height:1;
+  color:#f7ff00;
+  text-shadow:0 0 1px rgba(60,0,60,.9), 0 1px 3px rgba(60,0,60,.55), 0 0 10px rgba(247,255,0,.45);
 }
+/* Fosforlu "1 puan ile" etiketi — koyu yazı, parlak zemin: her zaman net okunur */
 .company-marker-discount.is-ig .cmd-sub{
-  display:inline-block; margin-top:6px; padding:3px 12px;
-  border-radius:999px; background:rgba(255,255,255,.22);
-  font-size:13px; font-weight:700;
+  display:inline-flex; align-items:center;
+  padding:2px 9px;
+  border-radius:999px;
+  background:#e9ff00;
+  color:#3b0a45;
+  font-size:12.5px; font-weight:800;
+  box-shadow:0 0 0 1px rgba(255,255,255,.65), 0 0 10px rgba(233,255,0,.55);
+  text-shadow:none;
+  white-space:nowrap;
 }
-/* Koyu tema: genel svg kurallarından etkilenmesin, beyaz kalsın */
-:root.theme-dark .company-marker-discount.is-ig{ color:#fff; }
-:root.theme-dark .company-marker-discount.is-ig .cmd-icon svg path{ stroke:#fff !important; fill:none !important; }
-:root.theme-dark .company-marker-discount.is-ig .cmd-icon svg circle{ fill:#fff !important; }
-@keyframes cmdPop{ from{ transform:scale(.92); opacity:0; } to{ transform:scale(1); opacity:1; } }
+
+/* ---- Koyu tema: aynı yerleşim, koyu zemin + renk geçişli ince çerçeve + neon yazılar ---- */
+:root.theme-dark .company-marker-popup .company-marker-discount.is-ig{
+  color:#fff;
+  background:
+    linear-gradient(#1a1324, #1a1324) padding-box,
+    linear-gradient(45deg, #feda75 0%, #fa7e1e 22%, #d62976 50%, #962fbf 75%, #4f5bd5 100%) border-box;
+  box-shadow:0 0 12px rgba(214,41,118,.35), inset 0 0 14px rgba(150,47,191,.18);
+}
+:root.theme-dark .company-marker-popup .company-marker-discount.is-ig::after{
+  background:linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.10), rgba(255,255,255,0));
+}
+:root.theme-dark .company-marker-discount.is-ig .cmd-icon svg path{ stroke:#ff5fd2 !important; fill:none !important; }
+:root.theme-dark .company-marker-discount.is-ig .cmd-icon svg circle{ fill:#ff5fd2 !important; }
+:root.theme-dark .company-marker-discount.is-ig .cmd-badge{
+  color:#ff5fd2;
+  text-shadow:0 0 8px rgba(255,95,210,.65);
+}
+:root.theme-dark .company-marker-discount.is-ig .cmd-pct{
+  color:#f5ff3b;
+  text-shadow:0 0 6px rgba(245,255,59,.75), 0 0 14px rgba(245,255,59,.35);
+}
+:root.theme-dark .company-marker-discount.is-ig .cmd-sub{
+  background:rgba(57,255,20,.10);
+  color:#5cff3a;
+  box-shadow:0 0 0 1px #39ff14, 0 0 10px rgba(57,255,20,.45);
+  text-shadow:0 0 6px rgba(57,255,20,.6);
+}
+
+@keyframes cmdPop{ from{ transform:scale(.95); opacity:0; } to{ transform:scale(1); opacity:1; } }
 @keyframes cmdShine{ 0%{ left:-40%; } 55%,100%{ left:130%; } }
 @media (prefers-reduced-motion: reduce){
   .company-marker-popup .company-marker-discount.is-ig,
