@@ -553,6 +553,7 @@ async function encryptPlaintextEmails(fullCheck = false) {
           ORDER BY id`
   );
   let plain = 0, rekeyed = 0, failed = 0;
+  const touched = new Set();   // bu taramada yazılan şifreli değerler (ortak e-posta raporu için)
   for (const row of r.rows) {
     if (_isCurrentEmailCipher(row.email)) continue;
     const clear = decryptEmail(row.email);   // açık metinse aynen, şifreliyse eski parolayla çözer
@@ -567,13 +568,7 @@ async function encryptPlaintextEmails(fullCheck = false) {
       await client.query('COMMIT');
       if (u.rowCount) {
         if (isEncryptedEmail(row.email)) rekeyed++; else plain++;
-        // Bilgi: bu e-postayı başka bir hesap da kullanıyorsa konsola yaz (veri olduğu gibi korunur)
-        try {
-          const d = await pool.query(`SELECT id FROM public.users WHERE email=$1 AND id<>$2 ORDER BY id`, [enc, row.id]);
-          if (d.rows.length) {
-            console.warn(`[PRIVACY] note: user id=${row.id} shares the same e-mail with user id(s) ${d.rows.map(x => x.id).join(', ')}`);
-          }
-        } catch {}
+        touched.add(enc);
       }
     } catch (e) {
       try { await client.query('ROLLBACK'); } catch {}
@@ -582,8 +577,26 @@ async function encryptPlaintextEmails(fullCheck = false) {
       client.release();
     }
   }
-  if (plain)   console.log(`[PRIVACY] ${plain} plaintext e-mail(s) encrypted`);
-  if (rekeyed) console.log(`[PRIVACY] ${rekeyed} e-mail(s) re-encrypted with the current EMAIL_ENCRYPTION_KEY`);
+  if (plain)   console.log(`[PRIVACY] ${plain} e-mail(s) were stored as plain text and are now encrypted`);
+  if (rekeyed) console.log(`[PRIVACY] ${rekeyed} e-mail(s) were in an old encrypted format/key and were converted to the current EMAIL_ENCRYPTION_KEY format`);
+  // Bilgi raporu: AYNI e-posta adresini kullanan hesaplar tek satırda, grup grup yazılır.
+  // (Açılıştaki tam taramada tüm tablo, periyodik taramada yalnızca yeni şifrelenenler.)
+  // Veri değiştirilmez; yalnızca bilgilendirme amaçlıdır.
+  try {
+    const groups = await pool.query(
+      `SELECT array_agg(id::text || ' (' || COALESCE(role, '?') || ')' ORDER BY id) AS ids
+         FROM public.users
+        WHERE email LIKE '${EMAIL_ENC_PREFIX}%' ${fullCheck ? '' : 'AND email = ANY($1::text[])'}
+        GROUP BY email
+       HAVING COUNT(*) > 1
+        ORDER BY MIN(id)`,
+      fullCheck ? [] : [Array.from(touched)]
+    );
+    if ((fullCheck || touched.size) && groups.rows.length) {
+      console.log(`[PRIVACY] info: ${groups.rows.length} e-mail address(es) are used by more than one account (data kept as is):`);
+      groups.rows.forEach((g, i) => console.log(`[PRIVACY]   group ${i + 1}: user id ${g.ids.join(', ')}`));
+    }
+  } catch {}
   if (failed && fullCheck) {
     console.error(`[PRIVACY] WARNING: ${failed} stored e-mail(s) cannot be decrypted with EMAIL_ENCRYPTION_KEY` +
                   (EMAIL_ENCRYPTION_KEY_PREVIOUS_RAW ? ' or EMAIL_ENCRYPTION_KEY_PREVIOUS' : '') +
@@ -6780,7 +6793,8 @@ app.get(
 //   - açılışta, her dakika (yalnızca çevirisi BOŞ olan türler için) ve
 //   - bir tür eklendiğinde / adı güncellendiğinde hemen yapılır.
 // Ad değişirse trigger çeviriyi temizler ve görev yenisini yazar ("sürekli" güncel kalır).
-// Kaynak dil otomatik algılanır (TR, IT, ...). Ad zaten İngilizceyse aynen yazılır.
+// Çeviri Google Translate ile yapılır; kaynak dil otomatik algılanır (TR, IT, ...), belirsizse
+// .env DEFAULT_LANG kullanılır. Ad zaten İngilizceyse aynen kalır.
 // Çeviri servisine ulaşılamazsa sütun boş kalır, arayüz özgün adı gösterir; 10 dk sonra tekrar denenir.
 // Çeviri yanlışsa supervisor/pgAdmin ile sütun elle düzeltilebilir; ad değişmedikçe elle yazılan korunur.
 function _httpGetJson(url, timeoutMs = 8000) {
@@ -6798,28 +6812,72 @@ function _httpGetJson(url, timeoutMs = 8000) {
     req.setTimeout(timeoutMs, () => req.destroy(new Error('timeout')));
   });
 }
+// Google Translate'e tek istek: sl = kaynak dil ('auto' = algıla), hedef her zaman İngilizce.
+// Dönüş: { text, lang (algılanan/verilen kaynak dil), conf (algılama güveni 0-1, bilinmiyorsa null) }
+async function _googleTranslateToEn(text, sl) {
+  const url = 'https://translate.googleapis.com/translate_a/single?client=gtx' +
+              `&sl=${encodeURIComponent(sl)}&tl=en&hl=en&ie=UTF-8&oe=UTF-8&dt=t&dt=ld` +
+              `&q=${encodeURIComponent(text)}`;
+  const j = await _httpGetJson(url);
+  if (!Array.isArray(j) || !Array.isArray(j[0])) return null;
+  const out = j[0].map(seg => (Array.isArray(seg) && typeof seg[0] === 'string') ? seg[0] : '').join('').trim();
+  if (!out) return null;
+  let lang = (typeof j[2] === 'string') ? j[2].toLowerCase() : null;
+  let conf = null;
+  // dt=ld → j[8] = [[dil kodları], null, [güven değerleri], [dil kodları]]
+  if (Array.isArray(j[8]) && Array.isArray(j[8][0]) && Array.isArray(j[8][2])) {
+    if (typeof j[8][0][0] === 'string') lang = j[8][0][0].toLowerCase();
+    const c = Number(j[8][2][0]);
+    if (Number.isFinite(c)) conf = c;
+  } else if (typeof j[6] === 'number' && Number.isFinite(j[6])) {
+    conf = j[6];
+  }
+  return { text: out, lang, conf };
+}
+function _sameText(a, b) {
+  return String(a || '').trim().toLocaleLowerCase('tr') === String(b || '').trim().toLocaleLowerCase('tr');
+}
+function _tidyTranslation(src, out) {
+  let t = String(out || '').replace(/\s+/g, ' ').trim();
+  if (!t) return t;
+  // Kaynakta olmayan sondaki noktayı at (Google kısa ifadelere bazen nokta ekler)
+  if (/\.$/.test(t) && !/\.$/.test(src)) t = t.slice(0, -1).trim();
+  // Kaynak büyük harfle başlıyorsa çeviri de büyük harfle başlasın
+  const s0 = Array.from(src)[0] || '';
+  if (s0 && s0 === s0.toLocaleUpperCase('tr') && s0 !== s0.toLocaleLowerCase('tr')) {
+    const chars = Array.from(t);
+    chars[0] = chars[0].toLocaleUpperCase('en');
+    t = chars.join('');
+  }
+  return t;
+}
+// Olay türü adını İngilizceye çevirir — Google Translate'teki "Dili algıla" ile aynı mantık:
+//   1) Kaynak dil otomatik algılanır ve İngilizceye çevrilir.
+//   2) Algılanan dil .env DEFAULT_LANG ile aynıysa (ya da algılama güveni yüksekse) bu sonuç kullanılır.
+//   3) Kısa adlarda algılama yanılabildiği için (ör. Türkçe tek kelimenin başka dil sanılması),
+//      algılama DEFAULT_LANG'den farklı ve güveni düşükse ad bir de DEFAULT_LANG'den çevrilir;
+//      bu çeviri adı gerçekten değiştiriyorsa (yani ad o dildeyse) o tercih edilir.
+// Alt çizgiler boşluğa çevrilir ("cop_konteyneri" → "cop konteyneri").
+// Çevrilemezse null döner (sütun boş kalır, arayüz özgün adı gösterir, sonra yeniden denenir).
 async function translateTextToEnglish(text) {
-  const src = String(text || '').trim();
+  const src = String(text || '').replace(/_+/g, ' ').replace(/\s+/g, ' ').trim();
   if (!src) return null;
-  const q = encodeURIComponent(src);
-  // 1) Google Translate (kaynak dil otomatik algılanır)
-  try {
-    const j = await _httpGetJson(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${q}`);
-    if (Array.isArray(j) && Array.isArray(j[0])) {
-      const out = j[0].map(seg => (Array.isArray(seg) && seg[0]) ? String(seg[0]) : '').join('').trim();
-      if (out) return out;
-    }
-  } catch (e) { /* yedeğe geç */ }
-  // 2) Yedek: MyMemory (kaynak dil = .env DEFAULT_LANG)
-  try {
-    const from = DEFAULT_LANG.toLowerCase();
-    if (from !== 'en') {
-      const j = await _httpGetJson(`https://api.mymemory.translated.net/get?q=${q}&langpair=${encodeURIComponent(from)}|en`);
-      const out = j && j.responseData && j.responseData.translatedText;
-      if (out && Number(j.responseStatus) === 200) return String(out).trim();
-    }
-  } catch (e) { /* çeviri yapılamadı */ }
-  return null;
+  const defLang = String(DEFAULT_LANG || '').toLowerCase();
+  let auto = null;
+  try { auto = await _googleTranslateToEn(src, 'auto'); } catch (e) { auto = null; }
+
+  const autoIsDefault = auto && auto.lang && (auto.lang === defLang || auto.lang.startsWith(defLang + '-'));
+  const confident = auto && auto.conf != null && auto.conf >= 0.85;
+  if (auto && (defLang === 'en' || autoIsDefault || confident)) return _tidyTranslation(src, auto.text);
+
+  // Algılama belirsiz: varsayılan dilden çevirmeyi de dene
+  if (defLang && defLang !== 'en') {
+    try {
+      const hinted = await _googleTranslateToEn(src, defLang);
+      if (hinted && !_sameText(hinted.text, src)) return _tidyTranslation(src, hinted.text);
+    } catch (e) { /* algılanan sonuçla devam */ }
+  }
+  return auto ? _tidyTranslation(src, auto.text) : null;
 }
 const _etTranslateRetryAt = new Map();   // event_type_id -> tekrar denenebileceği zaman
 let _etTranslateBusy = false;
@@ -6840,6 +6898,8 @@ async function translateEventTypeNames() {
       const retryAt = _etTranslateRetryAt.get(row.event_type_id);
       if (retryAt && retryAt > Date.now()) continue;
       const en = await translateTextToEnglish(row.event_type_name);
+      // Servisi yormamak için istekler arasında kısa bekleme
+      await new Promise(r2 => setTimeout(r2, 300));
       if (!en) { _etTranslateRetryAt.set(row.event_type_id, Date.now() + 10 * 60 * 1000); continue; }
       _etTranslateRetryAt.delete(row.event_type_id);
       // Ad bu arada değiştiyse yazma (yeni ad bir sonraki turda çevrilir)
@@ -6885,6 +6945,19 @@ async function ensureOlaylarSchema(){
         RETURN NEW;
       END
       $fn$;`);
+    // Çeviri yöntemi iyileştirildi (v2: dil algılama + DEFAULT_LANG yedeği, MyMemory kaldırıldı).
+    // Eski yöntemle yazılmış (kısmen hatalı) çeviriler BİR KEZ temizlenir ve yeniden çevrilir.
+    await client.query(`CREATE TABLE IF NOT EXISTS public.app_meta (key text PRIMARY KEY, value text)`);
+    {
+      const v = await client.query(`SELECT value FROM public.app_meta WHERE key='event_type_translation_version'`);
+      if (!v.rows.length || v.rows[0].value !== '2') {
+        await client.query(`UPDATE public.event_type SET event_type_name_translations = NULL`);
+        await client.query(
+          `INSERT INTO public.app_meta (key, value) VALUES ('event_type_translation_version', '2')
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+        console.log('[I18N] event type translations reset; they will be re-translated with the improved method');
+      }
+    }
     await client.query(`DROP TRIGGER IF EXISTS trg_event_type_reset_translation ON public.event_type`);
     await client.query(`
       CREATE TRIGGER trg_event_type_reset_translation
