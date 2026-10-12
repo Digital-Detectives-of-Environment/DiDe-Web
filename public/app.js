@@ -7799,7 +7799,8 @@ async function refreshCompanyMarkers() {
       iconSize: [46, 54], iconAnchor: [23, 52], popupAnchor: [0, -48]
     });
     const m = L.marker([lat, lng], { icon, title: c.company_name || '' });
-    m.bindPopup(companyPopupNode(c));
+    // className: şirket pop-up'ında yükseklik sınırı yok (kaydırmadan tamamı görünür, bkz. index.css)
+    m.bindPopup(companyPopupNode(c), { className: 'company-popup' });
     m.__companyData = c;   // dil değişiminde içeriği tazeleyebilmek için
     m.addTo(companyMarkersLayer);
   });
@@ -7838,7 +7839,7 @@ function companyPopupNode(c){
   if (hasDiscount) {
     disc.setAttribute('role', 'note');
     disc.setAttribute('aria-label', t('companyDiscountLine', { threshold: thr, percent: pct }));
-    // Tek satır: [ikon] İNDİRİM  %10  [1 puan ile]  — Instagram butonuyla aynı yükseklikte
+    // Tek satır: [ikon] İNDİRİM  %10 · 1 puan ile — Instagram butonuyla aynı ölçüde, tek renk yazı
     disc.innerHTML =
       '<span class="cmd-icon" aria-hidden="true">' +
         '<svg viewBox="0 0 24 24" focusable="false"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z" ' +
