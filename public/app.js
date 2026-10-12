@@ -7839,15 +7839,15 @@ function companyPopupNode(c){
   if (hasDiscount) {
     disc.setAttribute('role', 'note');
     disc.setAttribute('aria-label', t('companyDiscountLine', { threshold: thr, percent: pct }));
-    // Tek satır: [ikon] İNDİRİM  %10 · 1 puan ile — Instagram butonuyla aynı ölçüde, tek renk yazı
+    // Tek satır, tek cümle: [ikon] "1 puan ile %10 indirim" (EN: "1 point for 10% off")
+    // Instagram butonuyla aynı ölçüde, tek renk ve tek kalınlıkta yazı.
+    const stripKey = (thr === 1) ? 'companyDiscountStripOne' : 'companyDiscountStrip';
     disc.innerHTML =
       '<span class="cmd-icon" aria-hidden="true">' +
         '<svg viewBox="0 0 24 24" focusable="false"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z" ' +
         'stroke-width="2" stroke-linejoin="round"/><circle cx="7.5" cy="7.5" r="1.6"/></svg>' +
       '</span>' +
-      `<span class="cmd-badge">${escapeHtml(t('companyDiscountBadge'))}</span>` +
-      `<span class="cmd-pct">${escapeHtml(t('companyDiscountPercent', { percent: pct }))}</span>` +
-      `<span class="cmd-sub">${escapeHtml(t('companyDiscountFor', { threshold: thr }))}</span>`;
+      `<span class="cmd-text">${escapeHtml(t(stripKey, { threshold: thr, percent: pct }))}</span>`;
   } else {
     disc.textContent = t('companyNoDiscount');
   }

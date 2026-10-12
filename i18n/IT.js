@@ -262,6 +262,8 @@ window.i18nLangs.it = {
     companyDiscountBadge: 'SCONTO',
     companyDiscountPercent: '{{percent}}%',
     companyDiscountFor: 'con {{threshold}} punti',
+    companyDiscountStrip: '{{threshold}} punti per il {{percent}}% di sconto',
+    companyDiscountStripOne: '1 punto per il {{percent}}% di sconto',
     instagramLink: 'Instagram',
     instagramLinkPlaceholder: 'Link Instagram (facoltativo)',
     allEventTypes: 'Tutti i tipi di evento',

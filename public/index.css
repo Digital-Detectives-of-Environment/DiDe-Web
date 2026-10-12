@@ -3641,7 +3641,8 @@ th:has(#btn-add-type){
 .route-btn-head{ font-size:11px; font-weight:700; color:var(--muted,#6b7280); letter-spacing:.2px; }
 .route-btn-list{ display:flex; gap:6px; }
 .route-btn{
-  flex:1 1 0; min-width:0;
+  /* Buton en az yazısı kadar geniş olur → "Yürüyerek" asla "Yürüye…" diye kesilmez */
+  flex:1 1 0; min-width:max-content;
   display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
   padding:7px 4px;
   border:1.5px solid var(--primary,#1a73e8); border-radius:10px;
@@ -3653,35 +3654,18 @@ th:has(#btn-add-type){
 .route-btn:active{ transform:scale(.96); }
 .route-btn svg{ width:22px; height:22px; display:block; }
 .route-btn-label{
-  /* Ekran daraldıkça yazı da küçülür (gizlenmez): en az 9px, en çok 10.5px */
-  font-size:clamp(9px, 2.7vw, 10.5px);
+  /* Yazı her zaman TAM görünür (üç nokta yok), ikonun ALTINDA durur */
+  font-size:10.5px;
   letter-spacing:.2px; white-space:nowrap;
-  max-width:100%; overflow:hidden; text-overflow:ellipsis;
 }
 .route-btn-bike{ border-color:#0f9d58; color:#0f9d58; }
 .route-btn-bike:hover{ background:rgba(15,157,88,.10); }
-/* Dar ekran: yazılar GİZLENMEZ (Yürüyerek / Bisikletle / Arabayla her zaman görünür);
-   ikon ve boşluklar biraz küçülür. */
+/* Dar ekran: ikon boyutu SABİT kalır (22px), yazı ikonun altında ve tam görünür;
+   yalnızca butonların yan boşlukları biraz daralır. Olay ve şirket pop-up'larında AYNI görünüm. */
 @media (max-width:380px){
-  .route-btn{ padding:6px 3px; gap:2px; }
-  .route-btn svg{ width:20px; height:20px; }
-}
-
-/* Şirket pop-up'ı: rota butonları daha kısa tutulur ki indirim şeridi ve Instagram butonu
-   kaydırmadan görünsün. İkon ve yazı YAN YANA durur (alt alta yerine) → buton yüksekliği
-   yaklaşık yarıya iner; yazı boyutu ekran genişliğine göre kendini ayarlar. */
-.company-marker-popup .route-btn-row{ gap:4px; margin:0 0 8px; padding-bottom:7px; }
-.company-marker-popup .route-btn-list{ gap:5px; }
-.company-marker-popup .route-btn{
-  flex-direction:row; gap:4px;
-  padding:6px 4px;
-  min-height:32px;
-}
-.company-marker-popup .route-btn svg{ width:17px; height:17px; flex:0 0 auto; }
-.company-marker-popup .route-btn-label{ font-size:clamp(9px, 2.5vw, 10.5px); }
-@media (max-width:380px){
-  .company-marker-popup .route-btn{ padding:5px 3px; gap:3px; min-height:30px; }
-  .company-marker-popup .route-btn svg{ width:15px; height:15px; }
+  .route-btn{ padding:7px 3px; }
+  .route-btn-list{ gap:5px; }
+  .route-btn-label{ font-size:10px; letter-spacing:0; }
 }
 
 /* Canlı tampon (BUFFER_RADIUS): kullanıcının konumu çevresinde, animasyonsuz.
@@ -4003,7 +3987,7 @@ path.live-buffer-circle{
   border-left:7px solid transparent; border-right:7px solid transparent;
   border-top:9px solid var(--primary, #2563eb);
 }
-.company-marker-popup{ font-weight:700; font-size:14px; color:var(--text, #111); min-width:210px; }
+.company-marker-popup{ font-weight:700; font-size:14px; color:var(--text, #111); min-width:230px; }
 .company-marker-popup .company-marker-name{ font-weight:800; font-size:14px; line-height:1.3; }
 .company-marker-popup .company-marker-discount{
   margin-top:6px;
@@ -4069,21 +4053,12 @@ path.live-buffer-circle{
 .company-marker-discount.is-ig .cmd-icon svg{ width:17px; height:17px; display:block; }
 .company-marker-discount.is-ig .cmd-icon svg path{ stroke:var(--cmd-fg) !important; fill:none !important; }
 .company-marker-discount.is-ig .cmd-icon svg circle{ fill:var(--cmd-fg) !important; }
-.company-marker-discount.is-ig .cmd-badge,
-.company-marker-discount.is-ig .cmd-pct,
-.company-marker-discount.is-ig .cmd-sub{ color:var(--cmd-fg); flex:0 0 auto; }
-.company-marker-discount.is-ig .cmd-badge{
-  font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
-}
-.company-marker-discount.is-ig .cmd-pct{
-  font-size:15.5px; font-weight:900;
-}
-.company-marker-discount.is-ig .cmd-sub{
-  font-size:13px; font-weight:900;          /* %10 ile aynı yazı kalınlığı */
+/* "1 puan ile %10 indirim" — tek cümle, tek renk, tek kalınlık */
+.company-marker-discount.is-ig .cmd-text{
+  color:var(--cmd-fg);
+  font-size:13.5px; font-weight:900; letter-spacing:.01em;
   flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis;
 }
-/* "%10" ile "1 puan ile" dip dibe: aradaki boşluk 8px yerine 3px */
-.company-marker-discount.is-ig .cmd-pct + .cmd-sub{ margin-left:-5px; }
 
 /* ---- Koyu tema: koyu zemin + renk geçişli ince çerçeve, yazılar tek renk neon sarı ---- */
 :root.theme-dark .company-marker-popup .company-marker-discount.is-ig{

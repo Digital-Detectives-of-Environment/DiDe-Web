@@ -267,6 +267,8 @@ window.i18nLangs.tr = {
     companyDiscountBadge: 'İNDİRİM',
     companyDiscountPercent: '%{{percent}}',
     companyDiscountFor: '{{threshold}} puan ile',
+    companyDiscountStrip: '{{threshold}} puan ile %{{percent}} indirim',
+    companyDiscountStripOne: '1 puan ile %{{percent}} indirim',
     instagramLink: 'Instagram',
     instagramLinkPlaceholder: 'Instagram bağlantısı (isteğe bağlı)',
     allEventTypes: 'Tüm olay türleri',
