@@ -15028,7 +15028,7 @@ function initNewsletterAdminUI(){
   const st = qs('#nl-start'), en = qs('#nl-end');
   if (st) st.addEventListener('change', () => nlOnDateChange('start'));
   if (en) en.addEventListener('change', () => nlOnDateChange('end'));
-  ['#nl-name', '#nl-link', '#nl-instagram', '#nl-desc', '#nl-start', '#nl-end'].forEach(sel => {
+  ['#nl-name', '#nl-link', '#nl-instagram', '#nl-start', '#nl-end'].forEach(sel => {
     const el = qs(sel); if (el) el.addEventListener('input', () => el.classList.remove('input-error'));
   });
   const save = qs('#nl-save'); if (save) save.onclick = submitNewsletter;
@@ -15051,7 +15051,6 @@ function openNewsletterForm(item){
   set('#nl-name', item && item.name);
   set('#nl-link', item && item.link);
   set('#nl-instagram', item && item.instagram_link);
-  set('#nl-desc', item && item.description);
   set('#nl-start', item && item.start_date);
   set('#nl-end', item && item.end_date);
   const prev = qs('#nl-photo-preview');
@@ -15069,9 +15068,9 @@ function closeNewsletterForm(){
 }
 
 /* Tür seçimine göre alanlar ve etiketler değişir:
-   Haber    → ad*, fotoğraf*, link (isteğe bağlı), açıklama (isteğe bağlı)
-   Etkinlik → ad*, fotoğraf*, link + Instagram linki (isteğe bağlı), açıklama (isteğe bağlı), başlangıç* / bitiş* tarihi
-   Tür değiştirildiğinde ortak alanlar (ad, fotoğraf, link, açıklama) korunur. */
+   Haber    → ad*, fotoğraf*, link (isteğe bağlı)
+   Etkinlik → ad*, fotoğraf*, link + Instagram linki (isteğe bağlı), başlangıç* / bitiş* tarihi
+   Tür değiştirildiğinde ortak alanlar (ad, fotoğraf, link) korunur. */
 function nlApplyType(){
   const type = (qs('#nl-type') && qs('#nl-type').value) || '';
   const fields = qs('#nl-fields');
@@ -15082,7 +15081,6 @@ function nlApplyType(){
   lbl('#nl-name-label',  isAct ? 'nlActivityName' : 'nlNewsName');
   lbl('#nl-photo-label', isAct ? 'nlActivityPhoto' : 'nlNewsPhoto');
   lbl('#nl-link-label',  isAct ? 'nlActivityLink' : 'nlNewsLink');
-  lbl('#nl-desc-label',  isAct ? 'nlActivityDescription' : 'nlNewsDescription');
   const save = qs('#nl-save'); if (save) save.textContent = t(__nl.editItem ? 'nlSaveButton' : 'nlAddButton');
   const title = qs('#newsletter-form-title');
   if (title) title.textContent = t(__nl.editItem ? 'newsletterFormEditTitle' : 'newsletterFormAddTitle');
@@ -15166,7 +15164,6 @@ async function submitNewsletter(){
     name: val('#nl-name'),
     photo_url: __nl.photoUrl,
     link: val('#nl-link'),
-    description: val('#nl-desc'),
     instagram_link: isAct ? val('#nl-instagram') : '',
     start_date: isAct ? val('#nl-start') : null,
     end_date: isAct ? val('#nl-end') : null
@@ -15346,9 +15343,8 @@ function _nlPageHtml(it, idx){
          <div class="nl-date-chip"><span class="nl-date-k">${escapeHtml(t('nlEnds'))}</span><span class="nl-date-v">${escapeHtml(_nlFmtDate(it.end_date))}</span></div>
        </div>`
     : '';
-  const desc = String(it.description || '').trim();
-  // Fotoğraf kartın ~%80'i; altındaki bilgi alanı (ad, tarihler, Instagram, açıklama)
-  // kalan kısımda durur ve uzunsa KENDİ İÇİNDE dikey kayar.
+  // Fotoğraf kartın ~%80'i; altındaki bilgi alanı (ad, tarihler, Instagram)
+  // kalan kısımda durur ve gerekirse KENDİ İÇİNDE dikey kayar.
   return `
     <div class="nl-media" style="--nl-bg:url('${photo.replace(/'/g, '%27')}')">
       <div class="nl-media-bg" aria-hidden="true"></div>
@@ -15359,7 +15355,6 @@ function _nlPageHtml(it, idx){
       <div class="nl-name">${name}</div>
       ${dates}
       ${igBtn}
-      ${desc ? `<div class="pr-info-desc nl-desc">${escapeHtml(desc)}</div>` : ''}
     </div>`;
 }
 function renderNewsletterPages(){
@@ -15398,7 +15393,7 @@ function renderNewsletterPages(){
     getPageCount: () => items.length,
     getCurrentPage: () => __nl.publicPage,
     onPageChange: (p) => { __nl.publicPage = p; _nlUpdateIndicator(); },
-    wheelVerticalScroll: true   // fare tekerleği ile uzun açıklama dikey kaydırılabilsin
+    wheelVerticalScroll: true   // fare tekerleği bilgi alanını dikey kaydırabilsin
   });
   _nlUpdateIndicator();
 }

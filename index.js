@@ -6214,7 +6214,6 @@ async function companiesTableExists() {
      photo_url       fotoğraf URL'si (/uploads/...)                  — zorunlu
      link            haber / etkinlik bağlantısı                    — isteğe bağlı
      instagram_link  etkinliğin Instagram bağlantısı                — isteğe bağlı, yalnızca etkinlik
-     description     açıklama                                       — isteğe bağlı (boşsa NULL)
      start_date      etkinlik başlangıç tarihi                      — etkinlikte zorunlu, haberde NULL
      end_date        etkinlik bitiş tarihi (>= start_date)          — etkinlikte zorunlu, haberde NULL
      active          false → silinmiş ya da süresi dolmuş (ön yüzde gösterilmez)
@@ -6238,7 +6237,6 @@ async function _ensureNewsletterSchema() {
       photo_url           text NOT NULL,
       link                text,
       instagram_link      text,
-      description         text,
       start_date          date,
       end_date            date,
       active              boolean NOT NULL DEFAULT true,
@@ -6249,8 +6247,8 @@ async function _ensureNewsletterSchema() {
       deactivated_at      timestamptz,
       deactivated_by_name text
     )`);
-  // Açıklama isteğe bağlı: eski kurulumlardaki NOT NULL kısıtı kaldırılır
-  await pool.query(`ALTER TABLE public.newsletter ALTER COLUMN description DROP NOT NULL`);
+  // Açıklama alanı kaldırıldı: eski kurulumlardaki description sütunu silinir
+  await pool.query(`ALTER TABLE public.newsletter DROP COLUMN IF EXISTS description`);
   await pool.query(`
     DO $$ BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'newsletter_type_chk') THEN
@@ -6317,7 +6315,7 @@ async function deactivateExpiredNewsletters() {
 }
 
 const NEWSLETTER_COLS = `
-  newsletter_id, type, name, photo_url, link, instagram_link, description,
+  newsletter_id, type, name, photo_url, link, instagram_link,
   to_char(start_date, 'YYYY-MM-DD') AS start_date,
   to_char(end_date,   'YYYY-MM-DD') AS end_date,
   active, created_at, created_by_name, updated_at, updated_by_name`;
@@ -6332,8 +6330,6 @@ function _validateNewsletterBody(req, body, existing) {
   if (!name) return fail('newsletter_name_required');
   const photo = String(body?.photo_url || '').trim();
   if (!photo || !(/^\/uploads\//.test(photo) || /^https?:\/\//i.test(photo))) return fail('newsletter_photo_required');
-  // Açıklama isteğe bağlıdır (boş bırakılırsa NULL)
-  const description = String(body?.description || '').trim();
   const link = normalizeLink(body?.link);
   if (String(body?.link || '').trim() && !link) return fail('newsletter_link_invalid');
   let instagram = null, start = null, end = null;
@@ -6358,7 +6354,6 @@ function _validateNewsletterBody(req, body, existing) {
       photo_url: photo.slice(0, 500),
       link,
       instagram_link: instagram,
-      description: description ? description.slice(0, 5000) : null,
       start_date: start,
       end_date: end,
     }
@@ -6387,10 +6382,10 @@ app.post('/api/admin/newsletters', requireAuth, requireAnyRole(['supervisor', 'a
     if (!v.ok) return res.status(400).json(v);
     const x = v.values;
     const r = await pool.query(
-      `INSERT INTO public.newsletter (type, name, photo_url, link, instagram_link, description, start_date, end_date, created_by_name)
-       VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8::date,$9)
+      `INSERT INTO public.newsletter (type, name, photo_url, link, instagram_link, start_date, end_date, created_by_name)
+       VALUES ($1,$2,$3,$4,$5,$6::date,$7::date,$8)
        RETURNING ${NEWSLETTER_COLS}`,
-      [x.type, x.name, x.photo_url, x.link, x.instagram_link, x.description, x.start_date, x.end_date, req.user.username]
+      [x.type, x.name, x.photo_url, x.link, x.instagram_link, x.start_date, x.end_date, req.user.username]
     );
     res.json({ ok: true, item: r.rows[0] });
   } catch (e) {
@@ -6413,11 +6408,11 @@ app.patch('/api/admin/newsletters/:id', requireAuth, requireAnyRole(['supervisor
     const x = v.values;
     const r = await pool.query(
       `UPDATE public.newsletter
-          SET type=$1, name=$2, photo_url=$3, link=$4, instagram_link=$5, description=$6,
-              start_date=$7::date, end_date=$8::date, updated_at=now(), updated_by_name=$9
-        WHERE newsletter_id=$10 AND active = true
+          SET type=$1, name=$2, photo_url=$3, link=$4, instagram_link=$5,
+              start_date=$6::date, end_date=$7::date, updated_at=now(), updated_by_name=$8
+        WHERE newsletter_id=$9 AND active = true
         RETURNING ${NEWSLETTER_COLS}`,
-      [x.type, x.name, x.photo_url, x.link, x.instagram_link, x.description, x.start_date, x.end_date, req.user.username, id]
+      [x.type, x.name, x.photo_url, x.link, x.instagram_link, x.start_date, x.end_date, req.user.username, id]
     );
     if (!r.rows.length) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
     res.json({ ok: true, item: r.rows[0] });
@@ -6453,7 +6448,7 @@ app.get('/api/newsletters', async (req, res) => {
   try {
     await deactivateExpiredNewsletters();
     const r = await pool.query(
-      `SELECT newsletter_id, type, name, photo_url, link, instagram_link, description,
+      `SELECT newsletter_id, type, name, photo_url, link, instagram_link,
               to_char(start_date, 'YYYY-MM-DD') AS start_date,
               to_char(end_date,   'YYYY-MM-DD') AS end_date,
               created_at

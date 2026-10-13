@@ -5026,7 +5026,6 @@ body.nl-viewer-open{ overflow:hidden; }
 }
 .nl-date-k{ font-size:.72rem; font-weight:800; letter-spacing:.07em; text-transform:uppercase; color:#c2185b; }
 .nl-date-v{ font-size:clamp(1.02rem, 4.2vw, 1.2rem); font-weight:900; color:var(--text, #111); line-height:1.2; }
-.nl-desc{ white-space:pre-line; word-break:break-word; font-size:clamp(.9rem, 3.6vw, 1rem); }
 
 .nl-empty{
   height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px;
@@ -5087,7 +5086,6 @@ body.nl-viewer-open{ overflow:hidden; }
 .nl-req{ color:#dc2626; font-weight:800; }
 .nl-opt{ color:var(--muted, #6b7280); font-weight:500; font-size:12px; }
 .nl-select{ cursor:pointer; }
-.nl-textarea{ min-height:96px; resize:vertical; font-family:inherit; line-height:1.45; }
 .nl-photo-row{ gap:10px; }
 .nl-photo-preview{
   width:64px; height:64px; border-radius:12px; object-fit:cover;
