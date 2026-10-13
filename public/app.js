@@ -15127,30 +15127,99 @@ function nlOnDateChange(which){
   nlApplyDateLimits();
 }
 
-function nlHandlePhoto(file){
+/* Bülten fotoğrafı: hangi boyutta seçilirse seçilsin tarayıcıda küçültülüp standart
+   JPEG'e çevrilir, sonra yüklenir. Böylece canlı sunucudaki istek boyutu sınırına
+   (ör. nginx client_max_body_size, varsayılan 1 MB) takılmaz.
+   - En uzun kenar en fazla NL_PHOTO_MAX_SIDE piksel
+   - Dosya boyutu NL_PHOTO_MAX_BYTES altına inene kadar kalite / boyut düşürülür
+   - Şeffaf alanlar (PNG/WEBP) beyaz zeminle doldurulur
+   - Telefon fotoğraflarının EXIF yönü korunur (yan dönmez) */
+const NL_PHOTO_MAX_SIDE  = 1920;
+const NL_PHOTO_MAX_BYTES = 600 * 1024;
+
+function _nlLoadImage(file){
+  if (typeof createImageBitmap === 'function') {
+    return createImageBitmap(file, { imageOrientation: 'from-image' })
+      .catch(() => createImageBitmap(file))
+      .catch(() => _nlLoadImageEl(file));
+  }
+  return _nlLoadImageEl(file);
+}
+function _nlLoadImageEl(file){
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode')); };
+    img.src = url;
+  });
+}
+function _nlDataUrlBytes(dataUrl){
+  const i = dataUrl.indexOf(',');
+  const b64 = i >= 0 ? dataUrl.slice(i + 1) : dataUrl;
+  return Math.floor(b64.length * 3 / 4);
+}
+async function nlNormalizePhoto(file){
+  const img = await _nlLoadImage(file);
+  const srcW = img.width || img.naturalWidth, srcH = img.height || img.naturalHeight;
+  if (!srcW || !srcH) throw new Error('decode');
+  let side = NL_PHOTO_MAX_SIDE;
+  let out = '';
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const scale = Math.min(1, side / Math.max(srcW, srcH));
+    const w = Math.max(1, Math.round(srcW * scale));
+    const h = Math.max(1, Math.round(srcH * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, w, h);
+    for (const q of [0.85, 0.75, 0.65, 0.55]) {
+      out = canvas.toDataURL('image/jpeg', q);
+      if (_nlDataUrlBytes(out) <= NL_PHOTO_MAX_BYTES) break;
+    }
+    if (_nlDataUrlBytes(out) <= NL_PHOTO_MAX_BYTES) break;
+    side = Math.round(side * 0.75);
+  }
+  if (img && typeof img.close === 'function') { try { img.close(); } catch (_) {} }
+  if (!out || !out.startsWith('data:image/jpeg')) throw new Error('decode');
+  return out;
+}
+
+async function nlHandlePhoto(file){
   if (!file) return;
   const ext = String(file.name || '').toLowerCase().split('.').pop();
   const st = qs('#nl-photo-status');
+  const resetInput = () => { const f = qs('#nl-photo-file'); if (f) f.value = ''; };
   if (!NL_PHOTO_EXT.includes(ext) || (file.type && !NL_PHOTO_MIME.includes(file.type))) {
     toast(t('nlInvalidPhoto'), 'error', 4000);
-    const f = qs('#nl-photo-file'); if (f) f.value = '';
+    resetInput();
     return;
   }
   if (st) st.textContent = '…';
-  const reader = new FileReader();
-  reader.onload = async () => {
-    try {
-      const url = await uploadDataUrl('/api/upload/photo', reader.result);
-      __nl.photoUrl = url;
-      const prev = qs('#nl-photo-preview'); if (prev) { prev.src = url; prev.hidden = false; }
-      const pb = qs('#nl-photo-btn'); if (pb) pb.classList.remove('input-error');
-      if (st) st.textContent = t('nlPhotoSelected');
-    } catch (e) {
-      if (st) st.textContent = '';
-      toast(t('unknownError') + ': ' + ((e && e.message) || ''), 'error');
-    }
-  };
-  reader.readAsDataURL(file);
+  let dataUrl;
+  try {
+    dataUrl = await nlNormalizePhoto(file);
+  } catch (e) {
+    if (st) st.textContent = '';
+    toast(t('nlInvalidPhoto'), 'error', 4000);
+    resetInput();
+    return;
+  }
+  try {
+    const url = await uploadDataUrl('/api/upload/photo', dataUrl);
+    __nl.photoUrl = url;
+    const prev = qs('#nl-photo-preview'); if (prev) { prev.src = url; prev.hidden = false; }
+    const pb = qs('#nl-photo-btn'); if (pb) pb.classList.remove('input-error');
+    if (st) st.textContent = t('nlPhotoSelected');
+  } catch (e) {
+    if (st) st.textContent = '';
+    toast(t('photoUploadFailed') + ': ' + ((e && e.message) || ''), 'error');
+  } finally {
+    resetInput();
+  }
 }
 
 async function submitNewsletter(){
