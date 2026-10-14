@@ -15649,8 +15649,8 @@ function _nlPageHtml(it, idx){
          <div class="nl-date-chip"><span class="nl-date-k">${escapeHtml(t('nlEnds'))}</span><span class="nl-date-v">${escapeHtml(_nlFmtDate(it.end_date))}</span></div>
        </div>`
     : '';
-  // Fotoğraf kartın ~%80'i; altındaki bilgi alanı (ad, tarihler, Instagram)
-  // kalan kısımda durur ve gerekirse KENDİ İÇİNDE dikey kayar.
+  // Bilgi alanı (ad, tarihler, Instagram) DOĞAL yüksekliğinde ve KAYDIRMASIZ gösterilir;
+  // fotoğraf kalan alanı doldurur. Bilgi sığmazsa _nlFitInfo() yazı ölçeğini küçültür.
   return `
     <div class="nl-media" style="--nl-bg:url('${photo.replace(/'/g, '%27')}')">
       <div class="nl-media-bg" aria-hidden="true"></div>
@@ -15699,9 +15699,34 @@ function renderNewsletterPages(){
     getPageCount: () => items.length,
     getCurrentPage: () => __nl.publicPage,
     onPageChange: (p) => { __nl.publicPage = p; _nlUpdateIndicator(); },
-    wheelVerticalScroll: true   // fare tekerleği bilgi alanını dikey kaydırabilsin
+    // Bilgi alanı artık kaymıyor → dikey tekerlek de "mevcut kayıtlar" ekranındaki gibi sayfa değiştirir
+    wheelVerticalScroll: false
   });
   _nlUpdateIndicator();
+  _nlFitAll();
+}
+
+/* Fotoğrafın altındaki bilgi alanı (ad, başlangıç/bitiş, Instagram) HİÇBİR ZAMAN kaydırma
+   gerektirmez. Düzen CSS'te: bilgi alanı doğal yüksekliğini alır, fotoğraf kalan alanı doldurur
+   (en az --nl-media-min kadar). Çok uzun bir ad / çok kısa bir ekranda bilgi yine de sığmıyorsa
+   yazı ölçeği (--nl-scale) gerçek ölçümle adım adım küçültülür. */
+const NL_FIT_MIN_SCALE = 0.6;
+function _nlFitInfo(page){
+  const info = page && page.querySelector('.nl-info'); if (!info) return;
+  let scale = 1;
+  page.style.setProperty('--nl-scale', '1');
+  for (let i = 0; i < 10; i++) {
+    if (info.scrollHeight <= info.clientHeight + 1) break;
+    scale = Math.max(NL_FIT_MIN_SCALE, Math.round((scale - 0.05) * 100) / 100);
+    page.style.setProperty('--nl-scale', String(scale));
+    if (scale <= NL_FIT_MIN_SCALE) break;
+  }
+}
+function _nlFitAll(){
+  const ov = qs('#newsletter-overlay'); if (!ov || ov.classList.contains('hidden')) return;
+  requestAnimationFrame(() => {
+    try { ov.querySelectorAll('#newsletter-swiper .nl-page').forEach(_nlFitInfo); } catch {}
+  });
 }
 
 (function wireNewsletter(){
@@ -15723,6 +15748,13 @@ function renderNewsletterPages(){
     try { const tab = qs('#newsletter-tab'); if (tab && tab.classList.contains('active')) renderNewslettersTable(); } catch {}
     try { const ov = qs('#newsletter-overlay'); if (ov && !ov.classList.contains('hidden') && !__nl.publicLoading) renderNewsletterPages(); } catch {}
   });
+  // Ekran boyutu / yönü değişince bilgi alanını yeniden sığdır (kaydırmasız)
+  let rz = null;
+  const refit = () => { clearTimeout(rz); rz = setTimeout(_nlFitAll, 120); };
+  window.addEventListener('resize', refit);
+  window.addEventListener('orientationchange', refit);
+  // Yazı tipleri geç yüklenirse satır yükseklikleri değişebilir
+  try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(_nlFitAll); } catch {}
 })();
 
 /* ===================== PUAN SİSTEMİ BİLGİ EKRANI =====================

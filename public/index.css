@@ -4946,7 +4946,7 @@ body.nl-viewer-open{ overflow:hidden; }
   cursor:grab;
 }
 .nl-swiper .pr-swiper-track{ height:100%; }
-/* Kart: fotoğraf kartın ~%80'i, bilgi alanı kalan ~%20 (kendi içinde kayar) */
+/* Kart: bilgi alanı doğal yüksekliğinde (kaydırmasız), fotoğraf kalan alanı doldurur */
 .nl-page{
   height:100%;
   overflow:hidden !important;
@@ -5184,3 +5184,132 @@ body.nl-viewer-open{ overflow:hidden; }
 .co-actions .co-back:hover{ background:color-mix(in srgb, var(--text,#111) 6%, transparent); }
 .co-actions .co-paid{ flex:1 1 auto; width:auto; }
 .co-err{ min-height:18px; margin-top:6px; color:var(--danger,#dc2626); font-size:13px; font-weight:600; text-align:center; }
+
+/* ===================== Bülten görüntüleyici — KAYDIRMASIZ bilgi alanı =====================
+   Eski düzende fotoğraf sabit %80'di; altındaki bilgi alanı (ad, tarihler, Instagram)
+   kalan %20'ye sığmayınca kendi içinde dikey kayıyordu. Yeni düzen:
+     - Bilgi alanı içeriği kadar yer alır, ASLA kaymaz (overflow:hidden).
+     - Fotoğraf kalan yüksekliği doldurur; en az --nl-media-min kadar görünür kalır.
+     - Yazı boyutları ekranın hem genişliğine (vw) hem yüksekliğine (vh) göre ölçeklenir.
+     - Yine sığmazsa JS (_nlFitInfo) --nl-scale ile yazıları küçültür. */
+.nl-page{ --nl-scale:1; --nl-media-min:42%; }
+.nl-page .nl-media{
+  flex:1 1 auto;
+  min-height:var(--nl-media-min);
+}
+@media (min-width:768px){
+  .nl-page .nl-media{ flex-basis:auto; flex:1 1 auto; }
+}
+@media (max-height:460px) and (orientation:landscape){
+  .nl-page{ --nl-media-min:34%; }
+  .nl-page .nl-media{ flex-basis:auto; }
+}
+.nl-page .nl-info{
+  flex:0 1 auto;
+  min-height:0;
+  overflow:hidden !important;
+  overscroll-behavior:auto;
+  display:flex; flex-direction:column;
+  gap:calc(clamp(4px, 1vh, 9px) * var(--nl-scale));
+  padding:calc(clamp(6px, 1.4vh, 12px) * var(--nl-scale)) clamp(12px, 4vw, 18px) calc(clamp(4px, 1vh, 10px) * var(--nl-scale));
+}
+.nl-page .nl-name{
+  margin:0;
+  font-size:calc(clamp(1rem, min(4.8vw, 3.1vh), 1.45rem) * var(--nl-scale));
+  line-height:1.22;
+  overflow-wrap:anywhere; word-break:break-word;
+}
+.nl-page .nl-dates{ margin:0; gap:calc(clamp(6px, 1vh, 8px) * var(--nl-scale)); flex-wrap:nowrap; }
+.nl-page .nl-date-chip{
+  flex:1 1 0; min-width:0;
+  padding:calc(clamp(4px, .9vh, 7px) * var(--nl-scale)) clamp(10px, 3vw, 14px);
+}
+.nl-page .nl-date-k{ font-size:calc(clamp(.62rem, min(2.6vw, 1.6vh), .72rem) * var(--nl-scale)); }
+.nl-page .nl-date-v{
+  font-size:calc(clamp(.92rem, min(4.2vw, 2.6vh), 1.2rem) * var(--nl-scale));
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.nl-page .nl-ig-row{ padding:0; }
+.nl-page .nl-ig-btn{
+  padding:calc(clamp(5px, 1vh, 9px) * var(--nl-scale)) 12px;
+  font-size:calc(13.5px * var(--nl-scale));
+}
+.nl-page .nl-ig-btn svg{ width:calc(22px * var(--nl-scale)); height:calc(22px * var(--nl-scale)); }
+/* Çok dar telefonlarda tarih çipleri alt alta değil yan yana kalır; yazı ölçeği küçülür */
+@media (max-width:340px){
+  .nl-page .nl-date-chip{ padding-left:8px; padding-right:8px; }
+}
+.nl-dots{ padding:clamp(6px, 1.2vh, 10px) 0 calc(clamp(6px, 1.2vh, 10px) + env(safe-area-inset-bottom, 0px)); min-height:20px; }
+
+/* ===================== Şirket: QR sonrası butonlar (Ödendi / İleri) ===================== */
+/* Buton olduğu ilk bakışta anlaşılsın: dolgun renk geçişi, kalın belirgin çerçeve,
+   gölge, kalın yazı; üzerine gelince hafif yükselme, basınca içe çökme.
+   Açık tema: Ödendi = canlı yeşil, İleri = canlı mavi.
+   Koyu tema: neon tonlar + parlama (Ödendi = açık yeşil, İleri = camgöbeği). */
+.company-order-card .btn.co-paid,
+.company-order-card .btn.co-next{
+  position:relative;
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  min-height:52px;
+  padding:13px 18px;
+  border-radius:14px;
+  font-size:clamp(16px, 4.4vw, 18px);
+  font-weight:900;
+  letter-spacing:.02em;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+  transition:transform .12s ease, box-shadow .18s ease, filter .18s ease, opacity .18s ease;
+}
+.company-order-card .btn.co-paid{
+  color:#fff;
+  background:linear-gradient(135deg, #34d399 0%, #16a34a 55%, #15803d 100%);
+  border:2.5px solid #166534;
+  box-shadow:0 6px 18px rgba(22,163,74,.38), inset 0 1px 0 rgba(255,255,255,.35), inset 0 -3px 0 rgba(0,0,0,.14);
+  text-shadow:0 1px 2px rgba(0,0,0,.28);
+}
+.company-order-card .btn.co-next{
+  color:#fff;
+  background:linear-gradient(135deg, #60a5fa 0%, #2563eb 55%, #1d4ed8 100%);
+  border:2.5px solid #1e3a8a;
+  box-shadow:0 6px 18px rgba(37,99,235,.38), inset 0 1px 0 rgba(255,255,255,.35), inset 0 -3px 0 rgba(0,0,0,.14);
+  text-shadow:0 1px 2px rgba(0,0,0,.28);
+}
+.company-order-card .btn.co-paid::before{ content:'✓'; font-size:1.15em; line-height:1; }
+.company-order-card .btn.co-next::after{ content:'→'; font-size:1.15em; line-height:1; }
+.company-order-card .btn.co-paid:not(:disabled):hover,
+.company-order-card .btn.co-next:not(:disabled):hover{ transform:translateY(-1px); filter:brightness(1.07) saturate(1.1); }
+.company-order-card .btn.co-paid:not(:disabled):hover{ box-shadow:0 10px 24px rgba(22,163,74,.45), inset 0 1px 0 rgba(255,255,255,.35), inset 0 -3px 0 rgba(0,0,0,.14); }
+.company-order-card .btn.co-next:not(:disabled):hover{ box-shadow:0 10px 24px rgba(37,99,235,.45), inset 0 1px 0 rgba(255,255,255,.35), inset 0 -3px 0 rgba(0,0,0,.14); }
+.company-order-card .btn.co-paid:not(:disabled):active,
+.company-order-card .btn.co-next:not(:disabled):active{ transform:translateY(1px) scale(.99); box-shadow:inset 0 3px 8px rgba(0,0,0,.25); }
+.company-order-card .btn.co-paid:focus-visible,
+.company-order-card .btn.co-next:focus-visible{ outline:3px solid #f59e0b; outline-offset:3px; }
+/* Pasif (tutar girilmeden): yine buton görünümünde ama soluk ve gri tonlu */
+.company-order-card .btn.co-paid:disabled,
+.company-order-card .btn.co-next:disabled{
+  opacity:.5; filter:grayscale(.55);
+  box-shadow:none; transform:none; cursor:not-allowed;
+}
+
+/* Koyu tema: neon renkler + parlama, koyu yazı (yüksek kontrast) */
+:root.theme-dark .company-order-card .btn.co-paid{
+  color:#052e16;
+  background:linear-gradient(135deg, #86efac 0%, #4ade80 50%, #22c55e 100%);
+  border-color:#bbf7d0;
+  box-shadow:0 0 18px rgba(74,222,128,.55), 0 6px 18px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.45);
+  text-shadow:none;
+}
+:root.theme-dark .company-order-card .btn.co-next{
+  color:#082f49;
+  background:linear-gradient(135deg, #67e8f9 0%, #22d3ee 50%, #06b6d4 100%);
+  border-color:#cffafe;
+  box-shadow:0 0 18px rgba(34,211,238,.55), 0 6px 18px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.45);
+  text-shadow:none;
+}
+:root.theme-dark .company-order-card .btn.co-paid:not(:disabled):hover{ box-shadow:0 0 26px rgba(74,222,128,.75), 0 8px 22px rgba(0,0,0,.5); }
+:root.theme-dark .company-order-card .btn.co-next:not(:disabled):hover{ box-shadow:0 0 26px rgba(34,211,238,.75), 0 8px 22px rgba(0,0,0,.5); }
+:root.theme-dark .company-order-card .btn.co-paid:disabled,
+:root.theme-dark .company-order-card .btn.co-next:disabled{ opacity:.45; box-shadow:none; }
+/* İkram 2. adım: Geri butonu da Ödendi ile aynı yükseklikte */
+.company-order-card .co-actions .co-back{ min-height:52px; border-width:2px; font-weight:800; }
+:root.theme-dark .company-order-card .co-actions .co-back{ border-color:#64748b; color:#e2e8f0; }
