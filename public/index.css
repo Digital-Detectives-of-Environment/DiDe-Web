@@ -4158,14 +4158,17 @@ path.live-buffer-circle{
 .cd-orders-table tbody tr:hover{ background:color-mix(in srgb, var(--primary,#2563eb) 6%, transparent); }
 .cd-orders-td-person{ font-weight:600; }
 .cd-orders-td-scanner{ color:var(--muted,#6b7280); font-weight:600; }
-/* 7 sütun: Kullanıcı | QR'ı okutan | Tutar | Ödenen | İndirim | Puan | Tarih */
-.cd-orders-table th:nth-child(1), .cd-orders-table td:nth-child(1){ width:17%; }
-.cd-orders-table th:nth-child(2), .cd-orders-table td:nth-child(2){ width:15%; }
-.cd-orders-table th:nth-child(3), .cd-orders-table td:nth-child(3){ width:13%; }
-.cd-orders-table th:nth-child(4), .cd-orders-table td:nth-child(4){ width:13%; }
-.cd-orders-table th:nth-child(5), .cd-orders-table td:nth-child(5){ width:11%; text-align:center; }
-.cd-orders-table th:nth-child(6), .cd-orders-table td:nth-child(6){ width:10%; text-align:center; }
-.cd-orders-table th:nth-child(7), .cd-orders-table td:nth-child(7){ width:21%; }
+/* 8 sütun: Kullanıcı | QR'ı okutan | Tutar | Ödenen | İndirim | İkram | Puan | Tarih
+   (İkram sütunu şirketin tanımladığı ikram metnini gösterir, ör. "Kahve"; indirimli siparişte '-') */
+.cd-orders-table th:nth-child(1), .cd-orders-table td:nth-child(1){ width:14%; }
+.cd-orders-table th:nth-child(2), .cd-orders-table td:nth-child(2){ width:13%; }
+.cd-orders-table th:nth-child(3), .cd-orders-table td:nth-child(3){ width:11%; }
+.cd-orders-table th:nth-child(4), .cd-orders-table td:nth-child(4){ width:11%; }
+.cd-orders-table th:nth-child(5), .cd-orders-table td:nth-child(5){ width:9%; text-align:center; }
+.cd-orders-table th:nth-child(6), .cd-orders-table td:nth-child(6){ width:13%; }
+.cd-orders-table th:nth-child(7), .cd-orders-table td:nth-child(7){ width:9%; text-align:center; }
+.cd-orders-table th:nth-child(8), .cd-orders-table td:nth-child(8){ width:20%; }
+.cd-orders-td-treat{ font-weight:600; color:var(--text,#111); }
 .cd-orders-pagination{ display:flex; justify-content:center; gap:6px; flex-wrap:wrap; margin-top:10px; }
 
 @media (max-width:640px){
@@ -4369,10 +4372,12 @@ body.role-company .company-panel-head{ margin:0; padding:10px 0 8px; border-bott
 .company-orders-table tr{ display:table-row !important; }
 .company-orders-table th, .company-orders-table td{ display:table-cell !important; padding:10px 8px; text-align:left; font-size:clamp(12px,3.2vw,14px); border-bottom:1px solid var(--border-soft,#eef2f7); word-break:break-word; vertical-align:middle; }
 .company-orders-table thead th{ color:var(--muted,#6b7280); font-size:clamp(11px,3vw,13px); font-weight:700; position:sticky; top:0; background:var(--surface,#fff); }
-.company-orders-table th:nth-child(1), .company-orders-table td:nth-child(1){ width:28%; }
-.company-orders-table th:nth-child(2), .company-orders-table td:nth-child(2){ width:24%; }
-.company-orders-table th:nth-child(3), .company-orders-table td:nth-child(3){ width:20%; text-align:center; }
-.company-orders-table th:nth-child(4), .company-orders-table td:nth-child(4){ width:28%; text-align:right; }
+/* 5 sütun: Kullanıcı | Tutar | İnd. % | İkram (✓/✕) | Ödenen */
+.company-orders-table th:nth-child(1), .company-orders-table td:nth-child(1){ width:25%; }
+.company-orders-table th:nth-child(2), .company-orders-table td:nth-child(2){ width:20%; }
+.company-orders-table th:nth-child(3), .company-orders-table td:nth-child(3){ width:16%; text-align:center; }
+.company-orders-table th:nth-child(4), .company-orders-table td:nth-child(4){ width:14%; text-align:center; }
+.company-orders-table th:nth-child(5), .company-orders-table td:nth-child(5){ width:25%; text-align:right; }
 .company-order-row td:nth-child(1){ font-weight:600; color:var(--text,#111); }
 .company-orders-empty{ text-align:center; color:var(--muted,#6b7280); padding:18px 8px; }
 
@@ -4452,17 +4457,17 @@ body.role-company #company-card{
   overflow-wrap:anywhere;
   word-break:break-word;
 }
-/* Sipariş tarihi sütunu (7.) profil tablosundaki iki tarih sütunu gibi tek satıra sığsın,
+/* Sipariş tarihi sütunu (8.) profil tablosundaki iki tarih sütunu gibi tek satıra sığsın,
    "gg.aa.yyyy ss:dd" alt satıra bölünmesin. */
-.cd-orders-table th:nth-child(7),
-.cd-orders-table td:nth-child(7){
+.cd-orders-table th:nth-child(8),
+.cd-orders-table td:nth-child(8){
   white-space:nowrap;
   word-break:normal;
   overflow-wrap:normal;
 }
 @media (max-width:640px){
-  .cd-orders-table th:nth-child(7),
-  .cd-orders-table td:nth-child(7){ white-space:normal; }
+  .cd-orders-table th:nth-child(8),
+  .cd-orders-table td:nth-child(8){ white-space:normal; }
   .cd-orders-table{ font-size:10.5px; }
   .cd-orders-table thead th, .cd-orders-table tbody td{ padding:5px 4px; }
 }
@@ -5113,3 +5118,69 @@ body.nl-viewer-open{ overflow:hidden; }
 .nl-activity-only.hidden{ display:none !important; }
 .nl-activity-only.nl-dates-row{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 @media (max-width:420px){ .nl-activity-only.nl-dates-row{ grid-template-columns:1fr; } }
+
+/* ===================== Şirket paneli — İndirim YA DA İkram seçimi ===================== */
+/* Vurgu rengi temaya göre: açık temada mavi, koyu temada camgöbeği (cyan) */
+:root{ --reward-accent:#2563eb; --reward-ring:rgba(37,99,235,.16); --reward-shadow:rgba(37,99,235,.18); }
+:root.theme-dark{ --reward-accent:#22d3ee; --reward-ring:rgba(34,211,238,.16); --reward-shadow:rgba(34,211,238,.25); }
+
+.reward-choice{ display:flex; flex-direction:column; align-items:stretch; gap:6px; width:100%; max-width:340px; }
+.reward-opt{
+  display:flex; flex-direction:column; gap:6px;
+  padding:10px 12px; border-radius:12px;
+  border:1.5px solid var(--border,#cbd5e1);
+  background:var(--surface,#fff);
+  cursor:pointer; outline:none;
+  transition:border-color .18s ease, box-shadow .18s ease, opacity .18s ease, filter .18s ease;
+}
+.reward-opt-title{ font-size:clamp(11px,2.8vw,12px); font-weight:700; color:var(--muted,#6b7280); transition:color .18s ease; }
+.reward-opt .company-input-sm{ max-width:none; width:100%; box-sizing:border-box; align-self:stretch; }
+/* Aktif seçenek: belirgin, tema renginde çerçeve + yumuşak halka */
+.reward-opt.is-active{
+  border:2px solid var(--reward-accent);
+  box-shadow:0 0 0 3px var(--reward-ring), 0 6px 16px var(--reward-shadow);
+  cursor:default;
+}
+.reward-opt.is-active .reward-opt-title{ color:var(--reward-accent); }
+.reward-opt.is-active .company-input-sm:focus{ border-color:var(--reward-accent); outline:none; box-shadow:0 0 0 2px var(--reward-ring); }
+/* Pasif seçenek: soluk; tıklanınca aktif olur */
+.reward-opt.is-inactive{ opacity:.45; filter:grayscale(.4); border-style:dashed; }
+.reward-opt.is-inactive:hover, .reward-opt.is-inactive:focus-visible{ opacity:.75; filter:none; border-color:var(--reward-accent); }
+.reward-opt.is-inactive .company-input-sm{ pointer-events:none; }
+.reward-or{
+  display:flex; align-items:center; gap:10px;
+  color:var(--muted,#6b7280); font-size:12px; font-weight:800;
+  text-transform:uppercase; letter-spacing:.08em;
+}
+.reward-or::before, .reward-or::after{ content:''; flex:1 1 auto; height:1px; background:var(--border,#e5e7eb); }
+:root.theme-dark .reward-opt{ background:var(--surface); border-color:var(--border); }
+:root.theme-dark .reward-opt.is-active{ border-color:var(--reward-accent); }
+@media (max-width:640px){
+  .reward-choice{ max-width:none; }
+}
+
+/* Ayar görünümü: ikram metni uzun olabilir → satır kırılsın */
+.cdd-item-treat b{ max-width:min(240px, 60vw); overflow-wrap:anywhere; word-break:break-word; font-size:clamp(16px,4.4vw,20px); }
+
+/* Şirket sipariş tablosu: İkram ✓ / ✕ */
+.ord-treat-mark{ display:inline-block; font-weight:900; font-size:clamp(13px,3.4vw,16px); line-height:1; }
+.ord-treat-mark.yes{ color:#16a34a; }
+.ord-treat-mark.no{ color:var(--danger,#b91c1c); opacity:.8; }
+:root.theme-dark .ord-treat-mark.yes{ color:#4ade80; }
+:root.theme-dark .ord-treat-mark.no{ color:#f87171; }
+
+/* QR sonrası ikram akışı: ikram bilgisi + İleri / Geri / Ödendi */
+.co-treat-info{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:10px 12px; margin:4px 0 8px; border-radius:12px;
+  border:1.5px solid var(--reward-accent); background:var(--reward-ring);
+}
+.co-treat-key{ color:var(--muted,#6b7280); font-weight:700; font-size:clamp(12px,3.4vw,14px); }
+.co-treat-val{ color:var(--reward-accent); font-weight:800; font-size:clamp(14px,4vw,17px); text-align:right; overflow-wrap:anywhere; min-width:0; }
+.co-next{ width:100%; margin-top:14px; background:var(--primary,#2563eb); color:#fff; border:none; padding:12px; border-radius:12px; font-weight:700; font-size:16px; cursor:pointer; }
+.co-next:disabled{ opacity:.5; cursor:not-allowed; }
+.co-actions{ display:flex; gap:10px; margin-top:8px; }
+.co-actions .co-back{ flex:0 0 auto; background:transparent; border:1px solid var(--border,#cbd5e1); color:var(--text,#111); padding:12px 16px; border-radius:12px; font-weight:700; font-size:16px; cursor:pointer; }
+.co-actions .co-back:hover{ background:color-mix(in srgb, var(--text,#111) 6%, transparent); }
+.co-actions .co-paid{ flex:1 1 auto; width:auto; }
+.co-err{ min-height:18px; margin-top:6px; color:var(--danger,#dc2626); font-size:13px; font-weight:600; text-align:center; }

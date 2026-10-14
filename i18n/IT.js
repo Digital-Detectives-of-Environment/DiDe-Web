@@ -149,7 +149,7 @@ window.i18nLangs.it = {
     company_coords_required: 'Inserisci latitudine/longitudine valide.',
     orders: 'Ordini',
     companyPanelTitle: 'Pannello azienda',
-    discountSettings: 'Impostazioni sconto',
+    discountSettings: 'Impostazioni sconto / omaggio',
     thresholdPoint: 'Soglia sconto (punti)',
     companyMenu: 'Menu',
     menuItemName: 'Nome prodotto',
@@ -162,7 +162,7 @@ window.i18nLangs.it = {
     qr_invalid: 'Codice QR non valido o scaduto.',
     qr_used: 'Questo codice QR è già stato usato.',
     not_eligible: 'Punti insufficienti per lo sconto.',
-    company_params_missing: 'Definisci prima le impostazioni sconto e il menu.',
+    company_params_missing: 'Definisci prima la soglia punti e una percentuale di sconto o un omaggio.',
     scanTitle: 'Scansiona QR',
     manualTokenPlaceholder: 'Oppure incolla il testo del QR',
     verifyBtn: 'Verifica',
@@ -624,5 +624,23 @@ window.i18nLangs.it = {
     // Layers panel
     layers: 'Livelli',
     layersSubtitle: '(mostra/nascondi + riordina)',
-    apply: 'Applica'
+    apply: 'Applica',
+
+    // İndirim YA DA ikram (treat)
+    rewardThreshold: 'Soglia (punti)',
+    treat: 'Omaggio',
+    treatPlaceholder: 'es. Caffè',
+    orWord: 'oppure',
+    ordTreat: 'Omaggio',
+    thresholdRequired: 'Inserisci la soglia punti (0 o superiore).',
+    discountRequired: 'Inserisci una percentuale di sconto tra 0 e 100.',
+    treatRequired: 'Inserisci l\'omaggio (es. Caffè).',
+    treat_invalid: 'L\'omaggio può essere solo testo; non può contenere numeri (max 60 caratteri).',
+    treatEligibleTitle: 'Idoneo all\'omaggio',
+    treatTotalLabel: 'Inserisci l\'importo totale',
+    treatPaidLabel: 'Inserisci l\'importo da pagare',
+    paidExceedsTotal: 'L\'importo da pagare non può superare l\'importo totale.',
+    company_config_changed: 'Le impostazioni dell\'azienda sono cambiate. Scansiona di nuovo il codice QR.',
+    companyTreatStrip: '{{treat}} offerto con {{threshold}} punti',
+    companyTreatStripOne: '{{treat}} offerto con 1 punto'
 };

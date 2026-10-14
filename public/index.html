@@ -482,20 +482,30 @@
           <div class="company-panel-section">
             <div class="company-panel-section-title" data-i18n="discountSettings">Discount settings</div>
             <div id="company-disc-display" class="company-disc-display">
-              <div class="cdd-item"><span data-i18n="thresholdPoint">Discount threshold (points)</span><b id="cdd-threshold">—</b></div>
-              <div class="cdd-item"><span data-i18n="discountPct">Discount (%)</span><b id="cdd-discount">—</b></div>
+              <div class="cdd-item"><span data-i18n="rewardThreshold">Threshold (points)</span><b id="cdd-threshold">—</b></div>
+              <div id="cdd-discount-item" class="cdd-item"><span data-i18n="discountPct">Discount (%)</span><b id="cdd-discount">—</b></div>
+              <div id="cdd-treat-item" class="cdd-item cdd-item-treat" style="display:none"><span data-i18n="treat">Treat</span><b id="cdd-treat">—</b></div>
               <button type="button" id="company-disc-update" class="btn company-disc-update" data-i18n="updateBtn">Update</button>
             </div>
             <div id="company-disc-edit" class="company-disc-edit">
               <div class="company-disc-row">
                 <label class="company-field-sm">
-                  <span data-i18n="thresholdPoint">Discount threshold (points)</span>
+                  <span data-i18n="rewardThreshold">Threshold (points)</span>
                   <input id="company-threshold" type="number" min="0" class="company-input-sm" />
                 </label>
-                <label class="company-field-sm">
-                  <span data-i18n="discountPct">Discount (%)</span>
+              </div>
+              <!-- Eşik puanına karşılık İKİSİNDEN BİRİ: indirim yüzdesi YA DA ikram (yalnızca metin).
+                   Tıklanan kutu aktif olur (tema renginde belirgin çerçeve), diğeri soluklaşır. -->
+              <div id="company-reward-choice" class="reward-choice" role="radiogroup">
+                <div id="reward-opt-discount" class="reward-opt is-active" data-reward="discount" role="radio" aria-checked="true" tabindex="0">
+                  <span class="reward-opt-title" data-i18n="discountPct">Discount (%)</span>
                   <input id="company-discount" type="number" min="0" max="100" class="company-input-sm" />
-                </label>
+                </div>
+                <div class="reward-or" aria-hidden="true"><span data-i18n="orWord">or</span></div>
+                <div id="reward-opt-treat" class="reward-opt" data-reward="treat" role="radio" aria-checked="false" tabindex="0">
+                  <span class="reward-opt-title" data-i18n="treat">Treat</span>
+                  <input id="company-treat" type="text" maxlength="60" autocomplete="off" class="company-input-sm reward-treat-input" data-i18n-placeholder="treatPlaceholder" />
+                </div>
               </div>
               <button type="button" id="company-disc-save" class="btn company-disc-save" data-i18n="saveConfig">Save</button>
             </div>
@@ -512,6 +522,7 @@
                     <th data-i18n="ordPerson">User</th>
                     <th data-i18n="ordTotal">Total</th>
                     <th data-i18n="ordDiscount">Disc. %</th>
+                    <th data-i18n="ordTreat">Treat</th>
                     <th data-i18n="ordFinal">Paid</th>
                   </tr>
                 </thead>

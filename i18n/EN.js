@@ -154,7 +154,7 @@ window.i18nLangs.en = {
     company_coords_required: 'Please enter valid latitude/longitude.',
     orders: 'Orders',
     companyPanelTitle: 'Company panel',
-    discountSettings: 'Discount settings',
+    discountSettings: 'Discount / treat settings',
     thresholdPoint: 'Discount threshold (points)',
     companyMenu: 'Menu',
     menuItemName: 'Item name',
@@ -167,7 +167,7 @@ window.i18nLangs.en = {
     qr_invalid: 'Invalid or expired QR code.',
     qr_used: 'This QR code has already been used.',
     not_eligible: 'Not enough points for a discount.',
-    company_params_missing: 'Please define discount settings and menu first.',
+    company_params_missing: 'Please define the threshold points and a discount percentage or a treat first.',
     scanTitle: 'Scan QR code',
     manualTokenPlaceholder: 'Or paste QR code text',
     verifyBtn: 'Verify',
@@ -633,5 +633,23 @@ window.i18nLangs.en = {
     // Layers panel
     layers: 'Layers',
     layersSubtitle: '(show/hide + reorder)',
-    apply: 'Apply'
+    apply: 'Apply',
+
+    // İndirim YA DA ikram (treat)
+    rewardThreshold: 'Threshold (points)',
+    treat: 'Treat',
+    treatPlaceholder: 'e.g. Coffee',
+    orWord: 'or',
+    ordTreat: 'Treat',
+    thresholdRequired: 'Please enter the threshold points (0 or greater).',
+    discountRequired: 'Please enter a discount percentage between 0 and 100.',
+    treatRequired: 'Please enter the treat (e.g. Coffee).',
+    treat_invalid: 'The treat can only be text; it cannot contain numbers (max. 60 characters).',
+    treatEligibleTitle: 'Eligible for a treat',
+    treatTotalLabel: 'Enter the total amount',
+    treatPaidLabel: 'Enter the amount to be paid',
+    paidExceedsTotal: 'The amount to be paid cannot be greater than the total amount.',
+    company_config_changed: 'Company settings have changed. Please scan the QR code again.',
+    companyTreatStrip: '{{treat}} on the house for {{threshold}} points',
+    companyTreatStripOne: '{{treat}} on the house for 1 point'
 };

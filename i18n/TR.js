@@ -154,7 +154,7 @@ window.i18nLangs.tr = {
     company_coords_required: 'Lütfen geçerli enlem/boylam girin.',
     orders: 'Siparişler',
     companyPanelTitle: 'Şirket paneli',
-    discountSettings: 'İndirim ayarları',
+    discountSettings: 'İndirim / ikram ayarları',
     thresholdPoint: 'İndirim eşiği (puan)',
     companyMenu: 'Menü',
     menuItemName: 'Ürün adı',
@@ -167,7 +167,7 @@ window.i18nLangs.tr = {
     qr_invalid: 'Geçersiz veya süresi dolmuş QR kodu.',
     qr_used: 'Bu QR kodu zaten kullanılmış.',
     not_eligible: 'İndirim için yeterli puan yok.',
-    company_params_missing: 'Lütfen önce indirim ayarlarını ve menüyü tanımlayın.',
+    company_params_missing: 'Lütfen önce eşik puanını ve indirim yüzdesini ya da ikramı tanımlayın.',
     scanTitle: 'QR kodu okut',
     manualTokenPlaceholder: 'Veya QR kod metnini yapıştır',
     verifyBtn: 'Doğrula',
@@ -633,5 +633,23 @@ window.i18nLangs.tr = {
     // Layers panel
     layers: 'Katmanlar',
     layersSubtitle: '(göster/gizle + sırala)',
-    apply: 'Uygula'
+    apply: 'Uygula',
+
+    // İndirim YA DA ikram (treat)
+    rewardThreshold: 'Eşik puanı',
+    treat: 'İkram',
+    treatPlaceholder: 'Örn. Kahve',
+    orWord: 'veya',
+    ordTreat: 'İkram',
+    thresholdRequired: 'Lütfen eşik puanını girin (0 veya daha büyük bir sayı).',
+    discountRequired: 'Lütfen 0 ile 100 arasında bir indirim yüzdesi girin.',
+    treatRequired: 'Lütfen ikramı girin (örn. Kahve).',
+    treat_invalid: 'İkram yalnızca metin olabilir; sayı içeremez (en fazla 60 karakter).',
+    treatEligibleTitle: 'İkrama uygun',
+    treatTotalLabel: 'Toplam tutarı giriniz',
+    treatPaidLabel: 'Ödenecek tutarı giriniz',
+    paidExceedsTotal: 'Ödenecek tutar toplam tutardan büyük olamaz.',
+    company_config_changed: 'Şirket ayarları değişti. Lütfen QR kodunu yeniden okutun.',
+    companyTreatStrip: '{{threshold}} puan ile {{treat}} ikram',
+    companyTreatStripOne: '1 puan ile {{treat}} ikram'
 };

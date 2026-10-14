@@ -7660,6 +7660,7 @@ function renderCompanyOrdersAdmin() {
       <th>${escapeHtml(t('ordTotal'))}</th>
       <th>${escapeHtml(t('ordFinal'))}</th>
       <th>${escapeHtml(t('ordDiscount'))}</th>
+      <th>${escapeHtml(t('ordTreat'))}</th>
       <th>${escapeHtml(t('pointsSpentCol'))}</th>
       <th>${escapeHtml(t('orderDateCol'))}</th>
     </tr></thead>`;
@@ -7672,6 +7673,8 @@ function renderCompanyOrdersAdmin() {
       `<td>${escapeHtml(_cdFmtMoney(o.order_amount_before_discount))}</td>` +
       `<td>${escapeHtml(_cdFmtMoney(o.order_amount_after_discount))}</td>` +
       `<td>${escapeHtml(o.discount_percentage != null ? o.discount_percentage + '%' : '-')}</td>` +
+      // İkram sütunu: şirketin tanımladığı ikram METNİ (ör. "Kahve"); indirimli siparişte '-'
+      `<td class="cd-orders-td-treat">${escapeHtml(_treatText(o.treat) || '-')}</td>` +
       `<td>${escapeHtml(o.points_spent != null ? String(o.points_spent) : '-')}</td>` +
       `<td>${escapeHtml(_cdFmtDate(o.order_date))}</td>`;
     tbody.appendChild(tr);
@@ -7834,11 +7837,27 @@ function companyPopupNode(c){
 
   const pct = Number(c && c.discount_percentage);
   const thr = Number(c && c.discount_threshold_point);
-  const hasDiscount = Number.isFinite(pct) && pct > 0 && Number.isFinite(thr) && thr > 0;
-  // İndirim şeridi: Instagram renk geçişli, Instagram butonuyla aynı yükseklikte (tema uyumlu)
+  const treat = _treatText(c && c.treat);
+  // İkram tanımlıysa indirim yerine ikram gösterilir (ikisi birbirini dışlar)
+  const hasTreat = !!treat && Number.isFinite(thr) && thr > 0;
+  const hasDiscount = !hasTreat && Number.isFinite(pct) && pct > 0 && Number.isFinite(thr) && thr > 0;
+  // İndirim / ikram şeridi: Instagram renk geçişli, Instagram butonuyla aynı yükseklikte (tema uyumlu)
   const disc = document.createElement('div');
-  disc.className = 'company-marker-discount' + (hasDiscount ? ' is-ig' : ' is-none');
-  if (hasDiscount) {
+  disc.className = 'company-marker-discount' + ((hasDiscount || hasTreat) ? ' is-ig' : ' is-none') + (hasTreat ? ' is-treat' : '');
+  if (hasTreat) {
+    // Tek satır: [ikram ikonu] "25 puan ile Kahve ikram" (EN: "Kahve on the house for 25 points")
+    const stripKey = (thr === 1) ? 'companyTreatStripOne' : 'companyTreatStrip';
+    const txt = t(stripKey, { threshold: thr, treat });
+    disc.setAttribute('role', 'note');
+    disc.setAttribute('aria-label', txt);
+    disc.title = txt;
+    disc.innerHTML =
+      '<span class="cmd-icon" aria-hidden="true">' +
+        '<svg viewBox="0 0 24 24" focusable="false"><path d="M4 8h16v4H4zM6 12v8h12v-8M12 8v12M12 8c-1.5-3-5-3.5-5-1.2C7 8 9.5 8 12 8Zm0 0c1.5-3 5-3.5 5-1.2C17 8 14.5 8 12 8Z" ' +
+        'stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>' +
+      '</span>' +
+      `<span class="cmd-text">${escapeHtml(txt)}</span>`;
+  } else if (hasDiscount) {
     disc.setAttribute('role', 'note');
     disc.setAttribute('aria-label', t('companyDiscountLine', { threshold: thr, percent: pct }));
     // Tek satır, tek cümle: [ikon] "1 puan ile %10 indirim" (EN: "1 point for 10% off")
@@ -7933,18 +7952,50 @@ function renderCompanyPanel() {
   renderDiscountView();
 }
 
-// Eşik + indirim ayarlarını sunucuya yazar
+/* ---- İndirim / İkram yardımcıları ----
+   Şirket, eşik puanına karşılık İKİSİNDEN BİRİNİ tanımlar:
+     'discount' → indirim yüzdesi (ikram boş)   |   'treat' → ikram metni (indirim boş)
+   İkram yalnızca metindir (ör. "Kahve"); rakam içeremez. */
+const TREAT_MAX_LEN = 60;
+function _treatText(v) {
+  if (v == null) return '';
+  return String(v).replace(/\s+/g, ' ').trim();
+}
+function _isValidTreat(s) {
+  if (!s || s.length > TREAT_MAX_LEN) return false;
+  if (/[0-9\u0660-\u0669\u06F0-\u06F9]/.test(s)) return false;
+  try { return /\p{L}/u.test(s); } catch { return /[A-Za-zÀ-ÿĞğİıŞşÖöÜüÇç]/.test(s); }
+}
+function _companyRewardType(c) {
+  if (!c) return null;
+  if (_treatText(c.treat)) return 'treat';
+  if (c.discount_percentage != null) return 'discount';
+  return null;
+}
+function _companyHasConfig(c) {
+  return !!(c && c.discount_threshold_point != null && _companyRewardType(c));
+}
+
+// Eşik + (indirim YA DA ikram) ayarlarını sunucuya yazar
 async function saveCompanyState(toastKey) {
   const c = __companyPanel.data && __companyPanel.data.company;
   if (!c) return false;
+  const rewardType = c.reward_type || _companyRewardType(c) || 'discount';
   try {
     const r = await fetch('/api/company/config', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ discount_threshold_point: c.discount_threshold_point, discount_percentage: c.discount_percentage })
+      body: JSON.stringify({
+        discount_threshold_point: c.discount_threshold_point,
+        reward_type: rewardType,
+        discount_percentage: rewardType === 'discount' ? c.discount_percentage : null,
+        treat: rewardType === 'treat' ? c.treat : null
+      })
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); return false; }
     c.discount_percentage = d.discount_percentage; c.discount_threshold_point = d.discount_threshold_point;
+    c.treat = d.treat != null ? d.treat : null;
+    c.reward_type = d.reward_type || _companyRewardType(c);
     if (toastKey) toast(t(toastKey), 'success');
     return true;
   } catch (e) { toast((e && e.message) || t('unknownError'), 'error', 4000); return false; }
@@ -7957,19 +8008,51 @@ function _companyLayoutChanged() {
   requestAnimationFrame(() => { try { companyOrdersAutoFit(); } catch {} });
 }
 
+// Düzenleme ekranında aktif seçenek (indirim / ikram). Aktif kutunun çerçevesi tema renginde
+// belirginleşir; diğeri soluklaşır ve içindeki giriş alanı kullanılamaz.
+const __companyReward = { type: 'discount' };
+function setRewardChoice(type, focus) {
+  type = (type === 'treat') ? 'treat' : 'discount';
+  __companyReward.type = type;
+  const opts = { discount: qs('#reward-opt-discount'), treat: qs('#reward-opt-treat') };
+  const inputs = { discount: qs('#company-discount'), treat: qs('#company-treat') };
+  Object.keys(opts).forEach(k => {
+    const box = opts[k], inp = inputs[k], on = (k === type);
+    if (box) {
+      box.classList.toggle('is-active', on);
+      box.classList.toggle('is-inactive', !on);
+      box.setAttribute('aria-checked', on ? 'true' : 'false');
+      box.classList.remove('input-error');
+    }
+    if (inp) {
+      inp.readOnly = !on;
+      inp.tabIndex = on ? 0 : -1;
+      inp.setAttribute('aria-disabled', on ? 'false' : 'true');
+      inp.classList.remove('input-error');
+    }
+  });
+  if (focus && inputs[type]) setTimeout(() => { try { inputs[type].focus(); } catch {} }, 0);
+}
+
 function renderDiscountView() {
   const c = __companyPanel.data && __companyPanel.data.company;
-  const has = !!(c && c.discount_threshold_point != null && c.discount_percentage != null);
+  const has = _companyHasConfig(c);
   const disp = qs('#company-disc-display'), edit = qs('#company-disc-edit');
   if (has) {
-    const tv = qs('#cdd-threshold'), dv = qs('#cdd-discount');
+    const isTreat = _companyRewardType(c) === 'treat';
+    const tv = qs('#cdd-threshold'), dv = qs('#cdd-discount'), trv = qs('#cdd-treat');
+    const dItem = qs('#cdd-discount-item'), tItem = qs('#cdd-treat-item');
     if (tv) tv.textContent = String(c.discount_threshold_point);
-    if (dv) dv.textContent = c.discount_percentage + '%';
+    if (dv) dv.textContent = isTreat ? '—' : (c.discount_percentage + '%');
+    if (trv) trv.textContent = isTreat ? _treatText(c.treat) : '—';
+    if (dItem) dItem.style.display = isTreat ? 'none' : '';
+    if (tItem) tItem.style.display = isTreat ? '' : 'none';
     if (disp) disp.style.display = '';
     if (edit) edit.style.display = 'none';
   } else {
-    const thr = qs('#company-threshold'), dp = qs('#company-discount');
-    if (thr) thr.value = ''; if (dp) dp.value = '';
+    const thr = qs('#company-threshold'), dp = qs('#company-discount'), tr = qs('#company-treat');
+    if (thr) thr.value = ''; if (dp) dp.value = ''; if (tr) tr.value = '';
+    setRewardChoice(_companyRewardType(c) || 'discount', false);
     if (disp) disp.style.display = 'none';
     if (edit) edit.style.display = '';
   }
@@ -7977,9 +8060,11 @@ function renderDiscountView() {
 }
 function editDiscount() {
   const c = __companyPanel.data && __companyPanel.data.company;
-  const thr = qs('#company-threshold'), dp = qs('#company-discount');
+  const thr = qs('#company-threshold'), dp = qs('#company-discount'), tr = qs('#company-treat');
   if (thr) thr.value = (c && c.discount_threshold_point != null) ? c.discount_threshold_point : '';
   if (dp) dp.value = (c && c.discount_percentage != null) ? c.discount_percentage : '';
+  if (tr) tr.value = _treatText(c && c.treat);
+  setRewardChoice(_companyRewardType(c) || 'discount', false);
   const disp = qs('#company-disc-display'), edit = qs('#company-disc-edit');
   if (disp) disp.style.display = 'none';
   if (edit) edit.style.display = '';
@@ -7987,14 +8072,35 @@ function editDiscount() {
 }
 async function saveDiscount() {
   const c = __companyPanel.data && __companyPanel.data.company; if (!c) return;
-  const thr = qs('#company-threshold'), dp = qs('#company-discount');
-  const hadValues = (c.discount_threshold_point != null && c.discount_percentage != null);
-  c.discount_threshold_point = (thr && thr.value !== '') ? Number(thr.value) : null;
-  c.discount_percentage = (dp && dp.value !== '') ? Number(dp.value) : null;
+  const thr = qs('#company-threshold'), dp = qs('#company-discount'), tr = qs('#company-treat');
+  const type = __companyReward.type === 'treat' ? 'treat' : 'discount';
+  const fail = (el, key) => { if (el) el.classList.add('input-error'); toast(t(key), 'error', 4000); };
+
+  // Eşik zorunlu, 0 veya pozitif tam sayı
+  const thrVal = (thr && thr.value !== '') ? Number(thr.value) : null;
+  if (thrVal == null || !Number.isFinite(thrVal) || thrVal < 0) { fail(thr, 'thresholdRequired'); return; }
+
+  let dpVal = null, treatVal = null;
+  if (type === 'discount') {
+    dpVal = (dp && dp.value !== '') ? Number(dp.value) : null;
+    if (dpVal == null || !Number.isFinite(dpVal) || dpVal < 0 || dpVal > 100) { fail(dp, 'discountRequired'); return; }
+  } else {
+    treatVal = _treatText(tr && tr.value);
+    if (!treatVal) { fail(tr, 'treatRequired'); return; }
+    if (!_isValidTreat(treatVal)) { fail(tr, 'treat_invalid'); return; }
+  }
+
+  const hadValues = _companyHasConfig(c);
+  const prev = { thr: c.discount_threshold_point, dp: c.discount_percentage, treat: c.treat, type: c.reward_type };
+  c.discount_threshold_point = thrVal;
+  c.reward_type = type;
+  c.discount_percentage = dpVal;
+  c.treat = treatVal;
   const btn = qs('#company-disc-save'); if (btn) btn.disabled = true;
   const ok = await saveCompanyState(hadValues ? 'configUpdated' : 'configSaved');
   if (btn) btn.disabled = false;
   if (ok) renderDiscountView();
+  else { c.discount_threshold_point = prev.thr; c.discount_percentage = prev.dp; c.treat = prev.treat; c.reward_type = prev.type; }
 }
 
 // Dinamik, kısaltılmış sayfa numaralandırma penceresi hesaplar.
@@ -8056,7 +8162,7 @@ function renderCompanyOrders() {
   const pageData = data.slice(start, start + per);
   tb.innerHTML = '';
   if (!data.length) {
-    tb.innerHTML = `<tr><td colspan="4" class="company-orders-empty">${escapeHtml(t('noOrdersYet'))}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="5" class="company-orders-empty">${escapeHtml(t('noOrdersYet'))}</td></tr>`;
   } else {
     pageData.forEach(o => {
       const tr = document.createElement('tr'); tr.className = 'company-order-row';
@@ -8064,6 +8170,10 @@ function renderCompanyOrders() {
         `<td data-label="${escapeHtml(t('ordPerson'))}">${escapeHtml(o.person_placing_order || '-')}</td>` +
         `<td data-label="${escapeHtml(t('ordTotal'))}">${escapeHtml(_cdFmtMoney(o.order_amount_before_discount))}</td>` +
         `<td data-label="${escapeHtml(t('ordDiscount'))}">${o.discount_percentage != null ? escapeHtml(o.discount_percentage + '%') : '-'}</td>` +
+        // İkram sütunu: ikramlı siparişte ✓, indirimli siparişte ✕
+        (_treatText(o.treat)
+          ? `<td data-label="${escapeHtml(t('ordTreat'))}" class="ord-treat-cell"><span class="ord-treat-mark yes" title="${escapeHtml(_treatText(o.treat))}" aria-label="${escapeHtml(t('ordTreat'))}: ${escapeHtml(_treatText(o.treat))}">&#10003;</span></td>`
+          : `<td data-label="${escapeHtml(t('ordTreat'))}" class="ord-treat-cell"><span class="ord-treat-mark no" aria-hidden="true">&#10005;</span></td>`) +
         `<td data-label="${escapeHtml(t('ordFinal'))}">${escapeHtml(_cdFmtMoney(o.order_amount_after_discount))}</td>`;
       tb.appendChild(tr);
     });
@@ -8098,11 +8208,11 @@ function companyOrdersAutoFit() {
 }
 
 /* ---- QR okutma + sipariş (company) ---- */
-const __companyScan = { qr: null, running: false, token: null, result: null };
+const __companyScan = { qr: null, running: false, token: null, result: null, treatTotal: null };
 
 function _companyParamsReady() {
   const c = __companyPanel.data && __companyPanel.data.company;
-  return !!(c && c.discount_threshold_point != null && c.discount_percentage != null);
+  return _companyHasConfig(c);
 }
 
 function openCompanyScan() {
@@ -8144,7 +8254,7 @@ async function handleScanToken(token) {
 }
 
 function openOrderResult(data, token) {
-  __companyScan.token = token; __companyScan.result = data;
+  __companyScan.token = token; __companyScan.result = data; __companyScan.treatTotal = null;
   const ov = qs('#company-order-overlay'); if (!ov) return;
   const verdict = qs('#company-order-verdict'), userEl = qs('#company-order-user'), body = qs('#company-order-body');
   if (!data.eligible) {
@@ -8154,34 +8264,118 @@ function openOrderResult(data, token) {
     ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false');
     return;
   }
+  const isTreat = data.reward_type === 'treat';
   if (verdict) { verdict.className = 'company-order-verdict good'; verdict.textContent = '✓'; }
   const nm = _maskFullName(data.name);
-  if (userEl) userEl.innerHTML = `<div class="co-title">${escapeHtml(t('eligibleTitle'))}</div><div class="co-un">@${escapeHtml(data.username || '')}</div>${nm ? `<div class="co-fn">${escapeHtml(nm)}</div>` : ''}`;
+  if (userEl) userEl.innerHTML = `<div class="co-title">${escapeHtml(t(isTreat ? 'treatEligibleTitle' : 'eligibleTitle'))}</div><div class="co-un">@${escapeHtml(data.username || '')}</div>${nm ? `<div class="co-fn">${escapeHtml(nm)}</div>` : ''}`;
   if (body) {
-    // Ürün/menü seçimi kaldırıldı: hesap tutarı elle girilir, indirim anında hesaplanır.
-    body.innerHTML = '';
-    const field = document.createElement('div'); field.className = 'co-amount-field';
-    const lbl = document.createElement('label'); lbl.className = 'co-amount-label'; lbl.setAttribute('for', 'co-amount'); lbl.textContent = t('billAmount');
-    const inp = document.createElement('input');
-    inp.id = 'co-amount'; inp.className = 'company-input co-amount-input';
-    inp.type = 'text'; inp.inputMode = 'decimal'; inp.autocomplete = 'off';
-    inp.placeholder = t('billAmountPlaceholder');
-    // Yalnızca sayı ve tek bir ondalık ayırıcı (virgül veya nokta) kabul edilir.
-    inp.oninput = () => {
-      let v = inp.value.replace(/[^0-9.,]/g, '');
-      const firstSep = v.search(/[.,]/);
-      if (firstSep !== -1) v = v.slice(0, firstSep + 1) + v.slice(firstSep + 1).replace(/[.,]/g, '');
-      inp.value = v;
-      recomputeOrderTotals();
-    };
-    field.appendChild(lbl); field.appendChild(inp);
-    body.appendChild(field);
-    const totals = document.createElement('div'); totals.className = 'co-totals'; totals.id = 'co-totals'; body.appendChild(totals);
-    const paid = document.createElement('button'); paid.type = 'button'; paid.className = 'btn co-paid'; paid.id = 'co-paid-btn'; paid.textContent = t('markPaid'); paid.disabled = true; paid.onclick = () => submitOrder();
-    body.appendChild(paid);
-    setTimeout(() => { try { inp.focus(); } catch {} }, 60);
+    if (isTreat) {
+      // İkram akışı: 1) toplam tutar → İleri  2) ödenecek tutar → Ödendi (sipariş oluşur)
+      renderTreatStepTotal();
+    } else {
+      // Ürün/menü seçimi kaldırıldı: hesap tutarı elle girilir, indirim anında hesaplanır.
+      body.innerHTML = '';
+      const { field, inp } = _coAmountField('co-amount', t('billAmount'), recomputeOrderTotals);
+      body.appendChild(field);
+      const totals = document.createElement('div'); totals.className = 'co-totals'; totals.id = 'co-totals'; body.appendChild(totals);
+      const paid = document.createElement('button'); paid.type = 'button'; paid.className = 'btn co-paid'; paid.id = 'co-paid-btn'; paid.textContent = t('markPaid'); paid.disabled = true; paid.onclick = () => submitOrder();
+      body.appendChild(paid);
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !paid.disabled) { e.preventDefault(); submitOrder(); } });
+      setTimeout(() => { try { inp.focus(); } catch {} }, 60);
+    }
   }
   ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false');
+}
+
+// Tutar giriş alanı (indirim ve ikram akışlarında ortak): yalnızca sayı ve TEK ondalık ayırıcı.
+function _coAmountField(id, labelText, onChange) {
+  const field = document.createElement('div'); field.className = 'co-amount-field';
+  const lbl = document.createElement('label'); lbl.className = 'co-amount-label'; lbl.setAttribute('for', id); lbl.textContent = labelText;
+  const inp = document.createElement('input');
+  inp.id = id; inp.className = 'company-input co-amount-input';
+  inp.type = 'text'; inp.inputMode = 'decimal'; inp.autocomplete = 'off';
+  inp.placeholder = t('billAmountPlaceholder');
+  inp.oninput = () => {
+    let v = inp.value.replace(/[^0-9.,]/g, '');
+    const firstSep = v.search(/[.,]/);
+    if (firstSep !== -1) v = v.slice(0, firstSep + 1) + v.slice(firstSep + 1).replace(/[.,]/g, '');
+    inp.value = v;
+    if (typeof onChange === 'function') onChange();
+  };
+  field.appendChild(lbl); field.appendChild(inp);
+  return { field, inp };
+}
+// "200,5" / "200.5" → 200.5 ; allowZero: ödenecek tutar 0 olabilir (yalnızca ikram)
+function _parseAmountStr(str, allowZero) {
+  const raw = (str != null) ? String(str).trim().replace(',', '.') : '';
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || (!allowZero && n <= 0)) return null;
+  return Math.round(n * 100) / 100;
+}
+function _coTreatInfo(treat) {
+  const box = document.createElement('div'); box.className = 'co-treat-info';
+  const k = document.createElement('span'); k.className = 'co-treat-key'; k.textContent = t('treat');
+  const v = document.createElement('b'); v.className = 'co-treat-val'; v.textContent = treat || '';
+  box.appendChild(k); box.appendChild(v);
+  return box;
+}
+
+// İkram — 1. adım: toplam (sipariş) tutarı
+function renderTreatStepTotal() {
+  const body = qs('#company-order-body'); if (!body) return;
+  const data = __companyScan.result || {};
+  body.innerHTML = '';
+  body.appendChild(_coTreatInfo(_treatText(data.treat)));
+  const next = document.createElement('button');
+  next.type = 'button'; next.className = 'btn co-next'; next.id = 'co-next-btn'; next.textContent = t('next');
+  const { field, inp } = _coAmountField('co-amount', t('treatTotalLabel'), () => {
+    next.disabled = (_parseAmountStr(inp.value, false) == null);
+  });
+  if (__companyScan.treatTotal != null) inp.value = String(__companyScan.treatTotal);
+  next.disabled = (_parseAmountStr(inp.value, false) == null);
+  const goNext = () => {
+    const total = _parseAmountStr(inp.value, false);
+    if (total == null) { toast(t('invalidAmount'), 'error', 3500); return; }
+    __companyScan.treatTotal = total;
+    renderTreatStepPaid();
+  };
+  next.onclick = goNext;
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); goNext(); } });
+  body.appendChild(field);
+  body.appendChild(next);
+  setTimeout(() => { try { inp.focus(); } catch {} }, 60);
+}
+
+// İkram — 2. adım: ödenecek tutar → "Ödendi" ile sipariş oluşur
+function renderTreatStepPaid() {
+  const body = qs('#company-order-body'); if (!body) return;
+  const data = __companyScan.result || {};
+  const total = __companyScan.treatTotal;
+  body.innerHTML = '';
+  body.appendChild(_coTreatInfo(_treatText(data.treat)));
+  const totals = document.createElement('div'); totals.className = 'co-totals';
+  totals.innerHTML = `<div class="co-line"><span>${escapeHtml(t('totalBefore'))}</span><b>${escapeHtml(String(total))}</b></div>`;
+  body.appendChild(totals);
+  const err = document.createElement('div'); err.className = 'co-err'; err.id = 'co-paid-err';
+  const actions = document.createElement('div'); actions.className = 'co-actions';
+  const back = document.createElement('button'); back.type = 'button'; back.className = 'btn co-back'; back.textContent = t('back');
+  back.onclick = () => renderTreatStepTotal();
+  const paid = document.createElement('button'); paid.type = 'button'; paid.className = 'btn co-paid'; paid.id = 'co-paid-btn'; paid.textContent = t('markPaid'); paid.disabled = true;
+  const { field, inp } = _coAmountField('co-paid-amount', t('treatPaidLabel'), () => {
+    const v = _parseAmountStr(inp.value, true);
+    const tooBig = (v != null && v > total);
+    err.textContent = tooBig ? t('paidExceedsTotal') : '';
+    inp.classList.toggle('input-error', tooBig);
+    paid.disabled = (v == null || tooBig);
+  });
+  paid.onclick = () => submitOrder();
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !paid.disabled) { e.preventDefault(); submitOrder(); } });
+  body.appendChild(field);
+  body.appendChild(err);
+  actions.appendChild(back); actions.appendChild(paid);
+  body.appendChild(actions);
+  setTimeout(() => { try { inp.focus(); } catch {} }, 60);
 }
 // Girilen tutarı sayıya çevirir: "200,5" ve "200.5" aynı değerdir.
 function _orderAmountValue() {
@@ -8212,13 +8406,32 @@ function recomputeOrderTotals() {
 }
 
 async function submitOrder() {
-  const amount = _orderAmountValue();
-  if (amount == null) { toast(t('invalidAmount'), 'error', 3500); return; }
+  const isTreat = !!(__companyScan.result && __companyScan.result.reward_type === 'treat');
+  let payload;
+  if (isTreat) {
+    const total = __companyScan.treatTotal;
+    const pEl = qs('#co-paid-amount');
+    const paidAmount = _parseAmountStr(pEl && pEl.value, true);
+    if (total == null || paidAmount == null) { toast(t('invalidAmount'), 'error', 3500); return; }
+    if (paidAmount > total) { toast(t('paidExceedsTotal'), 'error', 3500); return; }
+    payload = { token: __companyScan.token, reward_type: 'treat', amount: total, paid_amount: paidAmount };
+  } else {
+    const amount = _orderAmountValue();
+    if (amount == null) { toast(t('invalidAmount'), 'error', 3500); return; }
+    payload = { token: __companyScan.token, reward_type: 'discount', amount };
+  }
   const paid = qs('#co-paid-btn'); if (paid) paid.disabled = true;
   try {
-    const r = await fetch('/api/company/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: __companyScan.token, amount }) });
+    const r = await fetch('/api/company/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const d = await r.json().catch(() => ({}));
-    if (!r.ok || !d.ok) { toast(d.message || d.error || t('unknownError'), 'error', 4000); if (paid) paid.disabled = false; return; }
+    if (!r.ok || !d.ok) {
+      toast(d.message || d.error || t('unknownError'), 'error', 4000);
+      // Şirket ayarı (indirim ↔ ikram) QR okutulduktan sonra değiştiyse: ekranı kapat,
+      // güncel ayarları yeniden yükle; kullanıcı QR'ı yeniden okutur.
+      if (d.error === 'company_config_changed') { closeOrderResult(true); try { await loadCompanyPanel(); } catch {} return; }
+      if (paid) paid.disabled = false;
+      return;
+    }
     closeOrderResult(true);
     toast(t('orderSuccess'), 'success');
     // Yeni sipariş, sayfa yenilenmeden siparişler tablosuna düşsün:
@@ -8231,7 +8444,7 @@ function closeOrderResult(skipConfirm) {
   const eligible = __companyScan.result && __companyScan.result.eligible;
   if (!skipConfirm && eligible) { if (!confirm(t('cancelOrderConfirm'))) return; }
   ov.classList.add('hidden'); ov.setAttribute('aria-hidden', 'true');
-  __companyScan.token = null; __companyScan.result = null;
+  __companyScan.token = null; __companyScan.result = null; __companyScan.treatTotal = null;
 }
 
 function initCompanyPanelUI() {
@@ -8243,6 +8456,30 @@ function initCompanyPanelUI() {
   const scanClose = qs('#company-scan-close'); if (scanClose) scanClose.onclick = closeCompanyScan;
   const scanVerify = qs('#company-scan-verify'); if (scanVerify) scanVerify.onclick = () => { const v = qs('#company-scan-token'); handleScanToken(v ? v.value : ''); };
   const orderClose = qs('#company-order-close'); if (orderClose) orderClose.onclick = () => closeOrderResult(false);
+  // İndirim / ikram seçimi: kutuya tıklayınca (ya da Enter/Space) o seçenek aktif olur
+  ['#reward-opt-discount', '#reward-opt-treat'].forEach(sel => {
+    const box = qs(sel); if (!box) return;
+    const type = box.getAttribute('data-reward');
+    box.addEventListener('click', () => { if (__companyReward.type !== type) setRewardChoice(type, true); });
+    box.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ' ') && e.target === box) { e.preventDefault(); setRewardChoice(type, true); }
+    });
+  });
+  // İkram yalnızca metin: rakamlar yazılırken anında temizlenir
+  const treatInp = qs('#company-treat');
+  if (treatInp) treatInp.addEventListener('input', () => {
+    const clean = treatInp.value.replace(/[0-9\u0660-\u0669\u06F0-\u06F9]/g, '');
+    if (clean !== treatInp.value) treatInp.value = clean;
+    treatInp.classList.remove('input-error');
+  });
+  ['#company-threshold', '#company-discount'].forEach(sel => {
+    const el = qs(sel); if (el) el.addEventListener('input', () => el.classList.remove('input-error'));
+  });
+  // Dil değişince dinamik metinler (tablo hücre etiketleri, ✓/✕ açıklamaları) yenilensin
+  window.addEventListener('languagechange', () => {
+    const card = qs('#company-card'); if (!card || card.classList.contains('hidden')) return;
+    try { renderCompanyOrders(); } catch {}
+  });
   window.addEventListener('resize', () => {
     clearTimeout(__companyMenu._rz);
     __companyMenu._rz = setTimeout(() => {

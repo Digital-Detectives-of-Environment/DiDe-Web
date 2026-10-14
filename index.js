@@ -6123,6 +6123,9 @@ async function _ensureCompaniesSchema() {
   try { await pool.query(`ALTER TABLE public.companies DROP COLUMN IF EXISTS menu`); } catch (e) {}
   // Şirketin Instagram (ya da web) bağlantısı — zorunlu değildir
   try { await pool.query(`ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS instagram_link text`); } catch (e) {}
+  // İkram (treat): şirket, eşik puana karşılık indirim yüzdesi YERİNE bir ikram (metin, ör. "Kahve")
+  // tanımlayabilir. İkisi birbirini dışlar: treat doluysa discount_percentage NULL, tersi de geçerli.
+  try { await pool.query(`ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS treat text`); } catch (e) {}
 }
 
 // users.dependent_company: ilk şirket kullanıcısı eklendiğinde oluşur (companies FK)
@@ -6182,6 +6185,10 @@ async function ensureOrdersSchema() {
   try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS order_amount_before_discount numeric(12,2)`); } catch (e) {}
   try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS order_amount_after_discount numeric(12,2)`); } catch (e) {}
   try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS discount_percentage integer`); } catch (e) {}
+  // İkramlı siparişte ikramın metni (ör. "Kahve"); indirimli siparişte NULL.
+  // İkramlı siparişte de discount_percentage NULL olur.
+  try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS treat text`); } catch (e) {}
+  try { await pool.query(`ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS treat text`); } catch (e) {}
   try { await pool.query(`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS order_date timestamptz NOT NULL DEFAULT now()`); } catch (e) {}
   // Ürün/menü seçimi kaldırıldı (tutar elle giriliyor) → items kolonu düşürülür.
   try { await pool.query(`ALTER TABLE public.orders DROP COLUMN IF EXISTS items`); } catch (e) {}
@@ -6591,7 +6598,7 @@ app.get('/api/admin/companies/:id', requireAuth, requireAnyRole(['supervisor', '
     try { await ensureCompaniesSchema(); } catch (e) { console.warn('[COMPANIES] schema:', e.message); }
     const r = await pool.query(
       `SELECT company_id, company_name, logo_url, latitude, longitude, instagram_link,
-              discount_percentage, discount_threshold_point, COALESCE(active,true) AS active,
+              discount_percentage, discount_threshold_point, treat, COALESCE(active,true) AS active,
               created_at, created_by_name
        FROM public.companies WHERE company_id=$1`,
       [req.params.id]
@@ -6611,7 +6618,7 @@ app.get('/api/companies', tryAuth, async (req, res) => {
     try { await ensureCompaniesSchema(); } catch (e) { console.warn('[COMPANIES] schema:', e.message); }
     const r = await pool.query(
       `SELECT company_id, company_name, logo_url, latitude, longitude, instagram_link,
-              discount_percentage, discount_threshold_point
+              discount_percentage, discount_threshold_point, treat
        FROM public.companies
        WHERE COALESCE(active,true)=true AND latitude IS NOT NULL AND longitude IS NOT NULL`
     );
@@ -6727,7 +6734,7 @@ app.get('/api/admin/companies/:id/orders', adminOnly, async (req, res) => {
     await ensureOrdersSchema();
     const r = await pool.query(
       `SELECT order_id, person_placing_order, scanned_by, order_amount_before_discount, order_amount_after_discount,
-              discount_percentage, points_spent, order_date
+              discount_percentage, treat, points_spent, order_date
          FROM public.orders WHERE company_id=$1 ORDER BY order_date DESC`,
       [req.params.id]
     );
@@ -6744,8 +6751,9 @@ app.get('/api/company/me', requireAuth, requireAnyRole(['company']), async (req,
     const u = await pool.query(`SELECT dependent_company FROM users WHERE id=$1`, [req.user.id]);
     const cid = u.rows[0] && u.rows[0].dependent_company;
     if (!cid) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
+    try { await ensureCompaniesSchema(); } catch (e) { console.warn('[COMPANIES] schema:', e.message); }
     const c = await pool.query(
-      `SELECT company_id, company_name, logo_url, discount_percentage, discount_threshold_point
+      `SELECT company_id, company_name, logo_url, discount_percentage, discount_threshold_point, treat
          FROM public.companies WHERE company_id=$1`, [cid]);
     if (!c.rows.length) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
     res.json({ username: req.user.username, company: c.rows[0] });
@@ -6764,7 +6772,7 @@ app.get('/api/company/orders', requireAuth, requireAnyRole(['company']), async (
     await ensureOrdersSchema();
     const r = await pool.query(
       `SELECT order_id, person_placing_order, order_amount_before_discount, order_amount_after_discount,
-              discount_percentage, order_date
+              discount_percentage, treat, order_date
          FROM public.orders WHERE company_id=$1 ORDER BY order_date DESC`,
       [cid]
     );
@@ -6775,21 +6783,67 @@ app.get('/api/company/orders', requireAuth, requireAnyRole(['company']), async (
   }
 });
 
-// Company kullanıcısı menü/indirim/eşik ayarlarını kaydeder
+// ==================== İndirim / İkram (treat) yardımcıları ====================
+// Şirket, eşik puana karşılık İKİSİNDEN BİRİNİ tanımlar:
+//   'discount' → discount_percentage (yüzde), treat = NULL
+//   'treat'    → treat (yalnızca metin, ör. "Kahve"), discount_percentage = NULL
+// İkram metni sayı İÇEREMEZ (tam sayı / ondalık yazılamaz); en az bir harf içermelidir.
+const TREAT_MAX_LEN = 60;
+function normalizeTreat(v) {
+  if (v == null) return null;
+  const s = String(v).replace(/\s+/g, ' ').trim();
+  return s ? s : null;
+}
+function isValidTreat(s) {
+  if (typeof s !== 'string' || !s) return false;
+  if (s.length > TREAT_MAX_LEN) return false;
+  if (/[0-9\u0660-\u0669\u06F0-\u06F9]/.test(s)) return false;   // rakam yok
+  return /\p{L}/u.test(s);                                          // en az bir harf
+}
+// Şirket ayarının türü: treat doluysa 'treat', yüzde tanımlıysa 'discount', aksi halde null
+function companyRewardType(cfg) {
+  if (!cfg) return null;
+  if (normalizeTreat(cfg.treat)) return 'treat';
+  if (cfg.discount_percentage != null) return 'discount';
+  return null;
+}
+// QR okutma / sipariş için şirket ayarları eksiksiz mi?
+function companyParamsReady(cfg) {
+  return !!(cfg && cfg.discount_threshold_point != null && companyRewardType(cfg));
+}
+
+// Company kullanıcısı eşik + (indirim yüzdesi YA DA ikram) ayarlarını kaydeder
 app.patch('/api/company/config', requireAuth, requireAnyRole(['company']), async (req, res) => {
   try {
     const u = await pool.query(`SELECT dependent_company FROM users WHERE id=$1`, [req.user.id]);
     const cid = u.rows[0] && u.rows[0].dependent_company;
     if (!cid) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
-    let dp = req.body && req.body.discount_percentage;
-    dp = (dp != null && dp !== '' && Number.isFinite(Number(dp))) ? Math.max(0, Math.min(100, Math.round(Number(dp)))) : null;
-    let thr = req.body && req.body.discount_threshold_point;
+    try { await ensureCompaniesSchema(); } catch (e) { console.warn('[COMPANIES] schema:', e.message); }
+    const body = req.body || {};
+    let thr = body.discount_threshold_point;
     thr = (thr != null && thr !== '' && Number.isFinite(Number(thr))) ? Math.max(0, Math.round(Number(thr))) : null;
+
+    // Tür: açıkça gönderilmediyse (eski istemci) ikram doluysa 'treat', değilse 'discount'
+    let rewardType = String(body.reward_type || '').toLowerCase();
+    if (rewardType !== 'discount' && rewardType !== 'treat') {
+      rewardType = normalizeTreat(body.treat) ? 'treat' : 'discount';
+    }
+
+    let dp = null, treat = null;
+    if (rewardType === 'treat') {
+      treat = normalizeTreat(body.treat);
+      if (!treat) return res.status(400).json({ error: 'treatRequired', message: getErrorMessage(req, 'treatRequired') });
+      if (!isValidTreat(treat)) return res.status(400).json({ error: 'treat_invalid', message: getErrorMessage(req, 'treat_invalid') });
+    } else {
+      dp = body.discount_percentage;
+      dp = (dp != null && dp !== '' && Number.isFinite(Number(dp))) ? Math.max(0, Math.min(100, Math.round(Number(dp)))) : null;
+    }
+
     await pool.query(
-      `UPDATE public.companies SET discount_percentage=$1, discount_threshold_point=$2 WHERE company_id=$3`,
-      [dp, thr, cid]
+      `UPDATE public.companies SET discount_percentage=$1, discount_threshold_point=$2, treat=$3 WHERE company_id=$4`,
+      [dp, thr, treat, cid]
     );
-    res.json({ ok: true, discount_percentage: dp, discount_threshold_point: thr });
+    res.json({ ok: true, reward_type: rewardType, discount_percentage: dp, discount_threshold_point: thr, treat });
   } catch (e) {
     console.error('PATCH /api/company/config error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
@@ -6884,7 +6938,8 @@ async function _companyCfgFor(userId) {
   const cu = await pool.query(`SELECT dependent_company FROM users WHERE id=$1`, [userId]);
   const cid = cu.rows[0] && cu.rows[0].dependent_company;
   if (!cid) return null;
-  const cc = await pool.query(`SELECT company_id, discount_percentage, discount_threshold_point FROM companies WHERE company_id=$1`, [cid]);
+  try { await ensureCompaniesSchema(); } catch (e) { console.warn('[COMPANIES] schema:', e.message); }
+  const cc = await pool.query(`SELECT company_id, discount_percentage, discount_threshold_point, treat FROM companies WHERE company_id=$1`, [cid]);
   if (!cc.rows.length) return null;
   return cc.rows[0];
 }
@@ -6896,9 +6951,10 @@ app.post('/api/company/scan', requireAuth, requireAnyRole(['company']), async (r
     if (!payload || !payload.u) return res.status(400).json({ error: 'qr_invalid', message: getErrorMessage(req, 'qr_invalid') });
     const cfg = await _companyCfgFor(req.user.id);
     if (!cfg) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
-    if (cfg.discount_threshold_point == null || cfg.discount_percentage == null) {
+    if (!companyParamsReady(cfg)) {
       return res.status(400).json({ error: 'company_params_missing', message: getErrorMessage(req, 'company_params_missing') });
     }
+    const rewardType = companyRewardType(cfg);
     const eff = await userEffectivePoints(payload.u, true);
     if (!eff) return res.status(404).json({ error: 'accountNotFound', message: getErrorMessage(req, 'accountNotFound') });
     // Puan eşiğe EŞİT ya da BÜYÜK değilse uygun değildir (0, eksi ya da eşiğin altı → ✕)
@@ -6908,7 +6964,9 @@ app.post('/api/company/scan', requireAuth, requireAnyRole(['company']), async (r
       eligible: decision.eligible,
       username: eff.username, name: eff.name,
       points: eff.effective, threshold: cfg.discount_threshold_point,
-      discount_percentage: cfg.discount_percentage
+      reward_type: rewardType,
+      discount_percentage: rewardType === 'discount' ? cfg.discount_percentage : null,
+      treat: rewardType === 'treat' ? normalizeTreat(cfg.treat) : null
     });
   } catch (e) {
     console.error('POST /api/company/scan error:', e);
@@ -6928,14 +6986,38 @@ app.post('/api/company/order', requireAuth, requireAnyRole(['company']), async (
     return res.status(400).json({ error: 'invalidAmount', message: getErrorMessage(req, 'invalidAmount') });
   }
 
-  let cfg;
+  let cfg, rewardType;
   try {
     cfg = await _companyCfgFor(req.user.id);
     if (!cfg) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
-    if (cfg.discount_threshold_point == null || cfg.discount_percentage == null) {
+    if (!companyParamsReady(cfg)) {
       return res.status(400).json({ error: 'company_params_missing', message: getErrorMessage(req, 'company_params_missing') });
     }
+    rewardType = companyRewardType(cfg);
   } catch (e) { return res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') }); }
+
+  // QR okutulduktan sonra şirket ayarı (indirim ↔ ikram) değiştiyse sipariş reddedilir;
+  // şirket kullanıcısı QR'ı yeniden okutup güncel akışla devam eder.
+  const clientType = String((req.body && req.body.reward_type) || '').toLowerCase();
+  if ((clientType === 'discount' || clientType === 'treat') && clientType !== rewardType) {
+    return res.status(409).json({ error: 'company_config_changed', message: getErrorMessage(req, 'company_config_changed') });
+  }
+
+  // İkram: önce toplam tutar (amount), sonra ÖDENEN tutar (paid_amount) girilir.
+  // Ödenen tutar 0 olabilir (yalnızca ikram), toplam tutardan büyük olamaz.
+  let paidAmount = null;
+  if (rewardType === 'treat') {
+    const paidRaw = req.body && (req.body.paid_amount ?? req.body.amount_paid);
+    const paidStr = String(paidRaw ?? '').trim().replace(',', '.');
+    const paid = Number(paidStr);
+    if (paidStr === '' || !Number.isFinite(paid) || paid < 0 || paid > 1e9) {
+      return res.status(400).json({ error: 'invalidAmount', message: getErrorMessage(req, 'invalidAmount') });
+    }
+    paidAmount = Math.round(paid * 100) / 100;
+    if (paidAmount > Math.round(amount * 100) / 100) {
+      return res.status(400).json({ error: 'paidExceedsTotal', message: getErrorMessage(req, 'paidExceedsTotal') });
+    }
+  }
 
   // Eşik negatif/tanımsız olamaz (güvenli taraf): böyle bir şirkette indirim uygulanmaz.
   const thrNum = Number(cfg.discount_threshold_point);
@@ -6979,17 +7061,21 @@ app.post('/api/company/order', requireAuth, requireAnyRole(['company']), async (
     const decision = discountDecision(effective, thrNum);
     if (!decision.eligible) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'not_eligible', message: getErrorMessage(req, 'not_eligible') }); }
     const before = Math.round(amount * 100) / 100;
-    const after = Math.round(before * (1 - cfg.discount_percentage / 100) * 100) / 100;
+    const isTreat = rewardType === 'treat';
+    // İndirim: ödenen = toplam × (1 − yüzde) ; İkram: ödenen = şirket kullanıcısının girdiği tutar
+    const after = isTreat ? paidAmount : Math.round(before * (1 - cfg.discount_percentage / 100) * 100) / 100;
+    const orderDp = isTreat ? null : cfg.discount_percentage;
+    const orderTreat = isTreat ? normalizeTreat(cfg.treat) : null;
     const ins = await client.query(
-      `INSERT INTO public.orders (company_id, person_placing_order, order_amount_before_discount, order_amount_after_discount, discount_percentage, points_spent, scanned_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING order_id`,
+      `INSERT INTO public.orders (company_id, person_placing_order, order_amount_before_discount, order_amount_after_discount, discount_percentage, treat, points_spent, scanned_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING order_id`,
       // scanned_by: QR'ı okutan şirket kullanıcısının users.username değeri
-      [cfg.company_id, uname, before, after, cfg.discount_percentage, thrNum, req.user.username]
+      [cfg.company_id, uname, before, after, orderDp, orderTreat, thrNum, req.user.username]
     );
     await client.query('COMMIT');
     // Harcamadan sonra kullanıcının mevcut puanını (current_point) güncelle
     try { await syncCurrentPoint(ur.rows[0].id); } catch {}
-    res.json({ ok: true, order_id: ins.rows[0].order_id, amount_before: before, amount_after: after, discount_percentage: cfg.discount_percentage, points_spent: thrNum, remaining_points: decision.remaining });
+    res.json({ ok: true, order_id: ins.rows[0].order_id, reward_type: rewardType, amount_before: before, amount_after: after, discount_percentage: orderDp, treat: orderTreat, points_spent: thrNum, remaining_points: decision.remaining });
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch {}
     console.error('POST /api/company/order error:', e);
