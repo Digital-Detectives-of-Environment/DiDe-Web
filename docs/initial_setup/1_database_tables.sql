@@ -161,15 +161,21 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- 5) newsletter (news / activity shown with the header newsletter button; also created by the app at startup)
---    type = 'news' -> start_date, end_date and instagram_link are always NULL (enforced by a trigger)
+-- 5) newsletter (showcase / activity / news shown with the header newsletter button; also created by the app at startup)
+--    type = 'showcase' -> project showcase: name is OPTIONAL; photo_url (shown while the DEFAULT_LANG button is
+--                         active) and photo_url_en (shown while the EN button is active) are both required by the app
+--                         (only one photo when DEFAULT_LANG=EN); start_date, end_date, instagram_link always NULL
+--    type = 'news'     -> start_date, end_date and instagram_link are always NULL (enforced by a trigger)
 --    type = 'activity' -> start_date and end_date are required, end_date >= start_date;
 --                         the app sets active = false automatically after end_date
+--    photo_url_en is kept only for 'showcase' (NULL for the other types, enforced by the trigger)
+--    Public display order: showcase -> activity (start_date, then end_date ascending) -> news
 CREATE TABLE IF NOT EXISTS public.newsletter (
   newsletter_id       serial PRIMARY KEY,
-  type                text NOT NULL CONSTRAINT newsletter_type_chk CHECK (type IN ('news', 'activity')),
-  name                text NOT NULL,
+  type                text NOT NULL CONSTRAINT newsletter_type_chk CHECK (type IN ('news', 'activity', 'showcase')),
+  name                text,
   photo_url           text NOT NULL,
+  photo_url_en        text,
   link                text,
   instagram_link      text,
   start_date          date,
@@ -182,17 +188,46 @@ CREATE TABLE IF NOT EXISTS public.newsletter (
   deactivated_at      timestamptz,
   deactivated_by_name text,
   CONSTRAINT newsletter_dates_chk CHECK (
-    type = 'news' OR (start_date IS NOT NULL AND end_date IS NOT NULL AND end_date >= start_date))
+    type IN ('news', 'showcase') OR (start_date IS NOT NULL AND end_date IS NOT NULL AND end_date >= start_date)),
+  CONSTRAINT newsletter_name_chk CHECK (
+    type = 'showcase' OR (name IS NOT NULL AND btrim(name) <> ''))
 );
 CREATE INDEX IF NOT EXISTS newsletter_active_idx ON public.newsletter (active, created_at DESC);
 ALTER TABLE public.newsletter DROP COLUMN IF EXISTS description;   -- description field was removed
+-- Upgrades of existing installations (idempotent): showcase type, EN photo, optional name
+ALTER TABLE public.newsletter ADD COLUMN IF NOT EXISTS photo_url_en text;
+ALTER TABLE public.newsletter ALTER COLUMN name DROP NOT NULL;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'newsletter_type_chk'
+              AND pg_get_constraintdef(oid) NOT LIKE '%showcase%') THEN
+    ALTER TABLE public.newsletter DROP CONSTRAINT newsletter_type_chk;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'newsletter_type_chk') THEN
+    ALTER TABLE public.newsletter ADD CONSTRAINT newsletter_type_chk CHECK (type IN ('news', 'activity', 'showcase'));
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'newsletter_dates_chk'
+              AND pg_get_constraintdef(oid) NOT LIKE '%showcase%') THEN
+    ALTER TABLE public.newsletter DROP CONSTRAINT newsletter_dates_chk;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'newsletter_dates_chk') THEN
+    ALTER TABLE public.newsletter ADD CONSTRAINT newsletter_dates_chk CHECK (
+      type IN ('news', 'showcase') OR (start_date IS NOT NULL AND end_date IS NOT NULL AND end_date >= start_date));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'newsletter_name_chk') THEN
+    ALTER TABLE public.newsletter ADD CONSTRAINT newsletter_name_chk CHECK (
+      type = 'showcase' OR (name IS NOT NULL AND btrim(name) <> ''));
+  END IF;
+END $$;
 CREATE OR REPLACE FUNCTION public.newsletter_normalize()
 RETURNS trigger LANGUAGE plpgsql AS $fn$
 BEGIN
-  IF NEW.type = 'news' THEN
+  IF NEW.type IN ('news', 'showcase') THEN
     NEW.start_date := NULL;
     NEW.end_date := NULL;
     NEW.instagram_link := NULL;
+  END IF;
+  IF NEW.type <> 'showcase' THEN
+    NEW.photo_url_en := NULL;
   END IF;
   RETURN NEW;
 END

@@ -311,7 +311,7 @@ window.i18nLangs.tr = {
     nlOpenLink: 'Bağlantıyı aç',
     nlStarts: 'Başlangıç',
     nlEnds: 'Bitiş',
-    newsletter_type_required: 'Lütfen bülten türünü seçin (haber ya da etkinlik).',
+    newsletter_type_required: 'Lütfen bülten türünü seçin (tanıtım, haber ya da etkinlik).',
     newsletter_name_required: 'Ad zorunludur.',
     newsletter_photo_required: 'Fotoğraf zorunludur.',
     newsletter_dates_required: 'Etkinliğin başlangıç ve bitiş tarihi zorunludur.',
@@ -660,5 +660,16 @@ window.i18nLangs.tr = {
     openDataDownloaded: 'Açık veri indirildi.',
     open_data_disabled: 'Açık veri indirme bu sitede kapalı.',
     open_data_empty: 'İndirilecek herkese açık veri bulunamadı.',
-    open_data_rate_limited: 'Çok sık indirme denendi. Lütfen birkaç dakika sonra tekrar deneyin.'
+    open_data_rate_limited: 'Çok sık indirme denendi. Lütfen birkaç dakika sonra tekrar deneyin.',
+
+    // Bülten: Tanıtım (showcase)
+    newsletterTypeShowcase: 'Tanıtım',
+    nlShowcaseName: 'Tanıtım başlığı',
+    nlShowcaseLink: 'Tanıtım linki',
+    nlShowcasePhotoFor: '{{lang}} butonu aktifken gösterilecek fotoğraf',
+    nlShowcasePhoto: 'Tanıtım fotoğrafı',
+    nlShowcaseUntitled: 'Başlıksız tanıtım',
+    newsletter_photo_default_required: 'Lütfen varsayılan dil butonu aktifken gösterilecek tanıtım fotoğrafını ekleyin.',
+    newsletter_photo_en_required: 'Lütfen EN butonu aktifken gösterilecek tanıtım fotoğrafını ekleyin.',
+    nlShowcasePhotoMissing: 'Lütfen {{lang}} butonu aktifken gösterilecek fotoğrafı ekleyin.'
 };

@@ -1539,12 +1539,13 @@
         <label class="nl-label" for="nl-type"><span data-i18n="newsletterTypeLabel">Newsletter type</span> <span class="nl-req">*</span></label>
         <select id="nl-type" class="company-input nl-select">
           <option value="" disabled selected data-i18n="newsletterTypeSelect">Select a newsletter type</option>
+          <option value="showcase" data-i18n="newsletterTypeShowcase">Showcase</option>
           <option value="news" data-i18n="newsletterTypeNews">News</option>
           <option value="activity" data-i18n="newsletterTypeActivity">Activity</option>
         </select>
 
         <div id="nl-fields" class="nl-fields hidden">
-          <label class="nl-label" for="nl-name"><span id="nl-name-label">Name</span> <span class="nl-req">*</span></label>
+          <label class="nl-label" for="nl-name"><span id="nl-name-label">Name</span> <span id="nl-name-req" class="nl-req">*</span><span id="nl-name-opt" class="nl-opt hidden" data-i18n="nlOptional">(optional)</span></label>
           <input id="nl-name" type="text" class="company-input" maxlength="200" autocomplete="off" />
 
           <div class="nl-label"><span id="nl-photo-label">Photo</span> <span class="nl-req">*</span></div>
@@ -1553,6 +1554,18 @@
             <button type="button" id="nl-photo-btn" class="btn company-logo-btn" data-i18n="nlChoosePhoto">Choose photo</button>
             <input id="nl-photo-file" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif" hidden />
             <span id="nl-photo-status" class="company-logo-status"></span>
+          </div>
+
+          <!-- Yalnızca TANITIM: EN butonu aktifken gösterilecek ikinci fotoğraf (zorunlu).
+               .env DEFAULT_LANG=EN ise gizlenir (iki buton aynı dili gösterir). -->
+          <div id="nl-photo-en-block" class="nl-showcase-only hidden">
+            <div class="nl-label"><span id="nl-photo-en-label">Photo (EN)</span> <span class="nl-req">*</span></div>
+            <div class="company-form-row nl-photo-row">
+              <img id="nl-photo-en-preview" class="nl-photo-preview" alt="" hidden />
+              <button type="button" id="nl-photo-en-btn" class="btn company-logo-btn" data-i18n="nlChoosePhoto">Choose photo</button>
+              <input id="nl-photo-en-file" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif" hidden />
+              <span id="nl-photo-en-status" class="company-logo-status"></span>
+            </div>
           </div>
 
           <label class="nl-label" for="nl-link"><span id="nl-link-label">Link</span> <span class="nl-opt" data-i18n="nlOptional">(optional)</span></label>

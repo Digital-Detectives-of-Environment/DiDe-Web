@@ -311,7 +311,7 @@ window.i18nLangs.en = {
     nlOpenLink: 'Open link',
     nlStarts: 'Starts',
     nlEnds: 'Ends',
-    newsletter_type_required: 'Please select the newsletter type (news or activity).',
+    newsletter_type_required: 'Please select the newsletter type (showcase, news or activity).',
     newsletter_name_required: 'The name is required.',
     newsletter_photo_required: 'A photo is required.',
     newsletter_dates_required: 'The activity start and end dates are required.',
@@ -660,5 +660,16 @@ window.i18nLangs.en = {
     openDataDownloaded: 'Open data downloaded.',
     open_data_disabled: 'Open data download is disabled on this site.',
     open_data_empty: 'No public data available to download.',
-    open_data_rate_limited: 'Too many download attempts. Please try again in a few minutes.'
+    open_data_rate_limited: 'Too many download attempts. Please try again in a few minutes.',
+
+    // Bülten: Tanıtım (showcase)
+    newsletterTypeShowcase: 'Showcase',
+    nlShowcaseName: 'Showcase title',
+    nlShowcaseLink: 'Showcase link',
+    nlShowcasePhotoFor: 'Photo shown when the {{lang}} button is active',
+    nlShowcasePhoto: 'Showcase photo',
+    nlShowcaseUntitled: 'Untitled showcase',
+    newsletter_photo_default_required: 'Please add the showcase photo shown when the default language button is active.',
+    newsletter_photo_en_required: 'Please add the showcase photo shown when the EN button is active.',
+    nlShowcasePhotoMissing: 'Please add the photo shown when the {{lang}} button is active.'
 };

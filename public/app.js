@@ -15372,12 +15372,14 @@ function closeLeaderboard(){
    Supervisor paneli → "Bülten" sekmesi: + ile yeni haber/etkinlik ekleme, güncelleme, silme.
    Giriş yapılmadan açılan ekranda header'daki bülten butonu (kupanın sağında) ile
    kayıtlar, "mevcut kayıtlar" ekranındakiyle aynı Instagram tarzı kaydırmalı kartlarda gösterilir.
-   Veritabanında tür İngilizce tutulur: 'news' (haber) | 'activity' (etkinlik). */
+   Veritabanında tür İngilizce tutulur: 'showcase' (proje tanıtımı) | 'activity' (etkinlik) | 'news' (haber).
+   Tanıtımda iki fotoğraf vardır: .env DEFAULT_LANG dil butonu aktifken photo_url, EN butonu
+   aktifken photo_url_en gösterilir; başlık isteğe bağlıdır. */
 const NL_PHOTO_EXT  = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
 const NL_PHOTO_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const __nl = {
   data: [], page: 1, perPage: 6, _rz: null,          // supervisor listesi
-  editItem: null, photoUrl: '',                       // form durumu
+  editItem: null, photoUrl: '', photoUrlEn: '',       // form durumu (photoUrlEn: tanıtımın EN fotoğrafı)
   publicData: [], publicPage: 0, publicLoading: false  // herkese açık görüntüleyici
 };
 
@@ -15396,7 +15398,25 @@ function _nlFmtDate(iso){
   try { return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(_nlLocale(), { day: 'numeric', month: 'long', year: 'numeric' }); }
   catch { return iso; }
 }
-function _nlTypeLabel(type){ return t(type === 'activity' ? 'newsletterTypeActivity' : 'newsletterTypeNews'); }
+function _nlTypeLabel(type){
+  return t(type === 'activity' ? 'newsletterTypeActivity' : type === 'showcase' ? 'newsletterTypeShowcase' : 'newsletterTypeNews');
+}
+function _nlTypeClass(type){ return 'nl-type-' + (type === 'activity' || type === 'showcase' ? type : 'news'); }
+// .env DEFAULT_LANG (küçük harf). Tanıtımda: bu dilin butonu için bir, EN butonu için bir fotoğraf.
+function _nlDefaultLang(){
+  let l = '';
+  try { if (typeof window.getDefaultLang === 'function') l = window.getDefaultLang(); } catch {}
+  if (!l && APP_CONFIG && APP_CONFIG.defaultLang) l = APP_CONFIG.defaultLang;
+  return String(l || 'en').toLowerCase();
+}
+// DEFAULT_LANG zaten EN ise iki buton aynı dili gösterir → tanıtımda tek fotoğraf yeterli
+function _nlNeedsEnPhoto(){ return _nlDefaultLang() !== 'en'; }
+// Tanıtımın o anki dile göre gösterilecek fotoğrafı (EN butonu aktifse EN fotoğrafı)
+function _nlShowcasePhoto(it){
+  const lang = String((typeof getLanguage === 'function' ? getLanguage() : '') || '').toLowerCase();
+  if (lang === 'en' && it.photo_url_en) return it.photo_url_en;
+  return it.photo_url || it.photo_url_en || '';
+}
 function _nlSafeHttp(u){ const s = String(u || '').trim(); return /^https?:\/\//i.test(s) ? s : ''; }
 // Instagram logosu (şirket pop-up'ındakiyle aynı); gradyan kimliği her kart için benzersiz
 function _nlInstagramSvg(uid){
@@ -15417,7 +15437,10 @@ function initNewsletterAdminUI(){
   const closeBtn = qs('#newsletter-form-close'); if (closeBtn) closeBtn.onclick = closeNewsletterForm;
   const typeSel = qs('#nl-type'); if (typeSel) typeSel.onchange = () => { typeSel.classList.remove('input-error'); nlApplyType(); };
   const pBtn = qs('#nl-photo-btn'), pFile = qs('#nl-photo-file');
-  if (pBtn && pFile) { pBtn.onclick = () => pFile.click(); pFile.onchange = () => nlHandlePhoto(pFile.files && pFile.files[0]); }
+  if (pBtn && pFile) { pBtn.onclick = () => pFile.click(); pFile.onchange = () => nlHandlePhoto(pFile.files && pFile.files[0], 'default'); }
+  // Tanıtım: EN butonu aktifken gösterilecek fotoğraf
+  const peBtn = qs('#nl-photo-en-btn'), peFile = qs('#nl-photo-en-file');
+  if (peBtn && peFile) { peBtn.onclick = () => peFile.click(); peFile.onchange = () => nlHandlePhoto(peFile.files && peFile.files[0], 'en'); }
   const st = qs('#nl-start'), en = qs('#nl-end');
   if (st) st.addEventListener('change', () => nlOnDateChange('start'));
   if (en) en.addEventListener('change', () => nlOnDateChange('end'));
@@ -15436,6 +15459,7 @@ function initNewsletterAdminUI(){
 function openNewsletterForm(item){
   __nl.editItem = item || null;
   __nl.photoUrl = item ? (item.photo_url || '') : '';
+  __nl.photoUrlEn = item ? (item.photo_url_en || '') : '';
   const title = qs('#newsletter-form-title');
   if (title) title.textContent = t(item ? 'newsletterFormEditTitle' : 'newsletterFormAddTitle');
   const set = (sel, v) => { const el = qs(sel); if (el) { el.value = v || ''; el.classList.remove('input-error'); } };
@@ -15451,6 +15475,11 @@ function openNewsletterForm(item){
   const ps = qs('#nl-photo-status'); if (ps) ps.textContent = __nl.photoUrl ? t('nlPhotoSelected') : '';
   const pf = qs('#nl-photo-file'); if (pf) pf.value = '';
   const pb = qs('#nl-photo-btn'); if (pb) pb.classList.remove('input-error');
+  const prevEn = qs('#nl-photo-en-preview');
+  if (prevEn) { prevEn.src = __nl.photoUrlEn || ''; prevEn.hidden = !__nl.photoUrlEn; }
+  const psEn = qs('#nl-photo-en-status'); if (psEn) psEn.textContent = __nl.photoUrlEn ? t('nlPhotoSelected') : '';
+  const pfEn = qs('#nl-photo-en-file'); if (pfEn) pfEn.value = '';
+  const pbEn = qs('#nl-photo-en-btn'); if (pbEn) pbEn.classList.remove('input-error');
   nlApplyType();
   const ov = qs('#newsletter-form-overlay');
   if (ov) { ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false'); }
@@ -15461,6 +15490,7 @@ function closeNewsletterForm(){
 }
 
 /* Tür seçimine göre alanlar ve etiketler değişir:
+   Tanıtım  → başlık (isteğe bağlı), DEFAULT_LANG butonu fotoğrafı*, EN butonu fotoğrafı*, link (isteğe bağlı)
    Haber    → ad*, fotoğraf*, link (isteğe bağlı)
    Etkinlik → ad*, fotoğraf*, link + Instagram linki (isteğe bağlı), başlangıç* / bitiş* tarihi
    Tür değiştirildiğinde ortak alanlar (ad, fotoğraf, link) korunur. */
@@ -15469,11 +15499,29 @@ function nlApplyType(){
   const fields = qs('#nl-fields');
   if (fields) fields.classList.toggle('hidden', !type);
   const isAct = type === 'activity';
+  const isShow = type === 'showcase';
   document.querySelectorAll('#newsletter-form-overlay .nl-activity-only').forEach(el => el.classList.toggle('hidden', !isAct));
-  const lbl = (sel, key) => { const el = qs(sel); if (el) el.textContent = t(key); };
-  lbl('#nl-name-label',  isAct ? 'nlActivityName' : 'nlNewsName');
-  lbl('#nl-photo-label', isAct ? 'nlActivityPhoto' : 'nlNewsPhoto');
-  lbl('#nl-link-label',  isAct ? 'nlActivityLink' : 'nlNewsLink');
+  // EN fotoğrafı yalnızca tanıtımda ve DEFAULT_LANG EN değilken
+  const enBlock = qs('#nl-photo-en-block');
+  if (enBlock) enBlock.classList.toggle('hidden', !(isShow && _nlNeedsEnPhoto()));
+  // Tanıtımda başlık isteğe bağlı: * yerine "(isteğe bağlı)"
+  const nReq = qs('#nl-name-req'), nOpt = qs('#nl-name-opt');
+  if (nReq) nReq.classList.toggle('hidden', isShow);
+  if (nOpt) nOpt.classList.toggle('hidden', !isShow);
+  const lbl = (sel, key, params) => { const el = qs(sel); if (el) el.textContent = t(key, params); };
+  lbl('#nl-name-label',  isShow ? 'nlShowcaseName' : isAct ? 'nlActivityName' : 'nlNewsName');
+  lbl('#nl-link-label',  isShow ? 'nlShowcaseLink' : isAct ? 'nlActivityLink' : 'nlNewsLink');
+  if (isShow) {
+    const def = _nlDefaultLang().toUpperCase();
+    if (_nlNeedsEnPhoto()) {
+      lbl('#nl-photo-label', 'nlShowcasePhotoFor', { lang: def });   // ör. "TR butonu aktifken gösterilecek fotoğraf"
+      lbl('#nl-photo-en-label', 'nlShowcasePhotoFor', { lang: 'EN' });
+    } else {
+      lbl('#nl-photo-label', 'nlShowcasePhoto');
+    }
+  } else {
+    lbl('#nl-photo-label', isAct ? 'nlActivityPhoto' : 'nlNewsPhoto');
+  }
   const save = qs('#nl-save'); if (save) save.textContent = t(__nl.editItem ? 'nlSaveButton' : 'nlAddButton');
   const title = qs('#newsletter-form-title');
   if (title) title.textContent = t(__nl.editItem ? 'newsletterFormEditTitle' : 'newsletterFormAddTitle');
@@ -15581,11 +15629,16 @@ async function nlNormalizePhoto(file){
   return out;
 }
 
-async function nlHandlePhoto(file){
+// target: 'default' → ortak fotoğraf (tanıtımda DEFAULT_LANG butonu fotoğrafı) | 'en' → tanıtımın EN fotoğrafı
+async function nlHandlePhoto(file, target){
   if (!file) return;
+  const isEn = target === 'en';
+  const ids = isEn
+    ? { st: '#nl-photo-en-status', file: '#nl-photo-en-file', prev: '#nl-photo-en-preview', btn: '#nl-photo-en-btn' }
+    : { st: '#nl-photo-status', file: '#nl-photo-file', prev: '#nl-photo-preview', btn: '#nl-photo-btn' };
   const ext = String(file.name || '').toLowerCase().split('.').pop();
-  const st = qs('#nl-photo-status');
-  const resetInput = () => { const f = qs('#nl-photo-file'); if (f) f.value = ''; };
+  const st = qs(ids.st);
+  const resetInput = () => { const f = qs(ids.file); if (f) f.value = ''; };
   if (!NL_PHOTO_EXT.includes(ext) || (file.type && !NL_PHOTO_MIME.includes(file.type))) {
     toast(t('nlInvalidPhoto'), 'error', 4000);
     resetInput();
@@ -15603,9 +15656,9 @@ async function nlHandlePhoto(file){
   }
   try {
     const url = await uploadDataUrl('/api/upload/photo', dataUrl);
-    __nl.photoUrl = url;
-    const prev = qs('#nl-photo-preview'); if (prev) { prev.src = url; prev.hidden = false; }
-    const pb = qs('#nl-photo-btn'); if (pb) pb.classList.remove('input-error');
+    if (isEn) __nl.photoUrlEn = url; else __nl.photoUrl = url;
+    const prev = qs(ids.prev); if (prev) { prev.src = url; prev.hidden = false; }
+    const pb = qs(ids.btn); if (pb) pb.classList.remove('input-error');
     if (st) st.textContent = t('nlPhotoSelected');
   } catch (e) {
     if (st) st.textContent = '';
@@ -15621,17 +15674,27 @@ async function submitNewsletter(){
   const type = val('#nl-type');
   if (!type) { mark('#nl-type'); toast(t('newsletter_type_required'), 'error', 4000); return; }
   const isAct = type === 'activity';
+  const isShow = type === 'showcase';
   const body = {
     type,
     name: val('#nl-name'),
     photo_url: __nl.photoUrl,
+    photo_url_en: isShow ? (__nl.photoUrlEn || '') : '',
     link: val('#nl-link'),
     instagram_link: isAct ? val('#nl-instagram') : '',
     start_date: isAct ? val('#nl-start') : null,
     end_date: isAct ? val('#nl-end') : null
   };
-  if (!body.name) { mark('#nl-name'); toast(t('newsletter_name_required'), 'error', 4000); return; }
-  if (!body.photo_url) { mark('#nl-photo-btn'); toast(t('newsletter_photo_required'), 'error', 4000); return; }
+  // Tanıtımda başlık isteğe bağlı; iki fotoğraf (DEFAULT_LANG ve EN butonu için) zorunlu
+  if (!body.name && !isShow) { mark('#nl-name'); toast(t('newsletter_name_required'), 'error', 4000); return; }
+  if (isShow) {
+    const missDef = !body.photo_url, missEn = _nlNeedsEnPhoto() && !body.photo_url_en;
+    if (missDef) mark('#nl-photo-btn');
+    if (missEn) mark('#nl-photo-en-btn');
+    // Uyarı, ilgili dil butonunu adıyla söyler (ör. "TR butonu aktifken gösterilecek fotoğrafı ekleyin")
+    if (missDef) { toast(_nlNeedsEnPhoto() ? t('nlShowcasePhotoMissing', { lang: _nlDefaultLang().toUpperCase() }) : t('newsletter_photo_default_required'), 'error', 4000); return; }
+    if (missEn) { toast(t('nlShowcasePhotoMissing', { lang: 'EN' }), 'error', 4000); return; }
+  } else if (!body.photo_url) { mark('#nl-photo-btn'); toast(t('newsletter_photo_required'), 'error', 4000); return; }
   if (isAct) {
     const today = _nlTodayIso();
     if (!body.start_date || !body.end_date) {
@@ -15713,9 +15776,12 @@ function renderNewslettersTable(){
       const box = document.createElement('div'); box.className = 'nl-cell-text';
       const top = document.createElement('div'); top.className = 'nl-cell-top';
       const badge = document.createElement('span');
-      badge.className = 'nl-type-badge nl-type-' + (it.type === 'activity' ? 'activity' : 'news');
+      badge.className = 'nl-type-badge ' + _nlTypeClass(it.type);
       badge.textContent = _nlTypeLabel(it.type);
-      const nm = document.createElement('span'); nm.className = 'company-cell-name nl-cell-name'; nm.textContent = it.name || '';
+      const nm = document.createElement('span'); nm.className = 'company-cell-name nl-cell-name';
+      // Başlıksız tanıtım listede soluk bir yer tutucu ile gösterilir
+      if (!it.name && it.type === 'showcase') { nm.textContent = t('nlShowcaseUntitled'); nm.classList.add('nl-cell-untitled'); }
+      else nm.textContent = it.name || '';
       top.appendChild(badge); top.appendChild(nm); box.appendChild(top);
       if (it.type === 'activity' && it.start_date && it.end_date) {
         const dt = document.createElement('div'); dt.className = 'nl-cell-dates';
@@ -15788,12 +15854,14 @@ function _nlUpdateIndicator(){
 }
 function _nlPageHtml(it, idx){
   const isAct = it.type === 'activity';
+  const isShow = it.type === 'showcase';
   const link = _nlSafeHttp(it.link);
   const ig = isAct ? _nlSafeHttp(it.instagram_link) : '';
-  const photo = escapeHtml(it.photo_url || '');
+  // Tanıtım: TR (DEFAULT_LANG) butonu aktifken photo_url, EN butonu aktifken photo_url_en
+  const photo = escapeHtml(isShow ? _nlShowcasePhoto(it) : (it.photo_url || ''));
   const name = escapeHtml(it.name || '');
-  const badge = `<span class="nl-type-badge nl-type-${isAct ? 'activity' : 'news'} nl-type-float">${escapeHtml(_nlTypeLabel(it.type))}</span>`;
-  const img = `<img class="nl-media-img" src="${photo}" alt="${name}" loading="lazy" draggable="false"/>`;
+  const badge = `<span class="nl-type-badge ${_nlTypeClass(it.type)} nl-type-float">${escapeHtml(_nlTypeLabel(it.type))}</span>`;
+  const img = `<img class="nl-media-img" src="${photo}" alt="${name || escapeHtml(_nlTypeLabel(it.type))}" loading="lazy" draggable="false"/>`;
   const media = link
     ? `<a class="nl-media-link" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(t('nlOpenLink'))}">${img}<span class="nl-link-hint">🔗 ${escapeHtml(t('nlOpenLink'))}</span></a>`
     : img;
@@ -15808,17 +15876,21 @@ function _nlPageHtml(it, idx){
     : '';
   // Bilgi alanı (ad, tarihler, Instagram) DOĞAL yüksekliğinde ve KAYDIRMASIZ gösterilir;
   // fotoğraf kalan alanı doldurur. Bilgi sığmazsa _nlFitInfo() yazı ölçeğini küçültür.
+  // Başlıksız tanıtım: bilgi alanı hiç oluşturulmaz → fotoğraf kartın TAMAMINI kaplar
+  const info = (isShow && !name)
+    ? ''
+    : `<div class="pr-info-section nl-info">
+      <div class="nl-name">${name}</div>
+      ${dates}
+      ${igBtn}
+    </div>`;
   return `
     <div class="nl-media" style="--nl-bg:url('${photo.replace(/'/g, '%27')}')">
       <div class="nl-media-bg" aria-hidden="true"></div>
       ${media}
       ${badge}
     </div>
-    <div class="pr-info-section nl-info">
-      <div class="nl-name">${name}</div>
-      ${dates}
-      ${igBtn}
-    </div>`;
+    ${info}`;
 }
 function renderNewsletterPages(){
   const sw = qs('#newsletter-swiper'); if (!sw) return;
@@ -15834,7 +15906,8 @@ function renderNewsletterPages(){
   const track = document.createElement('div'); track.className = 'pr-swiper-track';
   items.forEach((it, i) => {
     const page = document.createElement('div');
-    page.className = 'polygon-record-page nl-page';
+    page.className = 'polygon-record-page nl-page' + (it.type === 'showcase' ? ' nl-page-showcase' : '') +
+      ((it.type === 'showcase' && !it.name) ? ' nl-page-full' : '');
     page.innerHTML = _nlPageHtml(it, i);
     track.appendChild(page);
   });

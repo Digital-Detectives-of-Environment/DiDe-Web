@@ -306,7 +306,7 @@ window.i18nLangs.it = {
     nlOpenLink: 'Apri link',
     nlStarts: 'Inizio',
     nlEnds: 'Fine',
-    newsletter_type_required: 'Seleziona il tipo di newsletter (notizia o evento).',
+    newsletter_type_required: 'Seleziona il tipo di newsletter (presentazione, notizia o evento).',
     newsletter_name_required: 'Il nome è obbligatorio.',
     newsletter_photo_required: 'La foto è obbligatoria.',
     newsletter_dates_required: 'Le date di inizio e fine dell\'evento sono obbligatorie.',
@@ -651,5 +651,16 @@ window.i18nLangs.it = {
     openDataDownloaded: 'Dati aperti scaricati.',
     open_data_disabled: 'Il download dei dati aperti è disattivato su questo sito.',
     open_data_empty: 'Nessun dato pubblico disponibile per il download.',
-    open_data_rate_limited: 'Troppi tentativi di download. Riprova tra qualche minuto.'
+    open_data_rate_limited: 'Troppi tentativi di download. Riprova tra qualche minuto.',
+
+    // Bülten: Tanıtım (showcase)
+    newsletterTypeShowcase: 'Presentazione',
+    nlShowcaseName: 'Titolo della presentazione',
+    nlShowcaseLink: 'Link della presentazione',
+    nlShowcasePhotoFor: 'Foto mostrata quando il pulsante {{lang}} è attivo',
+    nlShowcasePhoto: 'Foto della presentazione',
+    nlShowcaseUntitled: 'Presentazione senza titolo',
+    newsletter_photo_default_required: 'Aggiungi la foto della presentazione mostrata quando è attivo il pulsante della lingua predefinita.',
+    newsletter_photo_en_required: 'Aggiungi la foto della presentazione mostrata quando è attivo il pulsante EN.',
+    nlShowcasePhotoMissing: 'Aggiungi la foto mostrata quando il pulsante {{lang}} è attivo.'
 };

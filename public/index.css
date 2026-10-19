@@ -5425,3 +5425,17 @@ body.supervisor-mode-form #map{
   height: calc(100dvh - var(--dide-header-real, var(--header-h))) !important;
   min-height: calc(100dvh - var(--dide-header-real, var(--header-h))) !important;
 }
+/* ===================== Bülten: TANITIM (showcase) ===================== */
+/* Tür rozeti: Tanıtım (yeşil) — Haber (mavi) ve Etkinlik (Instagram renkleri) ile karışmaz */
+.nl-type-showcase{ background:linear-gradient(135deg, #16a34a, #84cc16); }
+:root.theme-dark .nl-type-showcase{ box-shadow:0 0 10px rgba(132,204,22,.4); }
+.nl-showcase-only.hidden{ display:none !important; }
+/* Supervisor listesi: başlıksız tanıtım yer tutucusu */
+.nl-cell-name.nl-cell-untitled{ font-style:italic; opacity:.6; }
+/* Başlıksız tanıtım: bilgi alanı yok → fotoğraf kartın tamamını kaplar (kaydırma yok).
+   Görsel kırpılmaz (object-fit: contain); kalan alanı bulanık arka plan doldurur. */
+.nl-page.nl-page-full .nl-media{ flex:1 1 0 !important; min-height:0; }
+@media (min-width:768px){
+  .nl-page.nl-page-full .nl-media{ margin-bottom:12px; }
+}
+#nl-photo-en-btn.input-error{ outline:2px solid #ef4444; outline-offset:2px; }
