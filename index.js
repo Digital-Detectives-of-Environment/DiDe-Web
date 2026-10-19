@@ -72,6 +72,65 @@ if (RESTRICT_GNSS_NORM !== 'true' && RESTRICT_GNSS_NORM !== 'false') {
 }
 const RESTRICT_GNSS = RESTRICT_GNSS_NORM === 'true';
 
+// ==================== OPEN_DATA (açık veri) ====================
+// Giriş yapmamış ziyaretçiler, herkese açık (public) olayları fotoğraflarıyla birlikte
+// ZIP olarak indirebilsin mi? YALNIZCA "true" veya "false" alır.
+//   OPEN_DATA=true  -> giriş ekranındaki haritada "Açık veri" indirme butonu görünür;
+//                      /api/open-data/export kişisel veri İÇERMEYEN sütunlarla ZIP döndürür.
+//   OPEN_DATA=false -> mevcut davranış: ziyaretçiler hiçbir veriyi indiremez.
+// Tanımlı değilse (eski .env dosyaları) güvenli varsayılan false kullanılır ve uyarı yazılır;
+// tanımlı ama true/false dışında bir değerse sistem başlamaz.
+const OPEN_DATA_RAW  = String(process.env.OPEN_DATA ?? '').trim();
+const OPEN_DATA_NORM = OPEN_DATA_RAW.toLowerCase();
+if (OPEN_DATA_RAW === '') {
+  console.warn(`[WARN] OPEN_DATA is not set in your .env file → defaulting to OPEN_DATA=false (visitors cannot download data).`);
+} else if (OPEN_DATA_NORM !== 'true' && OPEN_DATA_NORM !== 'false') {
+  console.error(`\n[FATAL] OPEN_DATA is invalid in your .env file.`);
+  console.error(`        It must be set to either "true" or "false".`);
+  console.error(`          OPEN_DATA=true  -> Visitors (not logged in) can download public events with photos (ZIP).`);
+  console.error(`          OPEN_DATA=false -> Visitors cannot download any data.`);
+  console.error(`        Current value: "${OPEN_DATA_RAW}".`);
+  console.error(`        System cannot start. Exiting.\n`);
+  process.exit(1);
+}
+const OPEN_DATA = OPEN_DATA_NORM === 'true';
+
+// ==================== LICENSE (veri lisansı dosyası) ====================
+// Projenin KÖK klasöründeki lisans dosyasının ADI (ör. LICENSE=DATA_LICENSE.txt).
+// Tanımlıysa bu dosya, hem ziyaretçinin açık veri ZIP'ine hem de kullanıcının
+// "Verilerimi indir" ZIP'ine aynı adla eklenir. Yalnızca dosya adı kullanılır
+// (klasör yolu kabul edilmez); dosya her indirmede okunur, değişince yeniden
+// başlatmaya gerek yoktur.
+// NOT: Kök klasördeki "LICENSE" dosyası yazılımın (kodun) lisansıdır; veri lisansı
+//      için ayrı bir dosya (ör. DATA_LICENSE.txt) kullanın.
+const DATA_LICENSE_NAME = (() => {
+  const raw = String(process.env.LICENSE ?? process.env.license ?? '').trim();
+  if (!raw) return '';
+  const base = path.basename(raw);
+  if (!base || base === '.' || base === '..' || base !== raw.replace(/^\.\//, '')) {
+    console.warn(`[WARN] LICENSE must be a file name in the project root (got "${raw}") → using "${base}".`);
+  }
+  return base;
+})();
+const DATA_LICENSE_PATH = DATA_LICENSE_NAME ? path.join(__dirname, DATA_LICENSE_NAME) : '';
+if (!DATA_LICENSE_NAME) {
+  console.warn(`[WARN] LICENSE is not set in your .env file → downloaded ZIP files will not include a data license.`);
+} else if (!fs.existsSync(DATA_LICENSE_PATH)) {
+  console.warn(`[WARN] LICENSE="${DATA_LICENSE_NAME}" was not found in the project root (${DATA_LICENSE_PATH}).`);
+  console.warn(`       Downloaded ZIP files will not include a data license until the file is added.`);
+} else {
+  console.log(`[OK] Data license file: ${DATA_LICENSE_NAME}`);
+}
+// ZIP'e eklenecek lisans girdisi (yoksa null)
+function dataLicenseZipEntry() {
+  if (!DATA_LICENSE_PATH) return null;
+  try {
+    const st = fs.statSync(DATA_LICENSE_PATH);
+    if (!st.isFile()) return null;
+    return { name: DATA_LICENSE_NAME, data: fs.readFileSync(DATA_LICENSE_PATH), mtime: st.mtime };
+  } catch { return null; }
+}
+
 // ==================== EVENT_SUBMIT_INTERVAL_HOURS ====================
 // Olay ekleyen (opener) kullanıcıların İKİ GÖNDERİ ARASINDA beklemesi gereken
 // süre — SAAT cinsinden. Tam sayı ya da ondalıklı olabilir (1, 2, 24, 0.5 ...).
@@ -3257,6 +3316,8 @@ app.get('/api/config', (_req, res) => {
     displayAttrs: DISPLAY_ATTRS,
     defaultLang: DEFAULT_LANG.toLowerCase(),
     restrictGnss: RESTRICT_GNSS,
+    // .env → OPEN_DATA: true ise giriş ekranında "Açık veri" indirme butonu görünür
+    openData: OPEN_DATA,
     eventTypeValidityUnits: EVENT_TYPE_VALIDITY_UNITS,
     zoomLevelBoundary: String(process.env.ZOOM_LEVEL_BOUNDARY || '').trim().toLowerCase(),
     // İki gönderi arasındaki bekleme süresi (saat). 0 => sınır yok.
@@ -4344,6 +4405,11 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'yetkisiz', message: getErrorMessage(req, 'yetkisiz') });
     }
 
+    // Aggregation layer tanımlıysa, olay tablosuna eklenen birincil anahtar (PK) sütunları da
+    // dışa aktarılır (ör. bölge/ızgara kimliği). Tanımlı değilse hiçbir ek sütun gelmez.
+    const pkCols = (POLYGON_TABLE && Array.isArray(POLYGON_PKS)) ? POLYGON_PKS : [];
+    const pkSelect = pkCols.map((p, i) => `,\n              o."${p.safeName}" AS "__pk_${i}"`).join('');
+
     const { rows } = await pool.query(
       `SELECT o.event_id,
               o.latitude,
@@ -4358,12 +4424,8 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
               o.photo_urls,
               o.video_urls,
               COALESCE(o.num_agrees, 0)      AS num_agrees,
-              o.direction                    AS direction,
-              -- Geçerli katılımcıların id listesi (agrees tablosundan; dışa aktarım biçimi korunur)
-              COALESCE((SELECT jsonb_agg(a.agreed_user_id ORDER BY a.agree_date, a.agreed_user_id)
-                          FROM public.agrees a
-                         WHERE a.event_id = o.event_id AND a.agree_removed_date IS NULL),
-                       '[]'::jsonb) AS agreed_ids
+              o.last_agreed_date             AS last_agreed_date,
+              o.direction                    AS direction${pkSelect}
          FROM event o
          LEFT JOIN event_type l ON l.event_type_id = o.event_type
         WHERE o.created_by_id = $1
@@ -4417,8 +4479,10 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
           photo_urls: photos,                      // ZIP içindeki photos/ dosya adları
           video_urls: videos,                      // ZIP içindeki videos/ dosya adları
           num_agrees: r.num_agrees,
+          last_agreed_date: r.last_agreed_date ?? null,                     // son katılım tarihi
           direction: r.direction != null ? Number(r.direction) : null,   // derece, kuzeyden saat yönünde
-          agreed_ids: r.agreed_ids
+          // Aggregation layer PK sütunları (yalnızca tanımlıysa)
+          ...Object.fromEntries(pkCols.map((p, i) => [p.name, r[`__pk_${i}`] ?? null]))
         }
       };
     });
@@ -4444,6 +4508,9 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
     for (const [name, abs] of videoFiles) {
       try { entries.push({ name: `videos/${name}`, data: fs.readFileSync(abs), mtime: fs.statSync(abs).mtime }); } catch {}
     }
+    // Veri lisansı (.env → LICENSE) tanımlıysa ZIP'e eklenir
+    const lic = dataLicenseZipEntry();
+    if (lic) entries.push(lic);
 
     const zip = buildZipBuffer(entries);
     const safeUser = String(req.user.username || 'user').replace(/[^a-zA-Z0-9_.-]/g, '_');
@@ -4453,6 +4520,126 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
     return res.end(zip);
   } catch (e) {
     console.error('GET /api/me/export error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
+/* =============== AÇIK VERİ (OPEN_DATA) — giriş gerektirmez =============== */
+// .env → OPEN_DATA=true iken ziyaretçiler, haritada herkese açık gösterilen AKTİF olayları
+// fotoğraflarıyla birlikte ZIP olarak indirir: events.geojson + photos/ + (varsa) lisans dosyası.
+// KİŞİSEL VERİ YOK: created_by_* / updated_by_* / deactivated_by_* / deactivated_at sütunları,
+// aggregation layer (ızgara/bölge) PK sütunları, videolar ve katılımcı bilgisi DIŞA AKTARILMAZ.
+// Yalnızca şu sütunlar gelir: event_id, latitude, longitude, event_type (tür ADI), description,
+// created_at, photo_urls, num_agrees, direction.
+const __openDataHits = new Map();
+function openDataRateLimited(ip) {
+  // IP başına 10 dakikada en fazla 5 indirme (ZIP büyük olabilir; sunucuyu korur)
+  const now = Date.now(), WIN = 10 * 60 * 1000;
+  const rec = __openDataHits.get(ip) || { n: 0, until: now + WIN };
+  if (now > rec.until) { rec.n = 0; rec.until = now + WIN; }
+  rec.n++;
+  __openDataHits.set(ip, rec);
+  if (__openDataHits.size > 5000) { for (const [k, v] of __openDataHits) if (now > v.until) __openDataHits.delete(k); }
+  return rec.n > 5;
+}
+
+app.get('/api/open-data/export', async (req, res) => {
+  try {
+    if (!OPEN_DATA) {
+      return res.status(404).json({ error: 'open_data_disabled', message: getErrorMessage(req, 'open_data_disabled') });
+    }
+    const ip = String(req.ip || req.socket?.remoteAddress || '');
+    if (openDataRateLimited(ip)) {
+      return res.status(429).json({ error: 'open_data_rate_limited', message: getErrorMessage(req, 'open_data_rate_limited') });
+    }
+
+    // Ziyaretçi haritasıyla aynı kural: aktif olay + aktif olay türü + public_ (publicGoodBadWhere)
+    const { rows } = await pool.query(
+      `SELECT e.event_id,
+              e.latitude,
+              e.longitude,
+              o.event_type_name           AS event_type_name,
+              e.description,
+              e.created_at,
+              e.photo_urls,
+              COALESCE(e.num_agrees, 0)   AS num_agrees,
+              e.direction                 AS direction
+         FROM public.event e
+         JOIN public.event_type o ON o.event_type_id = e.event_type
+        WHERE COALESCE(e.active, true) = true
+          AND COALESCE(o.active, true) = true
+          AND (${publicGoodBadWhere()})
+          AND e.latitude IS NOT NULL AND e.longitude IS NOT NULL
+        ORDER BY e.event_id`
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'open_data_empty', message: getErrorMessage(req, 'open_data_empty') });
+    }
+
+    const photoFiles = new Map();
+    const features = rows.map((r) => {
+      let list = [];
+      try { list = JSON.parse(String(r.photo_urls || '[]')); } catch { list = []; }
+      if (!Array.isArray(list)) list = [];
+      const photos = [];
+      for (const u of list) {
+        const name = path.basename(String(u || ''));
+        if (!name) continue;
+        const abs = path.join(UPLOAD_DIR, name);
+        if (!abs.startsWith(UPLOAD_DIR)) continue;
+        // Yalnızca diskte gerçekten bulunan fotoğraflar listelenir (ZIP ile tutarlı)
+        if (_fileExists(abs)) { photos.push(name); photoFiles.set(name, abs); }
+      }
+      const lat = r.latitude != null ? parseFloat(r.latitude) : null;
+      const lng = r.longitude != null ? parseFloat(r.longitude) : null;
+      return {
+        type: 'Feature',
+        geometry: (Number.isFinite(lat) && Number.isFinite(lng)) ? { type: 'Point', coordinates: [lng, lat] } : null,
+        properties: {
+          event_id: r.event_id,
+          latitude: lat,
+          longitude: lng,
+          event_type: r.event_type_name || null,   // ID değil, okunabilir tür adı
+          description: r.description ?? null,
+          created_at: r.created_at ?? null,
+          photo_urls: photos,                      // ZIP içindeki photos/ dosya adları
+          num_agrees: r.num_agrees,
+          direction: r.direction != null ? Number(r.direction) : null   // derece, kuzeyden saat yönünde
+        }
+      };
+    });
+
+    const geojson = {
+      type: 'FeatureCollection',
+      features,
+      metadata: {
+        dataset: 'DiDe open data — public events',
+        total_events: features.length,
+        export_date: new Date().toISOString(),
+        license: DATA_LICENSE_NAME || null
+      }
+    };
+
+    const entries = [
+      { name: 'events.geojson', data: Buffer.from(JSON.stringify(geojson, null, 2), 'utf8') },
+      { name: 'photos/', dir: true }
+    ];
+    for (const [name, abs] of photoFiles) {
+      try { entries.push({ name: `photos/${name}`, data: fs.readFileSync(abs), mtime: fs.statSync(abs).mtime }); } catch {}
+    }
+    const lic = dataLicenseZipEntry();
+    if (lic) entries.push(lic);
+
+    const zip = buildZipBuffer(entries);
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="dide_open_data_${stamp}.zip"`);
+    res.setHeader('Content-Length', String(zip.length));
+    return res.end(zip);
+  } catch (e) {
+    console.error('GET /api/open-data/export error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
   }
 });

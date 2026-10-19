@@ -5341,3 +5341,87 @@ body.nl-viewer-open{ overflow:hidden; }
 /* İkram 2. adım: Geri butonu da Ödendi ile aynı yükseklikte */
 .company-order-card .co-actions .co-back{ min-height:52px; border-width:2px; font-weight:800; }
 :root.theme-dark .company-order-card .co-actions .co-back{ border-color:#64748b; color:#e2e8f0; }
+/* ===================== Header'a yapışık harita kontrolleri =====================
+   Ana haritada (#map: giriş ekranı, opener, solver, supervisor görünüm paneli)
+   katmanlar paneli (solda) ve "Açık veri" butonu (sağda, Giriş butonuyla aynı hizada)
+   header'ın ALT kenarına yapışık durur. "top" değeri JS ile GERÇEK header yüksekliğinden
+   hesaplanır (syncHeaderAnchoredControls); ekran boyutu ne olursa olsun yapışık kalır.
+   Yönetim panelindeki diğer haritalar bu kurala dahil değildir. */
+.layer-drawer.is-header-anchored{ left:clamp(4px, 1.2vw, 10px); }
+.layer-drawer.is-header-anchored .layer-notch{
+  border-top:none;
+  border-radius:0 0 0 12px;           /* üst kenar header'a yapışık, alt köşe yuvarlak */
+}
+.layer-drawer.is-header-anchored .layer-panel{
+  border-top:none;
+  border-radius:0 0 12px 0;
+}
+
+/* ---- Açık veri indirme butonu (yalnızca giriş yapılmadan + OPEN_DATA=true) ---- */
+.open-data-btn{
+  position:absolute;
+  z-index:1200;
+  display:inline-flex; align-items:center; justify-content:center; gap:7px;
+  box-sizing:border-box;
+  height:40px;                         /* katmanlar butonuyla aynı yükseklik (paralel) */
+  padding:0 14px;
+  margin:0;
+  border:2px solid #047857;
+  border-top:none;                     /* header'a yapışık */
+  border-radius:0 0 14px 14px;
+  background:linear-gradient(135deg, #34d399 0%, #10b981 45%, #047857 100%);
+  color:#fff;
+  font-family:inherit;
+  font-size:14px; font-weight:800; letter-spacing:.02em;
+  line-height:1; white-space:nowrap;
+  text-shadow:0 1px 2px rgba(0,0,0,.25);
+  box-shadow:0 6px 16px rgba(5,150,105,.35), inset 0 -3px 0 rgba(0,0,0,.14), inset 0 1px 0 rgba(255,255,255,.3);
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+  transition:transform .12s ease, box-shadow .18s ease, filter .18s ease, opacity .18s ease;
+}
+.open-data-btn.hidden{ display:none !important; }
+.open-data-btn svg{ width:19px; height:19px; flex:0 0 auto; }
+.open-data-btn:hover{ filter:brightness(1.07) saturate(1.1); box-shadow:0 9px 22px rgba(5,150,105,.45), inset 0 -3px 0 rgba(0,0,0,.14), inset 0 1px 0 rgba(255,255,255,.3); }
+.open-data-btn:active{ transform:translateY(1px); box-shadow:inset 0 3px 8px rgba(0,0,0,.25); }
+.open-data-btn:focus-visible{ outline:3px solid #f59e0b; outline-offset:2px; }
+.open-data-btn.is-busy{ opacity:.65; cursor:progress; }
+.open-data-btn.is-busy svg{ animation:odb-bounce .9s ease-in-out infinite; }
+@keyframes odb-bounce{ 0%,100%{ transform:translateY(-1px); } 50%{ transform:translateY(2px); } }
+
+/* Koyu tema: neon (camgöbeği) görünüm + parlama */
+:root.theme-dark .open-data-btn{
+  background:linear-gradient(135deg, rgba(34,211,238,.18), rgba(16,185,129,.18));
+  color:#67e8f9;
+  border-color:#22d3ee;
+  text-shadow:0 0 8px rgba(103,232,249,.8);
+  box-shadow:0 0 14px rgba(34,211,238,.55), 0 0 28px rgba(34,211,238,.25), inset 0 0 10px rgba(34,211,238,.18);
+  backdrop-filter:blur(4px);
+}
+:root.theme-dark .open-data-btn svg{ filter:drop-shadow(0 0 4px rgba(103,232,249,.9)); }
+:root.theme-dark .open-data-btn:hover{
+  color:#a5f3fc;
+  box-shadow:0 0 20px rgba(34,211,238,.8), 0 0 40px rgba(34,211,238,.35), inset 0 0 12px rgba(34,211,238,.25);
+}
+
+/* Telefonlar: katmanlar butonunun yüksekliğiyle aynı (36 / 34px) */
+@media (min-width:401px) and (max-width:576px){
+  .open-data-btn{ height:36px; padding:0 11px; font-size:13px; gap:6px; }
+  .open-data-btn svg{ width:17px; height:17px; }
+}
+@media (max-width:400px){
+  .open-data-btn{ height:34px; padding:0 9px; font-size:12.5px; gap:5px; border-radius:0 0 12px 12px; }
+  .open-data-btn svg{ width:16px; height:16px; }
+}
+
+/* Supervisor görünüm paneli: harita, header'ın GERÇEK alt kenarından başlar.
+   (--header-h sabit 66px; telefonda header 49px olduğundan arada boşluk kalıyordu.)
+   --dide-header-real JS ile ölçülür; tanımlı değilse eski değer (--header-h) kullanılır. */
+body.supervisor-readonly-map #map,
+body.supervisor-mode-form #map{
+  top: var(--dide-header-real, var(--header-h)) !important;
+  height: calc(100vh - var(--dide-header-real, var(--header-h))) !important;
+  min-height: calc(100vh - var(--dide-header-real, var(--header-h))) !important;
+  height: calc(100dvh - var(--dide-header-real, var(--header-h))) !important;
+  min-height: calc(100dvh - var(--dide-header-real, var(--header-h))) !important;
+}

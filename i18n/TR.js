@@ -651,5 +651,14 @@ window.i18nLangs.tr = {
     paidExceedsTotal: 'Ödenecek tutar toplam tutardan büyük olamaz.',
     company_config_changed: 'Şirket ayarları değişti. Lütfen QR kodunu yeniden okutun.',
     companyTreatStrip: '{{threshold}} puan ile {{treat}} ikram',
-    companyTreatStripOne: '1 puan ile {{treat}} ikram'
+    companyTreatStripOne: '1 puan ile {{treat}} ikram',
+
+    // Açık veri (OPEN_DATA)
+    openDataBtn: 'Açık veri',
+    openDataDownload: 'Herkese açık verileri fotoğraflarıyla indir (ZIP)',
+    openDataDownloading: 'Açık veri hazırlanıyor…',
+    openDataDownloaded: 'Açık veri indirildi.',
+    open_data_disabled: 'Açık veri indirme bu sitede kapalı.',
+    open_data_empty: 'İndirilecek herkese açık veri bulunamadı.',
+    open_data_rate_limited: 'Çok sık indirme denendi. Lütfen birkaç dakika sonra tekrar deneyin.'
 };

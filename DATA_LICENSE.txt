@@ -1,0 +1,336 @@
+================================================================================
+                        DiDe DATA USE LICENSE  (DiDe-DUL)
+                                  Version 1.0
+                 DiDe - Digital Detectives of Environment
+================================================================================
+
+This file is delivered together with every data export from the DiDe platform
+(the "Platform"):
+
+  * the OPEN DATA export, which any visitor may download without an account
+    (public environmental reports and their photos), and
+  * the PERSONAL export ("Download my data"), which a registered contributor
+    downloads from their own profile (only the reports that contributor added).
+
+By downloading, opening, copying or using the data in any way, YOU ACCEPT THIS
+LICENSE. If you do not agree with it, do not use the data and delete every copy.
+
+IMPORTANT: The DiDe SOFTWARE (source code) is licensed separately (see the file
+named "LICENSE" in the source code repository). This document covers only the
+DATA (records, coordinates, descriptions, photos, videos and metadata).
+
+
+--------------------------------------------------------------------------------
+1. WHAT THE DATA IS
+--------------------------------------------------------------------------------
+
+DiDe is a citizen-science platform. Volunteers ("Contributors") report
+environmental observations - for example litter, damaged infrastructure or
+other environmental problems - by marking a location on a map, choosing an
+event type, adding a short description and, optionally, photos, videos and
+the direction they were facing. Other users can "agree" with a report to
+confirm it. Contributors earn points for useful activity, and moderators
+("Supervisors") manage event types and can close reports.
+
+The data is therefore CROWD-SOURCED. It is collected by members of the public,
+it is not an official survey, and it has NOT been verified as accurate,
+complete or current (see Section 8).
+
+
+--------------------------------------------------------------------------------
+2. DEFINITIONS
+--------------------------------------------------------------------------------
+
+"Data"            Everything contained in a DiDe export archive: the GeoJSON
+                  file(s), all attributes, coordinates, descriptions, photos,
+                  videos and metadata, in whole or in part.
+
+"Operator"        The DiDe project team that runs the Platform from which the
+                  Data was downloaded.
+
+"Contributor"     A person who created a report, photo or video in the Data.
+
+"You"/"Licensee"  The person or organisation that downloads or uses the Data.
+
+"Personal Data"   Any information relating to an identified or identifiable
+                  natural person, as defined by applicable data protection law
+                  (for example the EU General Data Protection Regulation
+                  2016/679 "GDPR" and the Turkish Personal Data Protection Law
+                  No. 6698 "KVKK"). Faces, vehicle licence plates, house
+                  numbers, names written in descriptions and precise locations
+                  linked to a person can all be Personal Data.
+
+"Derived Work"    Any analysis, map, statistic, model, report, dataset or
+                  other work that you create using the Data.
+
+"Non-Commercial"  Use that is not primarily intended for, or directed toward,
+                  commercial advantage or monetary compensation.
+
+
+--------------------------------------------------------------------------------
+3. WHAT YOU MAY DO (LICENSE GRANT)
+--------------------------------------------------------------------------------
+
+Subject to the conditions in this License, the Operator grants You a
+worldwide, royalty-free, non-exclusive, non-transferable, revocable licence to
+use, copy, analyse, visualise and adapt the Data for NON-COMMERCIAL purposes,
+including:
+
+  a) education and teaching - classes, theses, student projects, workshops;
+  b) scientific and academic research;
+  c) personal learning and skill development (GIS, data science, statistics,
+     programming, cartography);
+  d) environmental, civic and public-interest projects - for example reporting
+     a problem to the responsible authority, planning a clean-up, raising
+     awareness or measuring improvement over time;
+  e) journalism and public-interest reporting;
+  f) contributing back to DiDe or to other open, non-commercial
+     citizen-science or environmental projects;
+  g) training or evaluating software, including machine-learning models, ONLY
+     for the purposes listed above and ONLY in compliance with Sections 5
+     and 6.
+
+Commercial use (selling the Data, including it in a paid product or service,
+or using it mainly for profit) is NOT permitted under this License. If you
+want to use the Data commercially, ask the Operator for separate written
+permission first.
+
+All rights that are not expressly granted here are reserved.
+
+
+--------------------------------------------------------------------------------
+4. YOUR OBLIGATIONS
+--------------------------------------------------------------------------------
+
+4.1 Attribution. Whenever you publish, present or share the Data or a Derived
+    Work, give clear credit, for example:
+
+        "Contains data from DiDe - Digital Detectives of Environment
+         (contributors), licensed under the DiDe Data Use License v1.0,
+         downloaded on <date>."
+
+    Also state if you modified, filtered or combined the Data.
+
+4.2 Keep this License with the Data. If you redistribute the Data or a
+    substantial part of it, you must:
+      - include an unmodified copy of this License;
+      - distribute it under this same License, without adding terms that
+        restrict the rights it grants or remove the protections it gives to
+        Contributors; and
+      - distribute it free of charge.
+
+4.3 No false endorsement. Do not suggest that the Operator, the Platform or
+    any Contributor sponsors, approves or is responsible for you, your
+    project or your conclusions.
+
+4.4 Accurate representation. Do not alter the Data in order to mislead (for
+    example by changing dates, locations, event types or photos) and do not
+    present modified Data as original Platform Data.
+
+4.5 Keep your copy up to date where it matters. Reports change over time:
+    they can be closed, corrected or removed (including at a Contributor's
+    request). If you publish the Data or keep a long-term public copy,
+    download a fresh export regularly and remove records that no longer
+    appear in it. If the Operator asks you to delete specific records or
+    photos (for example because of a privacy or takedown request), you must
+    do so promptly.
+
+
+--------------------------------------------------------------------------------
+5. PRIVACY AND PERSONAL DATA
+--------------------------------------------------------------------------------
+
+The OPEN DATA export deliberately excludes account information: it contains
+no usernames, user IDs, roles or names of the people who created, updated or
+closed a report, no agreement (voter) lists and no videos. However, free-text
+descriptions and photos are written and taken by members of the public and MAY
+still accidentally contain Personal Data (for example a face, a licence plate
+or a name).
+
+When you use the Data, You agree to the following:
+
+5.1 You are responsible for your own compliance with all applicable data
+    protection and privacy laws (including GDPR and KVKK where applicable).
+    For your own processing of the Data, You act as an independent
+    controller; the Operator does not process data on your behalf.
+
+5.2 You must NOT attempt to re-identify, de-anonymise or contact any
+    Contributor or any person who appears in, or is referred to by, the Data -
+    including by combining the Data with other datasets, by analysing
+    timestamps and locations, or by any other means.
+
+5.3 Before you publish or share photos from the Data, you must blur or remove
+    faces, licence plates and any other information that could identify a
+    person, unless the person has clearly consented.
+
+5.4 If you find Personal Data in the Data, do not use or spread it. Remove it
+    from your copy and inform the Operator, so that the original record can
+    be corrected.
+
+5.5 PERSONAL export. If you are the Contributor downloading your own data,
+    you keep all rights you hold in your own descriptions, photos and videos.
+    This License still applies to any third-party Personal Data that may
+    appear in them and to the Platform-generated fields (for example
+    identifiers, agreement counts, aggregation-area codes and dates). Take
+    care before publishing your export: it can contain information (such as
+    exact times and places you were present) that reveals your own movements.
+
+
+--------------------------------------------------------------------------------
+6. PROHIBITED USES
+--------------------------------------------------------------------------------
+
+You must NOT use the Data, or any Derived Work, to:
+
+  a) identify, track, profile, monitor or surveil any individual or group,
+     or build any database about people;
+  b) perform facial recognition or biometric identification, or extract,
+     collect or analyse faces, licence plates or other identifiers from the
+     photos;
+  c) harass, threaten, stalk, shame, dox, blackmail or discriminate against
+     anyone, or to target any person, household, business or community;
+  d) sell, rent, license or otherwise commercially exploit the Data (see
+     Section 3), or put it behind a paywall;
+  e) create or spread misinformation, fake reports or manipulated evidence,
+     or misrepresent the condition of a place, organisation or person;
+  f) cause environmental harm - for example to locate and disturb protected
+     habitats or species, or to plan illegal dumping in places where it is
+     less likely to be reported;
+  g) commit, plan or facilitate any unlawful act, or for military,
+     law-enforcement surveillance or intelligence purposes;
+  h) attack, overload, scrape or abuse the Platform, its servers or its
+     users, or to bypass any limitation of the Platform (for example by
+     repeatedly downloading exports in an automated way);
+  i) send spam or unsolicited marketing; or
+  j) game, manipulate or abuse the Platform's points, agreement, reward,
+     discount or treat system.
+
+Using the Data to make a decision that significantly affects a person (for
+example employment, credit, insurance, housing or legal decisions) is also
+prohibited.
+
+
+--------------------------------------------------------------------------------
+7. PHOTOS AND OTHER MEDIA
+--------------------------------------------------------------------------------
+
+Photos and videos were provided by Contributors. Unless stated otherwise in
+the Data, they are licensed to You only under this License and only together
+with the reports they belong to. You may show them in Non-Commercial,
+public-interest work with the attribution required by Section 4.1 and after
+applying the privacy protections of Section 5.3. Do not use them in
+advertising, merchandise or any context that could imply that a pictured
+person endorses something.
+
+
+--------------------------------------------------------------------------------
+8. DATA QUALITY - NO WARRANTY
+--------------------------------------------------------------------------------
+
+THE DATA IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF ACCURACY, COMPLETENESS,
+TIMELINESS, MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NON-INFRINGEMENT.
+
+In particular:
+  * reports are made by volunteers and are not verified; they may be wrong,
+    exaggerated, duplicated, outdated or already resolved;
+  * coordinates and directions come from consumer devices (GPS, map clicks)
+    and can be inaccurate by many metres;
+  * the number of agreements is an indication of community confirmation, not
+    proof;
+  * the absence of a report does NOT mean that there is no problem at a
+    place.
+
+Do NOT rely on the Data for emergency response, safety-critical, medical,
+legal, navigation or official decisions. Always verify the situation on the
+ground or with the competent authority.
+
+
+--------------------------------------------------------------------------------
+9. LIMITATION OF LIABILITY AND INDEMNITY
+--------------------------------------------------------------------------------
+
+To the maximum extent permitted by law, neither the Operator nor any
+Contributor will be liable to You or to any third party for any direct,
+indirect, incidental, special, consequential or punitive damages, or for any
+loss of data, profit, revenue or reputation, arising out of or in connection
+with the Data or this License, even if advised of the possibility of such
+damages.
+
+You are solely responsible for how You use the Data. You agree to defend,
+indemnify and hold harmless the Operator and the Contributors from any claim,
+loss, liability, fine or expense (including reasonable legal fees) arising
+from your use of the Data or your breach of this License or of applicable
+law.
+
+
+--------------------------------------------------------------------------------
+10. TERMINATION
+--------------------------------------------------------------------------------
+
+This License ends automatically and immediately, without notice, if You
+breach any of its terms. On termination You must stop using the Data and
+delete all copies of it and of any Derived Work that still contains it (in
+particular any Personal Data or photos). Sections 5, 6, 8, 9 and 10 survive
+termination. The Operator may also stop offering the Data or change future
+versions of this License at any time; data you have already downloaded remains
+under the version of the License delivered with it.
+
+
+--------------------------------------------------------------------------------
+11. GENERAL
+--------------------------------------------------------------------------------
+
+* If any provision of this License is held unenforceable, it will be
+  reformed to the minimum extent necessary and the remaining provisions stay
+  in effect.
+* A failure to enforce a provision is not a waiver of it.
+* This License is governed by the laws applicable at the place where the
+  Operator is established, without regard to conflict-of-law rules, and does
+  not limit any mandatory rights You have under the law of your country.
+* Questions, privacy concerns, takedown requests and requests for commercial
+  permission: please contact the Operator through the contact information
+  published on the Platform.
+
+
+--------------------------------------------------------------------------------
+ANNEX A - FIELDS IN THE EXPORT FILES (events.geojson)
+--------------------------------------------------------------------------------
+
+OPEN DATA export (no account required):
+
+  event_id      Unique number of the report on the Platform.
+  latitude      Latitude of the reported location (WGS 84, EPSG:4326).
+  longitude     Longitude of the reported location (WGS 84, EPSG:4326).
+  event_type    Name of the event type (category) of the report.
+  description   Free-text description written by the Contributor.
+  created_at    Date and time the report was created (ISO 8601, UTC).
+  photo_urls    File names of the report's photos, found in the "photos/"
+                folder of the archive.
+  num_agrees    Number of users who currently agree with (confirm) the
+                report.
+  direction     Direction the Contributor was facing, in degrees clockwise
+                from north (0 = N, 90 = E, 180 = S, 270 = W); empty if
+                unknown.
+
+  Only ACTIVE reports of PUBLIC event types are included.
+
+PERSONAL export ("Download my data", only your own reports) additionally
+contains:
+
+  active               true if the report is still open, false if closed.
+  deactivated_by_name  Who closed the report (if closed).
+  deactivated_at       When the report was closed (if closed).
+  video_urls           File names of the report's videos ("videos/" folder).
+  last_agreed_date     Date and time of the most recent agreement (or of
+                       creation).
+  <area key columns>   Only if the Platform uses an aggregation layer: the
+                       identifier(s) of the area (for example a grid cell or
+                       district) that contains the report.
+
+The geometry of each feature is a GeoJSON Point using the same coordinates.
+
+--------------------------------------------------------------------------------
+End of the DiDe Data Use License, Version 1.0
+================================================================================

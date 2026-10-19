@@ -651,5 +651,14 @@ window.i18nLangs.en = {
     paidExceedsTotal: 'The amount to be paid cannot be greater than the total amount.',
     company_config_changed: 'Company settings have changed. Please scan the QR code again.',
     companyTreatStrip: '{{treat}} on the house for {{threshold}} points',
-    companyTreatStripOne: '{{treat}} on the house for 1 point'
+    companyTreatStripOne: '{{treat}} on the house for 1 point',
+
+    // Açık veri (OPEN_DATA)
+    openDataBtn: 'Open data',
+    openDataDownload: 'Download public data with photos (ZIP)',
+    openDataDownloading: 'Preparing open data…',
+    openDataDownloaded: 'Open data downloaded.',
+    open_data_disabled: 'Open data download is disabled on this site.',
+    open_data_empty: 'No public data available to download.',
+    open_data_rate_limited: 'Too many download attempts. Please try again in a few minutes.'
 };

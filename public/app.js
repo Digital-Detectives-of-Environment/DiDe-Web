@@ -90,6 +90,10 @@ let APP_CONFIG = {
   // Güvenli varsayılan: false → mevcut davranış (harita tıklaması + GPS) korunur.
   restrictGnss: false,
 
+  // .env → OPEN_DATA: true ise giriş yapılmadan haritada "Açık veri" indirme butonu görünür.
+  // Güvenli varsayılan: false (mevcut davranış: ziyaretçi veri indiremez).
+  openData: false,
+
   // Which time units the supervisor may enter for a time-dependent event type.
   // Populated from /api/config (EVENT_TYPE_VALIDITY_UNITS). Falls back to days.
   eventTypeValidityUnits: ['days'],
@@ -173,8 +177,11 @@ async function loadAppConfig() {
       config.agreeCooldownHours = Number(config.agreeCooldownHours) || 0;
       config.bufferRadius = Number(config.bufferRadius) || 0;
       
+      config.openData = (config.openData === true);
       APP_CONFIG = { ...APP_CONFIG, ...config };
       console.log('[CONFIG] polygonTable =', APP_CONFIG.polygonTable, '| polygonPk1 =', APP_CONFIG.polygonPk1);
+      // Açık veri butonu: giriş yapılmadan ve .env OPEN_DATA=true iken görünür
+      try { updateOpenDataButton(); } catch {}
       
       if (map) {
         const v = getInitialMapView();
@@ -731,6 +738,14 @@ function ensureLayerDrawer(mapInstance, listId){
   drawer.appendChild(panel);
   c.appendChild(drawer);
 
+  // Ana harita (#map: giriş ekranı, opener, solver, supervisor görünüm paneli):
+  // katmanlar paneli header'ın HEMEN altına, header'a yapışık konumlanır.
+  // (Yönetim panelindeki diğer haritalar eski konumunu korur.)
+  if (c.id === 'map') {
+    drawer.classList.add('is-header-anchored');
+    try { syncHeaderAnchoredControls(); } catch {}
+  }
+
   // Set max-height AFTER DOM insertion (needs actual computed position)
   requestAnimationFrame(() => {
     const cH = c.clientHeight || 400;
@@ -738,6 +753,144 @@ function ensureLayerDrawer(mapInstance, listId){
     const mxH = Math.max(150, cH - dTop - 20);
     panel.style.setProperty('max-height', mxH + 'px', 'important');
   });
+}
+
+/* ===================== Header'a yapışık harita kontrolleri =====================
+   Ana haritadaki (#map) iki kontrol, header'ın ALT kenarına yapışık durur:
+     - solda katmanlar paneli (≡),
+     - sağda (yalnızca giriş yapılmadan ve OPEN_DATA=true iken) "Açık veri" indirme butonu;
+       sağ kenarı header'daki Giriş butonunun sağ kenarıyla aynı hizadadır.
+   Header'ın yüksekliği ekran genişliğine / dile / giriş durumuna göre değiştiği için
+   konum sabit bir değerle değil, GERÇEK ölçümle hesaplanır ve ekran boyutu, header
+   boyutu ya da giriş durumu değiştikçe yeniden ayarlanır. */
+let __dideHeaderReal = 0;
+function syncHeaderAnchoredControls(){
+  const mc = document.getElementById('map');
+  const hdr = document.querySelector('header');
+  if (!mc || !hdr) return;
+  // Header'ın GERÇEK yüksekliği CSS'e aktarılır (--dide-header-real). Supervisor görünüm
+  // panelinde harita bu değere göre konumlanır; böylece telefonda header ile harita
+  // arasında boşluk kalmaz ve katmanlar paneli header'a yapışık durur.
+  const hReal = Math.round(hdr.getBoundingClientRect().bottom);
+  if (hReal > 0 && hReal !== __dideHeaderReal) {
+    __dideHeaderReal = hReal;
+    document.documentElement.style.setProperty('--dide-header-real', hReal + 'px');
+    // Harita kabının boyutu değişti → Leaflet'e bildir
+    requestAnimationFrame(() => { try { if (typeof map !== 'undefined' && map) map.invalidateSize(false); } catch {} });
+  }
+  const cr = mc.getBoundingClientRect();
+  if (!cr.width || !cr.height) return;                  // harita gizliyken ölçme
+  const hb = hdr.getBoundingClientRect().bottom;
+  const top = Math.max(0, Math.round(hb - cr.top));     // header'ın alt kenarı (harita içi koordinat)
+
+  const drawer = mc.querySelector('.layer-drawer.is-header-anchored');
+  if (drawer) {
+    drawer.style.setProperty('top', top + 'px', 'important');
+    const panel = drawer.querySelector('.layer-panel');
+    if (panel) {
+      const mxH = Math.max(150, (mc.clientHeight || 400) - top - 20);
+      panel.style.setProperty('max-height', mxH + 'px', 'important');
+    }
+  }
+
+  const od = mc.querySelector('#open-data-btn');
+  if (od && !od.classList.contains('hidden')) {
+    od.style.top = top + 'px';
+    // Sağ hiza: Giriş butonunun sağ kenarı (görünmüyorsa header içeriğinin sağ kenarı)
+    const login = document.getElementById('btn-open-login');
+    let refRight = null;
+    if (login && login.offsetParent !== null) refRight = login.getBoundingClientRect().right;
+    if (refRight == null) {
+      const auth = hdr.querySelector('.auth') || hdr.querySelector('.wrap') || hdr;
+      refRight = auth.getBoundingClientRect().right;
+    }
+    od.style.right = Math.max(0, Math.round(cr.right - refRight)) + 'px';
+    // Giriş butonuyla aynı genişlikten daha dar olmasın (aynı hizada, düzenli görünüm)
+    if (login && login.offsetParent !== null) od.style.minWidth = Math.round(login.getBoundingClientRect().width) + 'px';
+  }
+}
+(function wireHeaderAnchoredControls(){
+  let t = null;
+  const later = () => { clearTimeout(t); t = setTimeout(syncHeaderAnchoredControls, 60); };
+  window.addEventListener('resize', later);
+  window.addEventListener('orientationchange', later);
+  try { if (window.visualViewport) window.visualViewport.addEventListener('resize', later); } catch {}
+  window.addEventListener('languagechange', () => { try { updateOpenDataButton(); } catch {} later(); });
+  const attachRO = () => {
+    const hdr = document.querySelector('header');
+    if (hdr && typeof ResizeObserver !== 'undefined') new ResizeObserver(later).observe(hdr);
+    const mc = document.getElementById('map');
+    if (mc && typeof ResizeObserver !== 'undefined') new ResizeObserver(later).observe(mc);
+    later();
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attachRO);
+  else attachRO();
+  // Yazı tipleri / logo geç yüklenince header yüksekliği değişebilir
+  window.addEventListener('load', later);
+})();
+
+/* ===================== AÇIK VERİ İNDİRME BUTONU =====================
+   Yalnızca giriş yapılmadan ve .env OPEN_DATA=true iken görünür. Herkese açık aktif
+   olayları (kişisel veri içermeyen sütunlarla) fotoğrafları ve lisans dosyasıyla birlikte
+   ZIP olarak indirir (/api/open-data/export). */
+const OPEN_DATA_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+  '<path d="M12 3v11m0 0-4.2-4.2M12 14l4.2-4.2" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>' +
+  '<path d="M4.5 15.5v2.3A2.2 2.2 0 0 0 6.7 20h10.6a2.2 2.2 0 0 0 2.2-2.2v-2.3" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function updateOpenDataButton(){
+  const mc = document.getElementById('map');
+  if (!mc) return;
+  let btn = mc.querySelector('#open-data-btn');
+  const shouldShow = !!(APP_CONFIG && APP_CONFIG.openData === true) && !currentUser;
+  if (!btn) {
+    if (!shouldShow) return;
+    btn = document.createElement('button');
+    btn.id = 'open-data-btn';
+    btn.type = 'button';
+    btn.className = 'open-data-btn hidden';
+    btn.innerHTML = OPEN_DATA_ICON + '<span class="odb-label"></span>';
+    // Tıklama / dokunma haritaya geçmesin (harita tıklaması tetiklenmesin)
+    try { L.DomEvent.disableClickPropagation(btn); } catch {}
+    btn.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+    btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    btn.addEventListener('dblclick', (e) => e.stopPropagation());
+    btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); downloadOpenData(); });
+    mc.appendChild(btn);
+  }
+  const lbl = btn.querySelector('.odb-label');
+  if (lbl) lbl.textContent = t('openDataBtn');
+  btn.title = t('openDataDownload');
+  btn.setAttribute('aria-label', t('openDataDownload'));
+  btn.classList.toggle('hidden', !shouldShow);
+  if (shouldShow) syncHeaderAnchoredControls();
+}
+async function downloadOpenData(){
+  const btn = document.getElementById('open-data-btn');
+  if (!btn || btn.classList.contains('is-busy')) return;
+  btn.classList.add('is-busy'); btn.disabled = true;
+  toast(t('openDataDownloading'), 'info', 2500);
+  try {
+    const r = await fetch('/api/open-data/export', { cache: 'no-store' });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      toast(d.message || (r.status === 404 ? t('open_data_empty') : (t('downloadError') + ': ' + r.status)), 'error', 4500);
+      return;
+    }
+    const blob = await r.blob();
+    let fname = 'dide_open_data.zip';
+    const cd = r.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="?([^";]+)"?/i);
+    if (m && m[1]) fname = m[1];
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { try { URL.revokeObjectURL(url); a.remove(); } catch {} }, 1000);
+    toast(t('openDataDownloaded'), 'success');
+  } catch (e) {
+    toast(t('downloadError') + ': ' + ((e && e.message) || ''), 'error', 4000);
+  } finally {
+    btn.classList.remove('is-busy'); btn.disabled = false;
+  }
 }
 
 function geomTypeIcon(type){
@@ -12234,6 +12387,8 @@ function reflectAuth(){
     }
     hide(qs('#btn-open-login')); 
     show(qs('#btn-logout'));
+    // Açık veri butonu yalnızca giriş yapılmadan görünür
+    try { updateOpenDataButton(); } catch {}
     hide(qs('#login-card')); 
     hide(qs('#register-card')); 
     hide(qs('#forgot-card')); 
@@ -12274,6 +12429,7 @@ function reflectAuth(){
     hide(who);
     show(qs('#btn-open-login')); 
     hide(qs('#btn-logout'));
+    try { updateOpenDataButton(); } catch {}
     show(qs('#login-card')); 
     hide(qs('#register-card')); 
     hide(qs('#forgot-card')); 

@@ -642,5 +642,14 @@ window.i18nLangs.it = {
     paidExceedsTotal: 'L\'importo da pagare non può superare l\'importo totale.',
     company_config_changed: 'Le impostazioni dell\'azienda sono cambiate. Scansiona di nuovo il codice QR.',
     companyTreatStrip: '{{treat}} offerto con {{threshold}} punti',
-    companyTreatStripOne: '{{treat}} offerto con 1 punto'
+    companyTreatStripOne: '{{treat}} offerto con 1 punto',
+
+    // Açık veri (OPEN_DATA)
+    openDataBtn: 'Dati aperti',
+    openDataDownload: 'Scarica i dati pubblici con le foto (ZIP)',
+    openDataDownloading: 'Preparazione dei dati aperti…',
+    openDataDownloaded: 'Dati aperti scaricati.',
+    open_data_disabled: 'Il download dei dati aperti è disattivato su questo sito.',
+    open_data_empty: 'Nessun dato pubblico disponibile per il download.',
+    open_data_rate_limited: 'Troppi tentativi di download. Riprova tra qualche minuto.'
 };
