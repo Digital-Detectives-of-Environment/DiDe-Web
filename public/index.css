@@ -5193,17 +5193,33 @@ body.nl-viewer-open{ overflow:hidden; }
      - Yazı boyutları ekranın hem genişliğine (vw) hem yüksekliğine (vh) göre ölçeklenir.
      - Yine sığmazsa JS (_nlFitInfo) --nl-scale ile yazıları küçültür. */
 .nl-page{ --nl-scale:1; --nl-media-min:42%; }
+/* ÖNEMLİ: fotoğraf alanının yüksekliği fotoğrafın GERÇEK boyutundan bağımsızdır.
+   flex-basis:0 → fotoğraf yalnızca bilgi alanından ARTAN yeri kaplar. (Eskiden
+   flex-basis:auto idi: büyük/dikey bir fotoğraf yüklenince alanı büyütüp bilgi alanını
+   sıkıştırıyor, gerçek telefonlarda Instagram butonu yarım görünüyordu.) */
 .nl-page .nl-media{
-  flex:1 1 auto;
+  flex:1 1 0 !important;
   min-height:var(--nl-media-min);
+  height:auto;
+  margin-top:0;
 }
 @media (min-width:768px){
-  .nl-page .nl-media{ flex-basis:auto; flex:1 1 auto; }
+  .nl-page .nl-media{ margin-top:12px; }
 }
 @media (max-height:460px) and (orientation:landscape){
-  .nl-page{ --nl-media-min:34%; }
-  .nl-page .nl-media{ flex-basis:auto; }
+  .nl-page{ --nl-media-min:30%; }
 }
+/* Görsel ve bağlantı fotoğraf alanını mutlak konumla doldurur; boyutları düzeni etkilemez */
+.nl-page .nl-media > .nl-media-link,
+.nl-page .nl-media > .nl-media-img{
+  position:absolute; inset:0;
+  width:100%; height:100%;
+}
+.nl-page .nl-media-link > .nl-media-img{
+  position:absolute; inset:0;
+  width:100%; height:100%;
+}
+.nl-page .nl-type-float{ z-index:3; }
 .nl-page .nl-info{
   flex:0 1 auto;
   min-height:0;
@@ -5229,7 +5245,8 @@ body.nl-viewer-open{ overflow:hidden; }
   font-size:calc(clamp(.92rem, min(4.2vw, 2.6vh), 1.2rem) * var(--nl-scale));
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-.nl-page .nl-ig-row{ padding:0; }
+.nl-page .nl-ig-row{ padding:0; min-width:0; max-width:100%; }
+.nl-page .nl-ig-btn{ max-width:100%; box-sizing:border-box; }
 .nl-page .nl-ig-btn{
   padding:calc(clamp(5px, 1vh, 9px) * var(--nl-scale)) 12px;
   font-size:calc(13.5px * var(--nl-scale));
@@ -5239,7 +5256,18 @@ body.nl-viewer-open{ overflow:hidden; }
 @media (max-width:340px){
   .nl-page .nl-date-chip{ padding-left:8px; padding-right:8px; }
 }
-.nl-dots{ padding:clamp(6px, 1.2vh, 10px) 0 calc(clamp(6px, 1.2vh, 10px) + env(safe-area-inset-bottom, 0px)); min-height:20px; }
+.nl-dots{ padding:clamp(6px, 1.2vh, 10px) 0 calc(clamp(6px, 1.2vh, 10px) + env(safe-area-inset-bottom, 0px)); min-height:20px; flex:0 0 auto; }
+/* Görüntüleyici yüksekliği: telefonun GÖRÜNÜR alanı (JS --nl-vh'yi visualViewport'tan yazar).
+   inset:0 / 100vh bazı mobil tarayıcılarda alt araç çubuğunun altına taşıyordu. */
+.newsletter-overlay{
+  top:0; right:0; left:0; bottom:auto;
+  height:100vh;
+  height:100dvh;
+  height:var(--nl-vh, 100dvh);
+  -webkit-text-size-adjust:100%;
+  text-size-adjust:100%;
+}
+.nl-viewer-head{ flex:0 0 auto; }
 
 /* ===================== Şirket: QR sonrası butonlar (Ödendi / İleri) ===================== */
 /* Buton olduğu ilk bakışta anlaşılsın: dolgun renk geçişi, kalın belirgin çerçeve,

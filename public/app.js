@@ -15593,6 +15593,7 @@ function renderNewslettersTable(){
 let __nlCounterTimer = null;
 async function openNewsletterViewer(){
   const ov = qs('#newsletter-overlay'); if (!ov) return;
+  _nlSyncViewport();
   ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false');
   document.body.classList.add('nl-viewer-open');
   const sw = qs('#newsletter-swiper');
@@ -15703,30 +15704,82 @@ function renderNewsletterPages(){
     wheelVerticalScroll: false
   });
   _nlUpdateIndicator();
+  _nlSyncViewport();
+  _nlWatchPages(sw);
   _nlFitAll();
 }
 
 /* Fotoğrafın altındaki bilgi alanı (ad, başlangıç/bitiş, Instagram) HİÇBİR ZAMAN kaydırma
-   gerektirmez. Düzen CSS'te: bilgi alanı doğal yüksekliğini alır, fotoğraf kalan alanı doldurur
-   (en az --nl-media-min kadar). Çok uzun bir ad / çok kısa bir ekranda bilgi yine de sığmıyorsa
-   yazı ölçeği (--nl-scale) gerçek ölçümle adım adım küçültülür. */
-const NL_FIT_MIN_SCALE = 0.6;
+   gerektirmez ve HİÇBİR ZAMAN kırpılmaz.
+   GERÇEK TELEFON SORUNU (çözüldü): fotoğraf alanı eskiden flex-basis:auto idi; dikey (portre)
+   bir fotoğraf ilk çizimden SONRA yüklenince gerçek boyutu flex hesabına girip bilgi alanını
+   da sıkıştırıyordu → Instagram butonu yarım görünüyordu (kaydırma da olmuyordu, çünkü alan
+   overflow:hidden). Yerelde çoğunlukla yatay fotoğraf / önbellekteki görsel olduğundan
+   görünmüyordu. Artık:
+     - fotoğraf alanı yalnızca bilgi alanından ARTAN yeri kaplar (flex-basis:0, görsel mutlak
+       konumlu) → fotoğrafın boyutu düzeni hiç etkilemez;
+     - görüntüleyicinin yüksekliği telefonun GÖRÜNÜR alanına (visualViewport) eşitlenir;
+     - sığdırma ölçümü görseller yüklenince, ekran/araç çubuğu değişince ve yazı tipleri
+       gelince yeniden yapılır. */
+const NL_FIT_MIN_SCALE = 0.55;
+// Bilgi alanındaki herhangi bir öğe alanın dışına taşıyor mu? (dikey VE yatay; 1px tolerans)
+function _nlInfoOverflows(info){
+  if (info.scrollHeight > info.clientHeight + 1) return true;
+  if (info.scrollWidth > info.clientWidth + 1) return true;
+  const box = info.getBoundingClientRect();
+  const els = info.querySelectorAll('.nl-name, .nl-date-chip, .nl-ig-btn');
+  for (const el of els) {
+    const r = el.getBoundingClientRect();
+    if (r.bottom > box.bottom + 1 || r.right > box.right + 1) return true;
+  }
+  return false;
+}
 function _nlFitInfo(page){
   const info = page && page.querySelector('.nl-info'); if (!info) return;
   let scale = 1;
   page.style.setProperty('--nl-scale', '1');
-  for (let i = 0; i < 10; i++) {
-    if (info.scrollHeight <= info.clientHeight + 1) break;
+  for (let i = 0; i < 12; i++) {
+    if (!_nlInfoOverflows(info)) break;
     scale = Math.max(NL_FIT_MIN_SCALE, Math.round((scale - 0.05) * 100) / 100);
     page.style.setProperty('--nl-scale', String(scale));
     if (scale <= NL_FIT_MIN_SCALE) break;
   }
 }
+let __nlFitRaf = 0;
 function _nlFitAll(){
   const ov = qs('#newsletter-overlay'); if (!ov || ov.classList.contains('hidden')) return;
-  requestAnimationFrame(() => {
+  cancelAnimationFrame(__nlFitRaf);
+  __nlFitRaf = requestAnimationFrame(() => {
     try { ov.querySelectorAll('#newsletter-swiper .nl-page').forEach(_nlFitInfo); } catch {}
   });
+}
+// Görüntüleyicinin yüksekliği = telefonun GERÇEKTEN görünen alanı (adres/araç çubukları hariç).
+// 100vh/inset:0 bazı mobil tarayıcılarda alt araç çubuğunun ALTINA taşar; visualViewport taşmaz.
+function _nlSyncViewport(){
+  try {
+    const vv = window.visualViewport;
+    const h = Math.round((vv && vv.height) || window.innerHeight || document.documentElement.clientHeight || 0);
+    if (h > 0) document.documentElement.style.setProperty('--nl-vh', h + 'px');
+  } catch {}
+}
+// Görseller yüklenince ve kart boyutu değişince yeniden sığdır
+function _nlWatchPages(sw){
+  if (!sw) return;
+  sw.querySelectorAll('img.nl-media-img').forEach(img => {
+    if (img.__nlWatched) return; img.__nlWatched = true;
+    if (!img.complete) {
+      img.addEventListener('load', _nlFitAll, { once: true });
+      img.addEventListener('error', _nlFitAll, { once: true });
+    }
+  });
+  if (typeof ResizeObserver !== 'undefined' && !sw.__nlRO) {
+    let t = null;
+    sw.__nlRO = new ResizeObserver(() => { clearTimeout(t); t = setTimeout(_nlFitAll, 60); });
+    sw.__nlRO.observe(sw);
+  }
+  // Bazı telefonlarda düzen ilk saniyede birkaç kez değişir (araç çubuğu, yazı tipi) → emniyet
+  setTimeout(_nlFitAll, 300);
+  setTimeout(_nlFitAll, 1200);
 }
 
 (function wireNewsletter(){
@@ -15750,9 +15803,11 @@ function _nlFitAll(){
   });
   // Ekran boyutu / yönü değişince bilgi alanını yeniden sığdır (kaydırmasız)
   let rz = null;
-  const refit = () => { clearTimeout(rz); rz = setTimeout(_nlFitAll, 120); };
+  const refit = () => { _nlSyncViewport(); clearTimeout(rz); rz = setTimeout(_nlFitAll, 120); };
   window.addEventListener('resize', refit);
   window.addEventListener('orientationchange', refit);
+  // Mobilde adres/araç çubuğu açılıp kapanınca görünür yükseklik değişir
+  try { if (window.visualViewport) window.visualViewport.addEventListener('resize', refit); } catch {}
   // Yazı tipleri geç yüklenirse satır yükseklikleri değişebilir
   try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(_nlFitAll); } catch {}
 })();
