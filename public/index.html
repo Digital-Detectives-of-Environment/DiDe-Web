@@ -31,10 +31,20 @@
       --bg:#0b1020; --surface:#0f172a; --text:#e5e7eb; --muted:#9ca3af;
       --border:#1f2937; --border-soft:#1f2937;
       --shadow-sm:0 1px 2px rgba(0,0,0,.3); --shadow-md:0 6px 16px rgba(0,0,0,.35);
+      /* Koyu tema buton kimliği: koyu iç, neon camgöbeği çerçeve + ikon/yazı (index.css'te kullanılır) */
+      --dk-neon:#22d3ee; --dk-neon-text:#67e8f9; --dk-neon-hover:#a5f3fc;
+      --dk-btn-bg:#0b1324; --dk-btn-bg-hover:#10233a;
+      --dk-glow:0 0 0 1px rgba(34,211,238,.12), 0 0 12px rgba(34,211,238,.28);
+      --dk-glow-hover:0 0 0 1px rgba(34,211,238,.25), 0 0 18px rgba(34,211,238,.5);
     }
     body{background:var(--bg); color:var(--text);}
     :root.theme-dark table{ background: var(--surface); }
-    :root.theme-dark .auth .btn{ background:#fff!important; color:#000!important; border-color:var(--border); }
+    /* Header'daki yazılı butonlar (Giriş, Çıkış, Görünüm, Yönetim): koyu temada beyaz kutu YERİNE
+       koyu iç + neon çerçeve + neon yazı */
+    :root.theme-dark .auth .btn{
+      background:var(--dk-btn-bg)!important; color:var(--dk-neon-text)!important;
+      border:1.5px solid var(--dk-neon)!important; box-shadow:var(--dk-glow);
+    }
 
     .icon-btn{
       appearance:none; background:#fff; border:1px solid var(--border);

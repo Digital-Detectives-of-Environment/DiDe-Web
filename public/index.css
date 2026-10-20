@@ -709,8 +709,11 @@ body.role-user #olay-card.hidden{
 :root.theme-dark .back-btn svg,
 :root.theme-dark button svg path,
 :root.theme-dark button svg{
-  fill: #111827 !important;
-  color: #111827 !important;
+  /* Koyu tema: ikonlar artık SİYAH değil, neon camgöbeği (butonlar koyu zeminli).
+     Dolgu (fill) zorlanmaz: SVG'nin kendi fill/stroke tanımları korunur; "currentColor"
+     kullanan ikonlar bu rengi alır. (Eskiden fill + color #111827 zorlanıyordu → koyu
+     zeminde görünmüyordu.) */
+  color: var(--dk-neon-text, #67e8f9) !important;
 }
 
 :root.theme-dark .icon-btn,
@@ -721,8 +724,11 @@ body.role-user #olay-card.hidden{
 :root.theme-dark #btn-add-video,
 :root.theme-dark #btn-stt,
 :root.theme-dark .back-btn{
-  background: #ffffff !important;
-  border-color: var(--border) !important;
+  /* Koyu tema: beyaz kutu YERİNE koyu iç + belirgin neon çerçeve (buton olduğu anlaşılsın) */
+  background: var(--dk-btn-bg, #0b1324) !important;
+  border: 1.5px solid var(--dk-neon, #22d3ee) !important;
+  color: var(--dk-neon-text, #67e8f9) !important;
+  box-shadow: var(--dk-glow) !important;
 }
 /* ==========
    Layout - Supervisor Admin Modu
@@ -5458,3 +5464,144 @@ body.supervisor-mode-form #map{
 /* Olay türü ekleme — İngilizce çeviri adımı */
 #tr-step-modal .tr-step-label{ display:block; margin-bottom:6px; font-size:.86rem; font-weight:600; color:var(--muted, #6b7280); }
 #tr-step-modal #tr-step-next:disabled{ opacity:.45; cursor:not-allowed; }
+/* =====================================================================================
+   KOYU TEMA — BUTON VE İKON GÖRÜNÜRLÜĞÜ (tümleşik düzeltme)
+   Tasarım dili (kupa butonundaki gibi): KOYU iç + belirgin NEON çerçeve + NEON ikon/yazı.
+   Açık tema hiç değişmez; bu bölümdeki tüm kurallar yalnızca :root.theme-dark altındadır.
+   ===================================================================================== */
+
+/* 1) Görsel (img) olarak yüklenen TEK RENKLİ ikonlar.
+      Bu SVG dosyalarının içinde renk siyah olarak sabit yazılı (fill="#000000"); CSS rengi
+      bir <img>'in içine ulaşamadığı için koyu temada siyah kalıyorlardı. Aşağıdaki filtre
+      zinciri siyahı tam olarak neon #67e8f9'a çevirir (renk matrisiyle hesaplandı).
+      Çok renkli ikonlar (agree.svg / dont_agree.svg) bilerek dahil EDİLMEDİ.
+      ":not(#dk-x)" hiçbir öğeyi dışlamaz; yalnızca seçicinin önceliğini bir kimlik (id) düzeyi
+      artırır. Böylece index.html'deki ve id'li butonlardaki "filter:none !important"
+      kurallarını güvenle geçer. */
+:root.theme-dark img[src$="/back.svg"]:not(#dk-x),
+:root.theme-dark img[src$="/camera.svg"]:not(#dk-x),
+:root.theme-dark img[src$="/video.svg"]:not(#dk-x),
+:root.theme-dark img[src$="/mic.svg"]:not(#dk-x),
+:root.theme-dark img[src$="/download.svg"]:not(#dk-x),
+:root.theme-dark img[src$="/import.svg"]:not(#dk-x),
+:root.theme-dark img[src$="/map-view.svg"]:not(#dk-x),
+:root.theme-dark img[src$="/useposition.svg"]:not(#dk-x),
+:root.theme-dark img[src$="/dontuseposition.svg"]:not(#dk-x),
+:root.theme-dark img[src$="/add-position.svg"]:not(#dk-x),
+:root.theme-dark img[src$="/live-location.svg"]:not(#dk-x){
+  filter: brightness(0) saturate(100%) invert(81%) sepia(11%) saturate(1956%)
+          hue-rotate(147deg) brightness(102%) contrast(95%)
+          drop-shadow(0 0 3px rgba(103,232,249,.55)) !important;
+  opacity: 1 !important;
+}
+
+/* 2) Hover: tüm koyu-tema ikon butonlarında çerçeve parlaması artar */
+:root.theme-dark .icon-btn:hover:not(:disabled),
+:root.theme-dark .back-btn:hover,
+:root.theme-dark .card-back-btn:hover,
+:root.theme-dark .header-back-btn:hover,
+:root.theme-dark .auth .btn:hover{
+  background: var(--dk-btn-bg-hover, #10233a) !important;
+  box-shadow: var(--dk-glow-hover) !important;
+}
+:root.theme-dark .auth .btn:hover{ color: var(--dk-neon-hover, #a5f3fc) !important; }
+
+/* 3) Tema (ampul) butonu: içi beyaz değil, koyu; ampul çizgileri neon.
+      (bulbSVG koyu temada stroke="#6b7280" gri çiziyordu.) */
+:root.theme-dark #btn-theme-toggle svg g{
+  stroke: var(--dk-neon-text, #67e8f9) !important;
+  fill: rgba(103,232,249,.10) !important;
+}
+:root.theme-dark #btn-theme-toggle svg{ filter: drop-shadow(0 0 3px rgba(103,232,249,.55)) !important; }
+
+/* 4) Bülten (göz logosu) butonu: logonun beyaz zemini koyu temada koyulaşır, renkler korunur
+      (ters çevir + 180° renk döndür = renk tonlarını koruyan "akıllı ters çevirme");
+      buton koyu iç + neon çerçeve. */
+:root.theme-dark #btn-newsletter{
+  background: var(--dk-btn-bg, #0b1324) !important;
+  border-color: var(--dk-neon, #22d3ee) !important;
+  box-shadow: var(--dk-glow) !important;
+}
+:root.theme-dark #btn-newsletter:hover{ box-shadow: var(--dk-glow-hover) !important; }
+:root.theme-dark #btn-newsletter img{
+  filter: invert(1) hue-rotate(180deg) saturate(1.3) !important;
+  mix-blend-mode: lighten;
+  border-radius: 8px;
+}
+
+/* 5) Profil haritasındaki geri butonu (koyu temada siyah ok, siyah zemin → görünmüyordu) */
+:root.theme-dark .profile-map-back,
+:root.theme-dark .profile-map-back:hover{
+  background: var(--dk-btn-bg, #0b1324) !important;
+  border: 1.5px solid var(--dk-neon, #22d3ee) !important;
+  box-shadow: var(--dk-glow) !important;
+}
+:root.theme-dark .profile-map-back:hover{ box-shadow: var(--dk-glow-hover) !important; }
+
+/* 6) Profil tablosundaki indirme / harita butonları: ikon çizgisi çerçeveyle aynı neon */
+:root.theme-dark #profile-download-btn svg,
+:root.theme-dark #profile-download-btn svg *,
+:root.theme-dark #profile-map-open-list svg,
+:root.theme-dark #profile-map-open-list svg *,
+:root.theme-dark #profile-map-open-big svg,
+:root.theme-dark #profile-map-open-big svg *{
+  color: #67e8f9 !important;
+}
+:root.theme-dark #profile-download-btn svg .ic-stroke,
+:root.theme-dark #profile-map-open-list svg .ic-stroke,
+:root.theme-dark #profile-map-open-big svg .ic-stroke{ stroke: #67e8f9 !important; }
+:root.theme-dark #profile-download-btn svg .ic-fill,
+:root.theme-dark #profile-map-open-list svg .ic-fill,
+:root.theme-dark #profile-map-open-big svg .ic-fill{ fill: #67e8f9 !important; }
+
+/* 7) Giriş / Kayıt / Parola sıfırlama kartlarındaki butonlar:
+      "Kod Gönder", "Kodu Doğrula", "Giriş Ekranına Dön" (gri yazı, belirsiz çerçeve → görünmüyordu).
+      Mavi ana butonlar (.primary: Giriş, Kayıt Ol, Parolayı Sıfırla) olduğu gibi kalır. */
+:root.theme-dark #login-card .btn:not(.primary),
+:root.theme-dark #register-card .btn:not(.primary),
+:root.theme-dark #forgot-card .btn:not(.primary){
+  background: var(--dk-btn-bg, #0b1324) !important;
+  color: var(--dk-neon-text, #67e8f9) !important;
+  border: 1.5px solid var(--dk-neon, #22d3ee) !important;
+  box-shadow: var(--dk-glow) !important;
+  font-weight: 700;
+}
+:root.theme-dark #login-card .btn:not(.primary):hover,
+:root.theme-dark #register-card .btn:not(.primary):hover,
+:root.theme-dark #forgot-card .btn:not(.primary):hover{
+  background: var(--dk-btn-bg-hover, #10233a) !important;
+  color: var(--dk-neon-hover, #a5f3fc) !important;
+  box-shadow: var(--dk-glow-hover) !important;
+}
+
+/* 8) Supervisor "Görünüm / Yönetim" geçişi: seçili olan dolu neon, diğeri neon çerçeve */
+:root.theme-dark .auth .btn[aria-pressed="true"]{
+  background: var(--dk-neon, #22d3ee) !important;
+  color: #04202a !important;
+  border-color: var(--dk-neon, #22d3ee) !important;
+}
+
+/* 9) Yönetim paneli tablo butonları (Ekle / Güncelle / Sil): koyu temada beyaz ya da
+      görünmez kalıyordu. Ekle & Güncelle neon; Sil kırmızı-neon. Yetkisiz (disabled) butonlar
+      soluk kalır. Modallerdeki "Vazgeç" gibi hayalet butonlar da aynı dili kullanır. */
+:root.theme-dark #btn-add-type,
+:root.theme-dark .tab-content .btn.ghost,
+:root.theme-dark .modal .btn.ghost{
+  background: var(--dk-btn-bg, #0b1324) !important;
+  color: var(--dk-neon-text, #67e8f9) !important;
+  border: 1.5px solid var(--dk-neon, #22d3ee) !important;
+  box-shadow: var(--dk-glow);
+}
+:root.theme-dark .tab-content .btn.danger,
+:root.theme-dark .modal .btn.danger{
+  background: rgba(248,113,113,.08) !important;
+  color: #fca5a5 !important;
+  border: 1.5px solid #f87171 !important;
+  box-shadow: 0 0 10px rgba(248,113,113,.25);
+}
+:root.theme-dark .tab-content .btn:disabled,
+:root.theme-dark .tab-content .btn[disabled]{ opacity: .45; box-shadow: none; }
+
+/* 10) Profil sayfa noktaları: pasif nokta koyu zeminde görünmüyordu */
+:root.theme-dark .profile-dot{ background: rgba(103,232,249,.32) !important; }
+:root.theme-dark .profile-dot.is-active{ background: var(--dk-neon, #22d3ee) !important; box-shadow: 0 0 8px rgba(34,211,238,.6); }
