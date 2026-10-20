@@ -4412,6 +4412,7 @@ function applyFilters(tableKey) {
       switch(tableKey) {
         case 'types':
           if (column === 'name') itemValue = item.event_type_name || '';
+          if (column === 'translation') itemValue = item.event_type_name_translations || '';
           if (column === 'public') itemValue = (item.public === true || item.public === 'true' || item.public === 1) ? t('beneficial') : t('notBeneficial');
           if (column === 'creator') itemValue = item.created_by_name || '-';
           break;
@@ -4606,6 +4607,7 @@ function buildFilterDropdown(tableKey, column, data) {
     switch(tableKey) {
       case 'types':
         if (column === 'name') value = item.event_type_name || '';
+        if (column === 'translation') value = item.event_type_name_translations || '';
         if (column === 'public') value = (item.public === true || item.public === 'true' || item.public === 1) ? t('beneficial') : t('notBeneficial');
         if (column === 'creator') value = item.created_by_name || '-';
         break;
@@ -4654,6 +4656,7 @@ function buildFilterDropdown(tableKey, column, data) {
     switch(tableKey) {
       case 'types':
         if (column === 'name') value = item.event_type_name || '';
+        if (column === 'translation') value = item.event_type_name_translations || '';
         if (column === 'public') value = (item.public === true || item.public === 'true' || item.public === 1) ? t('beneficial') : t('notBeneficial');
         if (column === 'creator') value = item.created_by_name || '-';
         break;
@@ -4706,6 +4709,7 @@ function buildFilterDropdown(tableKey, column, data) {
       switch(tableKey) {
         case 'types':
           if (column === 'name') itemValue = item.event_type_name || '';
+          if (column === 'translation') itemValue = item.event_type_name_translations || '';
           if (column === 'public') itemValue = (item.public === true || item.public === 'true' || item.public === 1) ? t('beneficial') : t('notBeneficial');
           if (column === 'creator') itemValue = item.created_by_name || '-';
           break;
@@ -6776,7 +6780,7 @@ function renderTypeTableRows(data) {
   tb.innerHTML = '';
   
   if (data.length === 0) {
-    tb.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);">${t('noRecordsFound')}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);">${t('noRecordsFound')}</td></tr>`;
     return;
   }
   
@@ -6798,7 +6802,7 @@ function renderTypeTableRows(data) {
     const goodText = (t.public === true || t.public === 'true' || t.public === 1) ? window.t('beneficial') : window.t('notBeneficial');
     
     const updateBtn = canUpdate 
-      ? `<button class="btn ghost" data-update-type="${t.event_type_id}" data-type-name="${escapeHtml(t.event_type_name)}" data-type-public="${t.public === true || t.public === 'true' || t.public === 1 ? 'true' : 'false'}" style="margin-right:4px;">${window.t('update')}</button>`
+      ? `<button class="btn ghost" data-update-type="${t.event_type_id}" data-type-name="${escapeHtml(t.event_type_name)}" data-type-translation="${escapeHtml(t.event_type_name_translations || '')}" data-type-public="${t.public === true || t.public === 'true' || t.public === 1 ? 'true' : 'false'}" style="margin-right:4px;">${window.t('update')}</button>`
       : `<button class="btn ghost" disabled title="${window.t('noPermission')}" style="margin-right:4px;">${window.t('update')}</button>`;
     
     const deleteBtn = canDelete 
@@ -6816,6 +6820,7 @@ function renderTypeTableRows(data) {
 
     tr.innerHTML = `
       <td>${escapeHtml(t.event_type_name)}</td>
+      <td>${(t.event_type_name_translations && String(t.event_type_name_translations).trim()) ? escapeHtml(t.event_type_name_translations) : '<span class="et-tr-missing">—</span>'}</td>
       <td>${goodText}</td>
       <td>${escapeHtml(t.created_by_name || '-')}</td>
       <td>${escapeHtml(tdText)}</td>
@@ -6849,15 +6854,19 @@ function renderTypeTableRows(data) {
       const typeId = b.getAttribute('data-update-type');
       const currentName = b.getAttribute('data-type-name');
       const currentPublic = b.getAttribute('data-type-public') === 'true';
-      openUpdateTypeModal(typeId, currentName, currentPublic);
+      const currentTranslation = b.getAttribute('data-type-translation') || '';
+      openUpdateTypeModal(typeId, currentName, currentPublic, currentTranslation);
     };
   });
 }
 
 /* ==================== EVENT TYPE UPDATE MODAL ==================== */
-function openUpdateTypeModal(typeId, currentName, currentPublic) {
+function openUpdateTypeModal(typeId, currentName, currentPublic, currentTranslation) {
   const modal = qs('#update-type-modal');
   const input = qs('#update-type-input');
+  // Tür adının İngilizce çevirisi: güncellemede de BOŞ bırakılamaz
+  const trInput = qs('#update-type-translation');
+  currentTranslation = String(currentTranslation || '');
   const goodRadioYes = qs('#update-type-good-yes');
   const goodRadioNo = qs('#update-type-good-no');
   const saveBtn = qs('#update-type-save-btn');
@@ -6869,6 +6878,13 @@ function openUpdateTypeModal(typeId, currentName, currentPublic) {
   }
   
   input.value = currentName;
+  input.classList.remove('input-error');
+  if (trInput) {
+    trInput.value = currentTranslation;
+    trInput.classList.remove('input-error');
+    trInput.oninput = () => trInput.classList.remove('input-error');
+  }
+  input.oninput = () => input.classList.remove('input-error');
   const isGood = (currentPublic === true || currentPublic === 'true' || currentPublic === 1);
   if (goodRadioYes) goodRadioYes.checked = isGood;
   if (goodRadioNo) goodRadioNo.checked = !isGood;
@@ -6881,16 +6897,23 @@ function openUpdateTypeModal(typeId, currentName, currentPublic) {
   
   newSaveBtn.onclick = async () => {
     const newName = input.value.trim();
+    const newTranslation = trInput ? trInput.value.trim() : currentTranslation;
     const newGood = goodRadioYes ? goodRadioYes.checked : false;
     
     if (!newName) {
+      input.classList.add('input-error');
       toast(t('typeNameRequired'), 'error');
+      return;
+    }
+    if (!newTranslation) {
+      if (trInput) trInput.classList.add('input-error');
+      toast(t('translation_required'), 'error', 4000);
       return;
     }
     
     const goodChanged = (newGood !== (currentPublic === true || currentPublic === 'true' || currentPublic === 1));
     
-    if (newName === currentName && !goodChanged) {
+    if (newName === currentName && newTranslation === currentTranslation && !goodChanged) {
       toast(t('noChanges'), 'error');
       closeModal(modal);
       return;
@@ -6901,12 +6924,18 @@ function openUpdateTypeModal(typeId, currentName, currentPublic) {
       const resp = await fetch('/api/admin/event_type/' + typeId, {
         method: 'PATCH',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({event_type_name: newName, "public": newGood})
+        body: JSON.stringify({event_type_name: newName, event_type_name_translations: newTranslation, "public": newGood})
       });
       const data = await resp.json().catch(() => ({}));
       
       if (!resp.ok) {
-        toast(t('updateFailed') + ': ' + (data.message || data.error || resp.status), 'error');
+        // Çeviri hataları (boş / başka türde var) açık ve dile uygun mesajla gösterilir
+        if (data && /translation/.test(data.error || '')) {
+          if (trInput) trInput.classList.add('input-error');
+          toast(eventTypeErrorMessage(resp.status, data), 'error', 4500);
+        } else {
+          toast(t('updateFailed') + ': ' + (data.message || data.error || resp.status), 'error');
+        }
       } else {
         toast(t('typeUpdated'), 'success');
         closeModal(modal);
@@ -8757,7 +8786,7 @@ async function loadPageSizeSettings() {
 /* ==================== EVENT TYPE CREATION ==================== */
 
 // Flow state for the multi-step time-dependent event type wizard.
-let __tdFlow = { name: '', isPublic: false, timeDependent: false, returnModal: null };
+let __tdFlow = { name: '', translation: '', isPublic: false, timeDependent: false, returnModal: null };
 
 // Map a backend error code (or HTTP status) to a localized popup message.
 function eventTypeErrorMessage(status, data) {
@@ -8766,6 +8795,10 @@ function eventTypeErrorMessage(status, data) {
   if (code === 'duplicate_active_event_type') return t('duplicateActiveTypeError');
   if (code === 'duplicate_inactive_event_type') return t('duplicateInactiveTypeError');
   if (code === 'gecersiz_valid_time') return t('invalidValidTime');
+  if (code === 'translation_required') return t('translation_required');
+  if (code === 'translation_too_long') return t('translation_too_long');
+  if (code === 'duplicate_active_translation') return t('duplicate_active_translation');
+  if (code === 'duplicate_inactive_translation') return t('duplicate_inactive_translation');
   // Legacy / unknown fallback
   const msg = (data && (data.message || data.error)) || t('unknownError');
   return t('typeAddFailed') + ': ' + msg;
@@ -8802,9 +8835,9 @@ qs('#btn-add-type')?.addEventListener('click', async () => {
       return;
     }
 
-    // No errors → start the time-dependent wizard.
-    __tdFlow = { name, isPublic: good, timeDependent: false, returnModal: null };
-    openTdChoiceModal();
+    // No errors → first ask for the English translation, then the time-dependent wizard.
+    __tdFlow = { name, translation: '', isPublic: good, timeDependent: false, returnModal: null };
+    openTrStepModal();
   } catch (e) {
     console.error('Type validate error:', e);
     toast(t('typeAddFailed'), 'error');
@@ -8812,6 +8845,76 @@ qs('#btn-add-type')?.addEventListener('click', async () => {
     if (btn) btn.disabled = false;
   }
 });
+
+/* -------- STEP 0: English translation of the event type name (required) -------- */
+function refreshTrStepTexts(){
+  const q = qs('#tr-step-question');
+  if (q) q.textContent = t('etTranslationQuestion', { name: __tdFlow.name || '' });
+}
+function openTrStepModal() {
+  const modal = qs('#tr-step-modal');
+  const inp = qs('#tr-step-input');
+  const next = qs('#tr-step-next');
+  if (!modal) return;
+  refreshTrStepTexts();
+  if (inp) { inp.value = __tdFlow.translation || ''; inp.classList.remove('input-error'); }
+  if (next) next.disabled = !(inp && inp.value.trim());
+  __tdFlow.returnModal = 'translation';
+  showModal(modal);
+  setTimeout(() => { try { inp && inp.focus(); } catch {} }, 60);
+}
+// İleri: çeviri sunucuda doğrulanır (boş / aktif ya da pasif bir türde aynı çeviri) → zamana bağlılık adımı
+async function submitTrStep() {
+  const inp = qs('#tr-step-input');
+  const next = qs('#tr-step-next');
+  const translation = (inp && inp.value || '').trim();
+  if (!translation) {
+    if (inp) inp.classList.add('input-error');
+    toast(t('translation_required'), 'error', 4000);
+    return;
+  }
+  if (next) next.disabled = true;
+  try {
+    const r = await fetch('/api/admin/event_types/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event_type_name: __tdFlow.name, event_type_name_translations: translation })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      if (inp && /translation/.test(data.error || '')) inp.classList.add('input-error');
+      toast(eventTypeErrorMessage(r.status, data), 'error', 4500);
+      return;
+    }
+    __tdFlow.translation = translation;
+    const m = qs('#tr-step-modal'); if (m) closeModal(m);
+    openTdChoiceModal();
+  } catch (e) {
+    console.error('Translation validate error:', e);
+    toast(t('typeAddFailed'), 'error');
+  } finally {
+    if (next) next.disabled = !(inp && inp.value.trim());
+  }
+}
+(function wireTranslationStep(){
+  const inp = qs('#tr-step-input');
+  const next = qs('#tr-step-next');
+  // İleri yalnızca çeviri yazıldığında aktif
+  inp?.addEventListener('input', () => {
+    inp.classList.remove('input-error');
+    if (next) next.disabled = !inp.value.trim();
+  });
+  inp?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && inp.value.trim() && !(next && next.disabled)) { e.preventDefault(); submitTrStep(); }
+  });
+  next?.addEventListener('click', submitTrStep);
+  qs('#tr-step-x')?.addEventListener('click', () => {
+    if (inp) __tdFlow.translation = inp.value.trim();
+    openTdCancelConfirm('translation');
+  });
+  // Dil değişince soru metni (tür adıyla birlikte) yeni dilde yazılır
+  window.addEventListener('languagechange', refreshTrStepTexts);
+})();
 
 /* -------- STEP 1: is the event type time-dependent? -------- */
 function openTdChoiceModal() {
@@ -8948,6 +9051,7 @@ function tdCollectDays() {
 async function finalizeEventTypeCreate(timeDependent, validTimeDays) {
   const payload = {
     event_type_name: __tdFlow.name,
+    event_type_name_translations: __tdFlow.translation,
     "public": __tdFlow.isPublic,
     time_dependent: !!timeDependent,
     valid_time: timeDependent ? validTimeDays : null
@@ -8988,7 +9092,7 @@ async function finalizeEventTypeCreate(timeDependent, validTimeDays) {
 }
 
 function closeAllTdModals() {
-  ['#td-choice-modal', '#td-duration-modal', '#td-cancel-modal'].forEach(sel => {
+  ['#tr-step-modal', '#td-choice-modal', '#td-duration-modal', '#td-cancel-modal'].forEach(sel => {
     const m = qs(sel);
     if (m) closeModal(m);
   });
@@ -9077,6 +9181,8 @@ function openTdCancelConfirm(fromModal) {
     // re-show the modal the user came from
     if (__tdFlow.returnModal === 'duration') {
       const m = qs('#td-duration-modal'); if (m) showModal(m);
+    } else if (__tdFlow.returnModal === 'translation') {
+      openTrStepModal();
     } else {
       const m = qs('#td-choice-modal'); if (m) showModal(m);
     }
@@ -9084,7 +9190,7 @@ function openTdCancelConfirm(fromModal) {
 
   qs('#td-cancel-yes')?.addEventListener('click', () => {
     // Discard everything and return to the default add screen.
-    __tdFlow = { name: '', isPublic: false, timeDependent: false, returnModal: null };
+    __tdFlow = { name: '', translation: '', isPublic: false, timeDependent: false, returnModal: null };
     closeAllTdModals();
   });
 })();
@@ -14357,10 +14463,13 @@ function updateTableHeaders() {
   if (typeHeaders) {
     const headers = typeHeaders.querySelectorAll('th');
     
-    rebuildHeader(headers[0], t('typeName'), true);       
-    rebuildHeader(headers[1], t('publicPrivate'), true);           
-    rebuildHeader(headers[2], t('addedBy'), true);        
-    rebuildHeader(headers[3], t('actions'), false);       
+    // Sütunlar: Tür adı | Tür adı çevirisi (EN) | Public/Private | Ekleyen | Zamana bağlı | İşlemler
+    rebuildHeader(headers[0], t('typeName'), true);
+    rebuildHeader(headers[1], t('typeNameTranslation'), true);
+    rebuildHeader(headers[2], t('publicPrivate'), true);
+    rebuildHeader(headers[3], t('addedBy'), true);
+    rebuildHeader(headers[4], t('timeDependentColumn'), true);
+    rebuildHeader(headers[5], t('actions'), false);
   }
   
   // Users Table

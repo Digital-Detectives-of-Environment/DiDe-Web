@@ -5419,14 +5419,42 @@ async function checkEventTypeName(event_type_name) {
   return null;
 }
 
+// İngilizce çeviri (event_type_name_translations) kontrolü — ad kontrolüyle aynı mantık:
+//   boş            → translation_required
+//   aktif bir türün çevirisiyle aynı (büyük/küçük harf duyarsız)   → duplicate_active_translation
+//   yalnızca pasif türlerin çevirisiyle aynı                        → duplicate_inactive_translation
+// excludeId: güncellemede türün kendisi karşılaştırmaya katılmaz.
+const EVENT_TYPE_TRANSLATION_MAX = 200;
+async function checkEventTypeTranslation(translation, excludeId) {
+  if (!translation) return { status: 400, error: 'translation_required' };
+  if (translation.length > EVENT_TYPE_TRANSLATION_MAX) return { status: 400, error: 'translation_too_long' };
+  const existing = await pool.query(
+    `SELECT event_type_id, COALESCE(active, true) AS active
+       FROM event_type
+      WHERE LOWER(btrim(event_type_name_translations)) = LOWER($1)
+        AND ($2::int IS NULL OR event_type_id <> $2::int)`,
+    [translation, excludeId ?? null]
+  );
+  if (existing.rowCount > 0) {
+    const anyActive = existing.rows.some(r => r.active === true);
+    return { status: 409, error: anyActive ? 'duplicate_active_translation' : 'duplicate_inactive_translation' };
+  }
+  return null;
+}
+
 // Pre-flight validation: the frontend calls this BEFORE opening the
 // "is this event type time-dependent?" screen so that the three distinct
 // errors (empty name / active duplicate / inactive duplicate) can be shown
 // as separate popups without creating anything yet.
+// İngilizce çeviri adımında da çağrılır: gövdede event_type_name_translations varsa o da doğrulanır.
 app.post('/api/admin/event_types/validate', adminOnly, async (req, res) => {
   const event_type_name = norm(req.body?.event_type_name);
+  const hasTranslation = req.body && Object.prototype.hasOwnProperty.call(req.body, 'event_type_name_translations');
   try {
-    const problem = await checkEventTypeName(event_type_name);
+    let problem = await checkEventTypeName(event_type_name);
+    if (!problem && hasTranslation) {
+      problem = await checkEventTypeTranslation(norm(req.body.event_type_name_translations), null);
+    }
     if (problem) {
       return res.status(problem.status).json({ error: problem.error, message: getErrorMessage(req, problem.error) });
     }
@@ -5439,6 +5467,8 @@ app.post('/api/admin/event_types/validate', adminOnly, async (req, res) => {
 
 app.post('/api/admin/event_types', adminOnly, async (req, res) => {
   const event_type_name = norm(req.body?.event_type_name);
+  // İngilizce çeviri ZORUNLU (otomatik çeviri yok)
+  const translation = norm(req.body?.event_type_name_translations);
   const isPublic = req.body?.["public"] === true || req.body?.["public"] === 'true';
 
   // time-dependency inputs
@@ -5454,20 +5484,19 @@ app.post('/api/admin/event_types', adminOnly, async (req, res) => {
   }
 
   try {
-    const problem = await checkEventTypeName(event_type_name);
+    let problem = await checkEventTypeName(event_type_name);
+    if (!problem) problem = await checkEventTypeTranslation(translation, null);
     if (problem) {
       return res.status(problem.status).json({ error: problem.error, message: getErrorMessage(req, problem.error) });
     }
 
     const r = await pool.query(
-      `INSERT INTO event_type (event_type_name, active, "public_", created_by_name, created_by_role_name, created_by_id, time_dependent, valid_time)
-       VALUES ($1, true, $2, $3, $4, $5, $6, $7)
-       RETURNING event_type_id, event_type_name, "public_" AS "public", created_by_name, created_by_id, created_at, time_dependent, valid_time`,
-      [event_type_name, isPublic, req.user.username, req.user.role, req.user.id, timeDependent, validTime]
+      `INSERT INTO event_type (event_type_name, active, "public_", created_by_name, created_by_role_name, created_by_id, time_dependent, valid_time, event_type_name_translations)
+       VALUES ($1, true, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING event_type_id, event_type_name, event_type_name_translations, "public_" AS "public", created_by_name, created_by_id, created_at, time_dependent, valid_time`,
+      [event_type_name, isPublic, req.user.username, req.user.role, req.user.id, timeDependent, validTime, translation]
     );
     res.json({ ok: true, created: r.rows[0] });
-    // Yeni türün adını hemen İngilizceye çevir (arka planda; yanıtı bekletmez)
-    translateEventTypeNames().catch(() => {});
   } catch (e) {
     console.error('admin add event_type error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
@@ -5478,9 +5507,15 @@ app.patch('/api/admin/event_type/:id', adminOnly, async (req, res) => {
   const id = +req.params.id;
   const event_type_name = norm(req.body?.event_type_name);
   const isPublic = req.body?.["public"];
+  // Çeviri gönderildiyse (ya da ad değiştiriliyorsa) boş OLAMAZ
+  const hasTranslation = req.body && Object.prototype.hasOwnProperty.call(req.body, 'event_type_name_translations');
+  const translation = hasTranslation ? norm(req.body.event_type_name_translations) : null;
   
-  if (!Number.isInteger(id) || (!event_type_name && isPublic === undefined)) {
+  if (!Number.isInteger(id) || (!event_type_name && isPublic === undefined && !hasTranslation)) {
     return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
+  }
+  if ((event_type_name || hasTranslation) && !translation) {
+    return res.status(400).json({ error: 'translation_required', message: getErrorMessage(req, 'translation_required') });
   }
   
   try {
@@ -5504,6 +5539,11 @@ app.patch('/api/admin/event_type/:id', adminOnly, async (req, res) => {
         return res.status(400).json({ error: 'isim_mevcut', message: getErrorMessage(req, 'isim_mevcut') });
       }
     }
+    if (translation) {
+      // Başka bir türün (aktif ya da pasif) çevirisiyle aynı olamaz
+      const tp = await checkEventTypeTranslation(translation, id);
+      if (tp) return res.status(tp.status).json({ error: tp.error, message: getErrorMessage(req, tp.error) });
+    }
     
     const updates = [];
     const values = [];
@@ -5512,6 +5552,11 @@ app.patch('/api/admin/event_type/:id', adminOnly, async (req, res) => {
     if (event_type_name) {
       updates.push(`event_type_name = $${paramIndex++}`);
       values.push(event_type_name);
+    }
+    
+    if (translation) {
+      updates.push(`event_type_name_translations = $${paramIndex++}`);
+      values.push(translation);
     }
     
     if (isPublic !== undefined) {
@@ -5526,12 +5571,10 @@ app.patch('/api/admin/event_type/:id', adminOnly, async (req, res) => {
     updates.push(`created_at = NOW()`);
     values.push(id);
     
-    const sql = `UPDATE event_type SET ${updates.join(', ')} WHERE event_type_id = $${paramIndex} RETURNING event_type_id, event_type_name, "public_" AS "public", created_at`;
+    const sql = `UPDATE event_type SET ${updates.join(', ')} WHERE event_type_id = $${paramIndex} RETURNING event_type_id, event_type_name, event_type_name_translations, "public_" AS "public", created_at`;
     const r = await pool.query(sql, values);
     
     res.json({ ok: true, message: 'Olay türü güncellendi', updated: r.rows[0] });
-    // Ad değiştiyse trigger çeviriyi temizledi → yeni adı hemen İngilizceye çevir
-    translateEventTypeNames().catch(() => {});
   } catch (e) {
     console.error('admin patch event_type error:', e);
     res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
@@ -7380,136 +7423,11 @@ app.get(
 
 /* ===================== Server ===================== */
 /* ===================== Olay türü adlarının İngilizce çevirisi ===================== */
-// event_type.event_type_name değerleri otomatik olarak İngilizceye çevrilip
-// event_type.event_type_name_translations sütununa yazılır. Çeviri:
-//   - açılışta, her dakika (yalnızca çevirisi BOŞ olan türler için) ve
-//   - bir tür eklendiğinde / adı güncellendiğinde hemen yapılır.
-// Ad değişirse trigger çeviriyi temizler ve görev yenisini yazar ("sürekli" güncel kalır).
-// Çeviri Google Translate ile yapılır; kaynak dil otomatik algılanır (TR, IT, ...), belirsizse
-// .env DEFAULT_LANG kullanılır. Ad zaten İngilizceyse aynen kalır.
-// Çeviri servisine ulaşılamazsa sütun boş kalır, arayüz özgün adı gösterir; 10 dk sonra tekrar denenir.
-// Çeviri yanlışsa supervisor/pgAdmin ile sütun elle düzeltilebilir; ad değişmedikçe elle yazılan korunur.
-function _httpGetJson(url, timeoutMs = 8000) {
-  return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (DiDe)' } }, (res) => {
-      let data = '';
-      res.setEncoding('utf8');
-      res.on('data', (c) => { data += c; if (data.length > 1e6) req.destroy(new Error('response too large')); });
-      res.on('end', () => {
-        if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode));
-        try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
-      });
-    });
-    req.on('error', reject);
-    req.setTimeout(timeoutMs, () => req.destroy(new Error('timeout')));
-  });
-}
-// Google Translate'e tek istek: sl = kaynak dil ('auto' = algıla), hedef her zaman İngilizce.
-// Dönüş: { text, lang (algılanan/verilen kaynak dil), conf (algılama güveni 0-1, bilinmiyorsa null) }
-async function _googleTranslateToEn(text, sl) {
-  const url = 'https://translate.googleapis.com/translate_a/single?client=gtx' +
-              `&sl=${encodeURIComponent(sl)}&tl=en&hl=en&ie=UTF-8&oe=UTF-8&dt=t&dt=ld` +
-              `&q=${encodeURIComponent(text)}`;
-  const j = await _httpGetJson(url);
-  if (!Array.isArray(j) || !Array.isArray(j[0])) return null;
-  const out = j[0].map(seg => (Array.isArray(seg) && typeof seg[0] === 'string') ? seg[0] : '').join('').trim();
-  if (!out) return null;
-  let lang = (typeof j[2] === 'string') ? j[2].toLowerCase() : null;
-  let conf = null;
-  // dt=ld → j[8] = [[dil kodları], null, [güven değerleri], [dil kodları]]
-  if (Array.isArray(j[8]) && Array.isArray(j[8][0]) && Array.isArray(j[8][2])) {
-    if (typeof j[8][0][0] === 'string') lang = j[8][0][0].toLowerCase();
-    const c = Number(j[8][2][0]);
-    if (Number.isFinite(c)) conf = c;
-  } else if (typeof j[6] === 'number' && Number.isFinite(j[6])) {
-    conf = j[6];
-  }
-  return { text: out, lang, conf };
-}
-function _sameText(a, b) {
-  return String(a || '').trim().toLocaleLowerCase('tr') === String(b || '').trim().toLocaleLowerCase('tr');
-}
-function _tidyTranslation(src, out) {
-  let t = String(out || '').replace(/\s+/g, ' ').trim();
-  if (!t) return t;
-  // Kaynakta olmayan sondaki noktayı at (Google kısa ifadelere bazen nokta ekler)
-  if (/\.$/.test(t) && !/\.$/.test(src)) t = t.slice(0, -1).trim();
-  // Kaynak büyük harfle başlıyorsa çeviri de büyük harfle başlasın
-  const s0 = Array.from(src)[0] || '';
-  if (s0 && s0 === s0.toLocaleUpperCase('tr') && s0 !== s0.toLocaleLowerCase('tr')) {
-    const chars = Array.from(t);
-    chars[0] = chars[0].toLocaleUpperCase('en');
-    t = chars.join('');
-  }
-  return t;
-}
-// Olay türü adını İngilizceye çevirir — Google Translate'teki "Dili algıla" ile aynı mantık:
-//   1) Kaynak dil otomatik algılanır ve İngilizceye çevrilir.
-//   2) Algılanan dil .env DEFAULT_LANG ile aynıysa (ya da algılama güveni yüksekse) bu sonuç kullanılır.
-//   3) Kısa adlarda algılama yanılabildiği için (ör. Türkçe tek kelimenin başka dil sanılması),
-//      algılama DEFAULT_LANG'den farklı ve güveni düşükse ad bir de DEFAULT_LANG'den çevrilir;
-//      bu çeviri adı gerçekten değiştiriyorsa (yani ad o dildeyse) o tercih edilir.
-// Alt çizgiler boşluğa çevrilir ("cop_konteyneri" → "cop konteyneri").
-// Çevrilemezse null döner (sütun boş kalır, arayüz özgün adı gösterir, sonra yeniden denenir).
-async function translateTextToEnglish(text) {
-  const src = String(text || '').replace(/_+/g, ' ').replace(/\s+/g, ' ').trim();
-  if (!src) return null;
-  const defLang = String(DEFAULT_LANG || '').toLowerCase();
-  let auto = null;
-  try { auto = await _googleTranslateToEn(src, 'auto'); } catch (e) { auto = null; }
-
-  const autoIsDefault = auto && auto.lang && (auto.lang === defLang || auto.lang.startsWith(defLang + '-'));
-  const confident = auto && auto.conf != null && auto.conf >= 0.85;
-  if (auto && (defLang === 'en' || autoIsDefault || confident)) return _tidyTranslation(src, auto.text);
-
-  // Algılama belirsiz: varsayılan dilden çevirmeyi de dene
-  if (defLang && defLang !== 'en') {
-    try {
-      const hinted = await _googleTranslateToEn(src, defLang);
-      if (hinted && !_sameText(hinted.text, src)) return _tidyTranslation(src, hinted.text);
-    } catch (e) { /* algılanan sonuçla devam */ }
-  }
-  return auto ? _tidyTranslation(src, auto.text) : null;
-}
-const _etTranslateRetryAt = new Map();   // event_type_id -> tekrar denenebileceği zaman
-let _etTranslateBusy = false;
-async function translateEventTypeNames() {
-  if (_etTranslateBusy) return;
-  _etTranslateBusy = true;
-  try {
-    const r = await pool.query(
-      `SELECT event_type_id, event_type_name
-         FROM public.event_type
-        WHERE COALESCE(btrim(event_type_name), '') <> ''
-          AND COALESCE(btrim(event_type_name_translations), '') = ''
-        ORDER BY event_type_id
-        LIMIT 50`
-    );
-    let done = 0;
-    for (const row of r.rows) {
-      const retryAt = _etTranslateRetryAt.get(row.event_type_id);
-      if (retryAt && retryAt > Date.now()) continue;
-      const en = await translateTextToEnglish(row.event_type_name);
-      // Servisi yormamak için istekler arasında kısa bekleme
-      await new Promise(r2 => setTimeout(r2, 300));
-      if (!en) { _etTranslateRetryAt.set(row.event_type_id, Date.now() + 10 * 60 * 1000); continue; }
-      _etTranslateRetryAt.delete(row.event_type_id);
-      // Ad bu arada değiştiyse yazma (yeni ad bir sonraki turda çevrilir)
-      const u = await pool.query(
-        `UPDATE public.event_type SET event_type_name_translations = $1
-          WHERE event_type_id = $2 AND event_type_name = $3
-            AND COALESCE(btrim(event_type_name_translations), '') = ''`,
-        [en.slice(0, 200), row.event_type_id, row.event_type_name]
-      );
-      if (u.rowCount) done++;
-    }
-    if (done) console.log(`[I18N] ${done} event type name(s) translated to English`);
-  } catch (e) {
-    if (!/event_type_name_translations/.test(String(e.message))) console.warn('[I18N] event type translation error:', e.message);
-  } finally {
-    _etTranslateBusy = false;
-  }
-}
+// event_type.event_type_name_translations = olay türü adının İNGİLİZCE karşılığı.
+// Otomatik çeviri (Google Translate isteği, arka plan görevi, app_meta tablosu) KALDIRILDI.
+// Çeviriyi supervisor/admin elle girer: olay türü eklenirken ilk adımda sorulur, güncellemede
+// düzenlenir. Boş bırakılamaz ve başka bir olay türünün çevirisiyle aynı olamaz
+// (bkz. checkEventTypeTranslation). Arayüzde EN dili seçilince bu değer gösterilir.
 
 async function ensureOlaylarSchema(){
   const client = await pool.connect();
@@ -7521,40 +7439,17 @@ async function ensureOlaylarSchema(){
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS attribute_column text`);
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS time_dependent boolean DEFAULT false`);
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS valid_time double precision`);
-    // event_type_name_translations: event_type_name'in İNGİLİZCE karşılığı (otomatik çevrilir,
-    // bkz. translateEventTypeNames). Arayüzde EN dili seçilince bu değer gösterilir.
+    // event_type_name_translations: event_type_name'in İNGİLİZCE karşılığı (supervisor elle girer).
+    // Arayüzde EN dili seçilince bu değer gösterilir.
     await client.query(`ALTER TABLE public.event_type ADD COLUMN IF NOT EXISTS event_type_name_translations text`);
-    // Ad değişince (uygulamadan ya da pgAdmin'den) eski çeviri temizlenir; arka plan görevi yeniden çevirir.
-    // Aynı UPDATE içinde çeviri de elle değiştirildiyse elle yazılan değer korunur.
-    await client.query(`
-      CREATE OR REPLACE FUNCTION public.event_type_reset_translation()
-      RETURNS trigger LANGUAGE plpgsql AS $fn$
-      BEGIN
-        IF NEW.event_type_name IS DISTINCT FROM OLD.event_type_name
-           AND NEW.event_type_name_translations IS NOT DISTINCT FROM OLD.event_type_name_translations THEN
-          NEW.event_type_name_translations := NULL;
-        END IF;
-        RETURN NEW;
-      END
-      $fn$;`);
-    // Çeviri yöntemi iyileştirildi (v2: dil algılama + DEFAULT_LANG yedeği, MyMemory kaldırıldı).
-    // Eski yöntemle yazılmış (kısmen hatalı) çeviriler BİR KEZ temizlenir ve yeniden çevrilir.
-    await client.query(`CREATE TABLE IF NOT EXISTS public.app_meta (key text PRIMARY KEY, value text)`);
-    {
-      const v = await client.query(`SELECT value FROM public.app_meta WHERE key='event_type_translation_version'`);
-      if (!v.rows.length || v.rows[0].value !== '2') {
-        await client.query(`UPDATE public.event_type SET event_type_name_translations = NULL`);
-        await client.query(
-          `INSERT INTO public.app_meta (key, value) VALUES ('event_type_translation_version', '2')
-           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
-        console.log('[I18N] event type translations reset; they will be re-translated with the improved method');
-      }
-    }
+    // Otomatik çeviri mekanizmasının kalıntıları kaldırılır (idempotent):
+    //  - adı değişen türün çevirisini silen trigger + fonksiyonu (çeviri artık elle girildiği için
+    //    ad güncellenince elle yazılan çeviri SİLİNMEMELİ),
+    //  - yalnızca çeviri sürümünü tutan app_meta tablosu.
+    // Mevcut çeviriler (event_type_name_translations) korunur; supervisor güncelleyebilir.
     await client.query(`DROP TRIGGER IF EXISTS trg_event_type_reset_translation ON public.event_type`);
-    await client.query(`
-      CREATE TRIGGER trg_event_type_reset_translation
-      BEFORE UPDATE OF event_type_name ON public.event_type
-      FOR EACH ROW EXECUTE FUNCTION public.event_type_reset_translation()`);
+    await client.query(`DROP FUNCTION IF EXISTS public.event_type_reset_translation()`);
+    await client.query(`DROP TABLE IF EXISTS public.app_meta`);
     // Menü/ürün özelliği kaldırıldı → ilgili kolonlar açılışta düşürülür (varsa).
     try { await client.query(`ALTER TABLE public.companies DROP COLUMN IF EXISTS menu`); } catch (e) {}
     try { await client.query(`ALTER TABLE public.orders DROP COLUMN IF EXISTS items`); } catch (e) {}
@@ -7586,11 +7481,6 @@ ensureOlaylarSchema().then(() => {
   // Bülten: bitiş tarihi geçen etkinlikler her dakika pasif yapılır
   setInterval(() => { deactivateExpiredNewsletters().catch(() => {}); }, 60 * 1000);
 
-  // Olay türü adlarının İngilizce çevirisi: açılışta ve her dakika (tek worker'da)
-  if (!process.env.WORKER_ID || process.env.WORKER_ID === '0') {
-    setTimeout(() => { translateEventTypeNames().catch(() => {}); }, 5000);
-    setInterval(() => { translateEventTypeNames().catch(() => {}); }, 60 * 1000);
-  }
 });
 
 // QField ve LISTEN/NOTIFY sadece worker 0'da calissin (tekrar onleme)

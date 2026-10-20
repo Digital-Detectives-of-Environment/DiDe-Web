@@ -5439,3 +5439,22 @@ body.supervisor-mode-form #map{
   .nl-page.nl-page-full .nl-media{ margin-bottom:12px; }
 }
 #nl-photo-en-btn.input-error{ outline:2px solid #ef4444; outline-offset:2px; }
+/* Açık veri butonu — koyu tema ikon rengi:
+   Projede ":root.theme-dark button svg / svg path { fill/color:#111827 !important }" kuralı
+   butonlardaki tüm ikonları siyaha çekiyordu. Bu buton için ikon, yazıyla AYNI neon renkte
+   olsun (dolgu yok, yalnızca çizgi). Kimlik seçicisi daha özgül olduğu için genel kuralı ezer. */
+:root.theme-dark #open-data-btn svg,
+:root.theme-dark #open-data-btn svg path{
+  color:#67e8f9 !important;
+  stroke:#67e8f9 !important;
+  fill:none !important;
+}
+:root.theme-dark #open-data-btn svg{ filter:drop-shadow(0 0 4px rgba(103,232,249,.9)) !important; }
+:root.theme-dark #open-data-btn:hover svg,
+:root.theme-dark #open-data-btn:hover svg path{ color:#a5f3fc !important; stroke:#a5f3fc !important; }
+
+/* Olay türleri: çevirisi henüz girilmemiş eski türler için soluk tire */
+.et-tr-missing{ color:var(--muted, #9ca3af); }
+/* Olay türü ekleme — İngilizce çeviri adımı */
+#tr-step-modal .tr-step-label{ display:block; margin-bottom:6px; font-size:.86rem; font-weight:600; color:var(--muted, #6b7280); }
+#tr-step-modal #tr-step-next:disabled{ opacity:.45; cursor:not-allowed; }

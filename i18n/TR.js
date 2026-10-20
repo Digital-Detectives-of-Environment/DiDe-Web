@@ -671,5 +671,14 @@ window.i18nLangs.tr = {
     nlShowcaseUntitled: 'Başlıksız tanıtım',
     newsletter_photo_default_required: 'Lütfen varsayılan dil butonu aktifken gösterilecek tanıtım fotoğrafını ekleyin.',
     newsletter_photo_en_required: 'Lütfen EN butonu aktifken gösterilecek tanıtım fotoğrafını ekleyin.',
-    nlShowcasePhotoMissing: 'Lütfen {{lang}} butonu aktifken gösterilecek fotoğrafı ekleyin.'
+    nlShowcasePhotoMissing: 'Lütfen {{lang}} butonu aktifken gösterilecek fotoğrafı ekleyin.',
+
+    // Olay türü İngilizce çevirisi (elle girilir)
+    typeNameTranslation: 'Tür adı çevirisi (EN)',
+    etTranslationQuestion: 'Eklemek istediğiniz “{{name}}” olay türünün İngilizce çevirisini lütfen yazın.',
+    etTranslationPlaceholder: 'İngilizce çeviri (ör. Litter)',
+    translation_required: 'Olay türünün İngilizce çevirisi zorunludur; boş bırakılamaz.',
+    translation_too_long: 'İngilizce çeviri en fazla 200 karakter olabilir.',
+    duplicate_active_translation: 'Bu İngilizce çeviriye sahip aktif bir olay türü zaten mevcut.',
+    duplicate_inactive_translation: 'Bu İngilizce çeviriye sahip bir olay türü veritabanında mevcut ancak şu anda pasif durumda.'
 };

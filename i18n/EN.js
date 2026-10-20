@@ -671,5 +671,14 @@ window.i18nLangs.en = {
     nlShowcaseUntitled: 'Untitled showcase',
     newsletter_photo_default_required: 'Please add the showcase photo shown when the default language button is active.',
     newsletter_photo_en_required: 'Please add the showcase photo shown when the EN button is active.',
-    nlShowcasePhotoMissing: 'Please add the photo shown when the {{lang}} button is active.'
+    nlShowcasePhotoMissing: 'Please add the photo shown when the {{lang}} button is active.',
+
+    // Olay türü İngilizce çevirisi (elle girilir)
+    typeNameTranslation: 'Name translation (EN)',
+    etTranslationQuestion: 'Please write the English translation of the event type “{{name}}” you want to add.',
+    etTranslationPlaceholder: 'English translation (e.g. Litter)',
+    translation_required: 'The English translation of the event type is required; it cannot be left empty.',
+    translation_too_long: 'The English translation can be at most 200 characters.',
+    duplicate_active_translation: 'An active event type with this English translation already exists.',
+    duplicate_inactive_translation: 'An event type with this English translation exists in the database but is currently inactive.'
 };

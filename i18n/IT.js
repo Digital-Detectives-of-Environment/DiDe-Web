@@ -662,5 +662,14 @@ window.i18nLangs.it = {
     nlShowcaseUntitled: 'Presentazione senza titolo',
     newsletter_photo_default_required: 'Aggiungi la foto della presentazione mostrata quando è attivo il pulsante della lingua predefinita.',
     newsletter_photo_en_required: 'Aggiungi la foto della presentazione mostrata quando è attivo il pulsante EN.',
-    nlShowcasePhotoMissing: 'Aggiungi la foto mostrata quando il pulsante {{lang}} è attivo.'
+    nlShowcasePhotoMissing: 'Aggiungi la foto mostrata quando il pulsante {{lang}} è attivo.',
+
+    // Olay türü İngilizce çevirisi (elle girilir)
+    typeNameTranslation: 'Traduzione del nome (EN)',
+    etTranslationQuestion: 'Scrivi la traduzione inglese del tipo di evento “{{name}}” che vuoi aggiungere.',
+    etTranslationPlaceholder: 'Traduzione inglese (es. Litter)',
+    translation_required: 'La traduzione inglese del tipo di evento è obbligatoria; non può essere vuota.',
+    translation_too_long: 'La traduzione inglese può contenere al massimo 200 caratteri.',
+    duplicate_active_translation: 'Esiste già un tipo di evento attivo con questa traduzione inglese.',
+    duplicate_inactive_translation: 'Un tipo di evento con questa traduzione inglese esiste nel database ma è attualmente inattivo.'
 };

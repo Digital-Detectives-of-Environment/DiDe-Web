@@ -666,6 +666,11 @@
                       <div class="filter-dropdown" data-column="name"></div>
                     </th>
                     <th>
+                      <span data-i18n="typeNameTranslation">Name translation (EN)</span>
+                      <span class="filter-icon" data-column="translation" data-i18n-title="search">▼</span>
+                      <div class="filter-dropdown" data-column="translation"></div>
+                    </th>
+                    <th>
                       <span data-i18n="good">Beneficial?</span>
                       <span class="filter-icon" data-column="good" data-i18n-title="search">▼</span>
                       <div class="filter-dropdown" data-column="good"></div>
@@ -982,6 +987,10 @@
         <input id="update-type-input" type="text" data-i18n-placeholder="typeNamePlaceholder" autocomplete="off" />
       </div>
       <div style="margin:12px 0;">
+        <label for="update-type-translation" data-i18n="typeNameTranslation">Name translation (EN)</label>
+        <input id="update-type-translation" type="text" maxlength="200" data-i18n-placeholder="etTranslationPlaceholder" autocomplete="off" />
+      </div>
+      <div style="margin:12px 0;">
         <label style="display:block; margin-bottom:6px; font-weight:500;">Public / Private</label>
         <label style="display:inline-flex; align-items:center; gap:4px; margin-right:16px;">
           <input type="radio" name="update-type-good" id="update-type-good-yes" value="true" style="margin:0;" />
@@ -1018,6 +1027,26 @@
       </div>
       <div class="row gap6" style="margin-top:8px;">
         <button id="vt-update-save-btn" class="btn primary" type="button" data-i18n="save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ EVENT TYPE: STEP 0 (English translation, required) ============
+       "Ekle"ye basınca ilk bu ekran açılır; çeviri yazılmadan İleri (→) aktif olmaz.
+       İleri → çeviri sunucuda doğrulanır → zamana bağlılık ekranı (mevcut akış). -->
+  <div id="tr-step-modal" class="modal" aria-hidden="true">
+    <div class="box" style="width:min(460px, 92vw);">
+      <div class="head">
+        <h4 style="margin:0;" data-i18n="addEventType">Add Event Type</h4>
+        <button id="tr-step-x" class="btn ghost td-x-btn" type="button" title="Close" aria-label="Close">×</button>
+      </div>
+      <p id="tr-step-question" style="margin:14px 4px 12px; font-weight:500;">Please write the English translation of this event type.</p>
+      <div style="margin:0 4px 6px;">
+        <label for="tr-step-input" class="tr-step-label" data-i18n="typeNameTranslation">Name translation (EN)</label>
+        <input id="tr-step-input" type="text" maxlength="200" autocomplete="off" data-i18n-placeholder="etTranslationPlaceholder" style="width:100%;" />
+      </div>
+      <div style="display:flex; justify-content:flex-end; margin-top:14px;">
+        <button id="tr-step-next" type="button" class="btn primary td-next-btn" disabled title="Next" aria-label="Next">→</button>
       </div>
     </div>
   </div>
