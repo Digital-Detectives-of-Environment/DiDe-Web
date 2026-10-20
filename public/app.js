@@ -7190,6 +7190,46 @@ function renderEventTableRows(data) {
 
 let __typePickerUIInited = false;
 
+/* Olay bildirim formundaki olay türü listesinin hiyerarşik sıralaması (TEK kaynak):
+     1) Zamana bağlı olay türleri en üstte, kendi içinde alfabetik
+     2) Ardından zamana bağlı olmayan türler, kendi içinde alfabetik
+   Alfabetik sıra, o an GÖRÜNEN ada göre ve seçili dilin kurallarıyla yapılır
+   (TR → Türkçe adlar ve Türkçe alfabe, EN → İngilizce çeviriler ve İngilizce alfabe).
+   Hem liste yüklenirken hem de dil değiştiğinde kullanılır; böylece EN/TR butonuna
+   basınca sıralama bozulmaz. */
+function _etPickerCollator() {
+  try {
+    const lang = (typeof window.getLanguage === 'function') ? window.getLanguage() : undefined;
+    return new Intl.Collator(lang, { sensitivity: 'base', numeric: true });
+  } catch (_) {
+    return { compare: (a, b) => String(a).localeCompare(String(b)) };
+  }
+}
+function _etIsTd(o) { return o && (o.time_dependent === true || o.time_dependent === 'true' || o.time_dependent === 1); }
+function compareEventTypesForPicker(a, b, collator) {
+  const aTd = _etIsTd(a) ? 0 : 1;
+  const bTd = _etIsTd(b) ? 0 : 1;
+  if (aTd !== bTd) return aTd - bTd;                 // zamana bağlı olanlar önce
+  return (collator || _etPickerCollator()).compare(etName(a), etName(b));
+}
+// Mevcut <option>'ları (yeniden oluşturmadan) aynı kurala göre yeniden dizer; seçim korunur.
+function sortEventTypePickerOptions(sel) {
+  sel = sel || qs('#event_type');
+  if (!sel) return;
+  const opts = Array.from(sel.querySelectorAll('option[data-name-orig]'));
+  if (opts.length < 2) return;
+  const collator = _etPickerCollator();
+  const asType = (opt) => ({
+    event_type_name: opt.dataset.nameOrig,
+    event_type_name_translations: opt.dataset.nameEn,
+    time_dependent: opt.dataset.timeDependent === 'true'
+  });
+  opts.sort((x, y) => compareEventTypesForPicker(asType(x), asType(y), collator));
+  const selected = sel.value;
+  opts.forEach(opt => sel.appendChild(opt));        // "-- Seçiniz --" seçeneği en üstte kalır
+  sel.value = selected;
+}
+
 async function loadOlayTypes() {
   const sel = qs('#event_type');
   try {
@@ -7203,20 +7243,10 @@ async function loadOlayTypes() {
       // Hiyerarşik sıralama (yalnızca olay bildirim formu dropdown'u için):
       //   1) Zamana bağlı olay türleri en üstte (kendi içinde alfabetik)
       //   2) Ardından zamana bağlı olmayan türler (kendi içinde alfabetik)
-      const isTdOf = (o) => (o.time_dependent === true || o.time_dependent === 'true' || o.time_dependent === 1);
-      let collator;
-      try {
-        const lang = (typeof window.getLanguage === 'function') ? window.getLanguage() : undefined;
-        collator = new Intl.Collator(lang, { sensitivity: 'base', numeric: true });
-      } catch (_) {
-        collator = { compare: (a, b) => String(a).localeCompare(String(b)) };
-      }
-      const sortedForPicker = [...list].sort((a, b) => {
-        const aTd = isTdOf(a) ? 0 : 1;
-        const bTd = isTdOf(b) ? 0 : 1;
-        if (aTd !== bTd) return aTd - bTd; // zamana bağlı olanlar önce
-        return collator.compare(etName(a), etName(b));
-      });
+      //   (kural tek yerde: compareEventTypesForPicker — dil değişiminde de aynısı uygulanır)
+      const isTdOf = _etIsTd;
+      const collator = _etPickerCollator();
+      const sortedForPicker = [...list].sort((a, b) => compareEventTypesForPicker(a, b, collator));
 
       sortedForPicker.forEach(o => {
         if(o.is_point === false) return;
@@ -16295,13 +16325,16 @@ function initProfileOverlay(){
     };
   }
 
-  // Dil değişince olay türü adlarını (EN → İngilizce çeviri) yeniden yaz
+  // Dil değişince olay türü adlarını (EN → İngilizce çeviri) yeniden yaz VE listeyi yeni dildeki
+  // adlara göre yeniden sırala (zamana bağlılar önce, her grup kendi içinde alfabetik).
+  // Eskiden yalnızca metin değişiyordu; sıra önceki dilin alfabetik sırası olarak kalıyordu.
   window.addEventListener('languagechange', () => {
     try {
       document.querySelectorAll('#event_type option[data-name-orig]').forEach(opt => {
         const nm = etName({ event_type_name: opt.dataset.nameOrig, event_type_name_translations: opt.dataset.nameEn });
         opt.textContent = (opt.dataset.timeDependent === 'true' ? '⏱ ' : '') + nm;
       });
+      sortEventTypePickerOptions(qs('#event_type'));
     } catch {}
     try { if (map && markersLayer) rebuildEventTypeLayerPanel(map); } catch {}
     try { if (typeof fillBufferTypeFilter === 'function' && qs('#buffer-type-filter')) fillBufferTypeFilter(); } catch {}
