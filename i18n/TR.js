@@ -680,5 +680,13 @@ window.i18nLangs.tr = {
     translation_required: 'Olay türünün İngilizce çevirisi zorunludur; boş bırakılamaz.',
     translation_too_long: 'İngilizce çeviri en fazla 200 karakter olabilir.',
     duplicate_active_translation: 'Bu İngilizce çeviriye sahip aktif bir olay türü zaten mevcut.',
-    duplicate_inactive_translation: 'Bu İngilizce çeviriye sahip bir olay türü veritabanında mevcut ancak şu anda pasif durumda.'
+    duplicate_inactive_translation: 'Bu İngilizce çeviriye sahip bir olay türü veritabanında mevcut ancak şu anda pasif durumda.',
+
+    // İletişim (CONTACT_MAIL_ADDRESS)
+    contactBtn: 'İletişim',
+    contactTitle: 'İletişim',
+    contactSubtitle: 'Buradan bize ulaşabilirsiniz.',
+    contactClose: 'Kapat',
+    contactCopy: 'E-posta adresini kopyala',
+    contactCopied: 'E-posta adresi kopyalandı.'
 };

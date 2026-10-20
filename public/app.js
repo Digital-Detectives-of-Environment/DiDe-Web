@@ -94,6 +94,9 @@ let APP_CONFIG = {
   // Güvenli varsayılan: false (mevcut davranış: ziyaretçi veri indiremez).
   openData: false,
 
+  // .env → CONTACT_MAIL_ADDRESS: [{ name, email }]. Boşsa iletişim butonu gösterilmez.
+  contacts: [],
+
   // Which time units the supervisor may enter for a time-dependent event type.
   // Populated from /api/config (EVENT_TYPE_VALIDITY_UNITS). Falls back to days.
   eventTypeValidityUnits: ['days'],
@@ -178,10 +181,12 @@ async function loadAppConfig() {
       config.bufferRadius = Number(config.bufferRadius) || 0;
       
       config.openData = (config.openData === true);
+      config.contacts = Array.isArray(config.contacts) ? config.contacts : [];
       APP_CONFIG = { ...APP_CONFIG, ...config };
       console.log('[CONFIG] polygonTable =', APP_CONFIG.polygonTable, '| polygonPk1 =', APP_CONFIG.polygonPk1);
       // Açık veri butonu: giriş yapılmadan ve .env OPEN_DATA=true iken görünür
       try { updateOpenDataButton(); } catch {}
+      try { updateContactButton(); } catch {}
       
       if (map) {
         const v = getInitialMapView();
@@ -892,6 +897,146 @@ async function downloadOpenData(){
     btn.classList.remove('is-busy'); btn.disabled = false;
   }
 }
+
+/* ===================== İLETİŞİM (CONTACT) =====================
+   Giriş yapılmadan açılan haritanın SAĞ ALT köşesinde yuvarlak, mektup ikonlu buton.
+   Yalnızca .env CONTACT_MAIL_ADDRESS doluysa ve kullanıcı giriş yapmamışken görünür.
+   Tıklanınca iletişim paneli açılır; sayfanın geri kalanı (harita, header) bulanıklaşır.
+   Panel: "Buradan bize ulaşabilirsiniz." + her kişi/kurum için ad ve e-posta
+   (e-postaya tıklanınca e-posta uygulaması açılır; yanındaki buton adresi kopyalar).
+   Kapatma: × butonu, Esc tuşu ya da bulanık alana tıklamak. */
+const CONTACT_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+  '<rect x="3" y="5.5" width="18" height="13" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>' +
+  '<path d="M3.8 7.2 12 13l8.2-5.8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const CONTACT_COPY_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+  '<rect x="8.5" y="8.5" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/>' +
+  '<path d="M15.5 8.5V6.4A1.9 1.9 0 0 0 13.6 4.5H6.4A1.9 1.9 0 0 0 4.5 6.4v7.2a1.9 1.9 0 0 0 1.9 1.9h2.1" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+let __contactLastFocus = null;
+
+function _contactList(){
+  const list = (APP_CONFIG && Array.isArray(APP_CONFIG.contacts)) ? APP_CONFIG.contacts : [];
+  return list.filter(c => c && c.name && c.email);
+}
+function updateContactButton(){
+  const mc = document.getElementById('map');
+  if (!mc) return;
+  let btn = mc.querySelector('#contact-btn');
+  const shouldShow = _contactList().length > 0 && !currentUser;
+  if (!btn) {
+    if (!shouldShow) return;
+    btn = document.createElement('button');
+    btn.id = 'contact-btn';
+    btn.type = 'button';
+    btn.className = 'contact-btn hidden';
+    btn.innerHTML = CONTACT_ICON_SVG;
+    // Tıklama / dokunma haritaya geçmesin
+    try { L.DomEvent.disableClickPropagation(btn); } catch {}
+    btn.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+    btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    btn.addEventListener('dblclick', (e) => e.stopPropagation());
+    btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openContactPanel(); });
+    mc.appendChild(btn);
+  }
+  btn.title = t('contactBtn');
+  btn.setAttribute('aria-label', t('contactBtn'));
+  btn.setAttribute('aria-haspopup', 'dialog');
+  btn.classList.toggle('hidden', !shouldShow);
+  // Giriş yapılınca panel açıksa kapanır
+  if (!shouldShow) closeContactPanel(true);
+}
+function _ensureContactOverlay(){
+  let ov = document.getElementById('contact-overlay');
+  if (ov) return ov;
+  ov = document.createElement('div');
+  ov.id = 'contact-overlay';
+  ov.className = 'contact-overlay hidden';
+  ov.setAttribute('aria-hidden', 'true');
+  ov.innerHTML =
+    '<div class="contact-panel" role="dialog" aria-modal="true" aria-labelledby="contact-title">' +
+      '<div class="contact-head">' +
+        '<span class="contact-head-icon" aria-hidden="true">' + CONTACT_ICON_SVG + '</span>' +
+        '<h3 id="contact-title" class="contact-title"></h3>' +
+        '<button type="button" class="contact-close" aria-label="">&times;</button>' +
+      '</div>' +
+      '<p class="contact-sub"></p>' +
+      '<ul class="contact-list"></ul>' +
+    '</div>';
+  document.body.appendChild(ov);
+  // Bulanık alana tıklayınca kapanır (panelin içine tıklamak kapatmaz)
+  ov.addEventListener('click', (e) => { if (e.target === ov) closeContactPanel(); });
+  ov.querySelector('.contact-close').addEventListener('click', () => closeContactPanel());
+  return ov;
+}
+function _renderContactPanel(){
+  const ov = _ensureContactOverlay();
+  ov.querySelector('.contact-title').textContent = t('contactTitle');
+  ov.querySelector('.contact-sub').textContent = t('contactSubtitle');
+  const close = ov.querySelector('.contact-close');
+  close.setAttribute('aria-label', t('contactClose')); close.title = t('contactClose');
+  const ul = ov.querySelector('.contact-list');
+  ul.innerHTML = '';
+  _contactList().forEach(c => {
+    const li = document.createElement('li'); li.className = 'contact-item';
+    const nm = document.createElement('span'); nm.className = 'contact-name'; nm.textContent = c.name;
+    const a = document.createElement('a'); a.className = 'contact-mail';
+    a.href = 'mailto:' + encodeURIComponent(c.email).replace(/%40/g, '@');
+    // Uzun adres sığmazsa yalnızca "@" işaretinden sonra satır atlar (kullanıcı@ / alan-adı)
+    a.innerHTML = escapeHtml(c.email).replace('@', '@<wbr>');
+    a.title = c.email;
+    const cp = document.createElement('button'); cp.type = 'button'; cp.className = 'contact-copy';
+    cp.innerHTML = CONTACT_COPY_SVG; cp.title = t('contactCopy'); cp.setAttribute('aria-label', t('contactCopy') + ': ' + c.email);
+    cp.addEventListener('click', async () => {
+      let ok = false;
+      try { await navigator.clipboard.writeText(c.email); ok = true; } catch {}
+      if (!ok) {
+        try { const ta = document.createElement('textarea'); ta.value = c.email; document.body.appendChild(ta); ta.select(); ok = document.execCommand('copy'); ta.remove(); } catch {}
+      }
+      toast(ok ? t('contactCopied') : c.email, ok ? 'success' : 'info', 2200);
+    });
+    const row = document.createElement('div'); row.className = 'contact-mail-row';
+    row.appendChild(a); row.appendChild(cp);
+    li.appendChild(nm); li.appendChild(row);
+    ul.appendChild(li);
+  });
+}
+function openContactPanel(){
+  if (!_contactList().length) return;
+  _renderContactPanel();
+  const ov = _ensureContactOverlay();
+  __contactLastFocus = document.activeElement;
+  ov.classList.remove('hidden');
+  ov.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('contact-open');
+  requestAnimationFrame(() => {
+    ov.classList.add('is-open');
+    const first = ov.querySelector('.contact-mail') || ov.querySelector('.contact-close');
+    try { first && first.focus({ preventScroll: true }); } catch {}
+  });
+}
+function closeContactPanel(silent){
+  const ov = document.getElementById('contact-overlay');
+  if (!ov || ov.classList.contains('hidden')) return;
+  ov.classList.remove('is-open');
+  ov.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('contact-open');
+  setTimeout(() => ov.classList.add('hidden'), silent ? 0 : 180);
+  if (!silent && __contactLastFocus && typeof __contactLastFocus.focus === 'function') {
+    try { __contactLastFocus.focus({ preventScroll: true }); } catch {}
+  }
+}
+(function wireContact(){
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const ov = document.getElementById('contact-overlay');
+      if (ov && !ov.classList.contains('hidden')) { e.stopPropagation(); closeContactPanel(); }
+    }
+  }, true);
+  window.addEventListener('languagechange', () => {
+    try { updateContactButton(); } catch {}
+    const ov = document.getElementById('contact-overlay');
+    if (ov && !ov.classList.contains('hidden')) _renderContactPanel();
+  });
+})();
 
 function geomTypeIcon(type){
   if(type==='line') return '━';
@@ -12525,6 +12670,7 @@ function reflectAuth(){
     show(qs('#btn-logout'));
     // Açık veri butonu yalnızca giriş yapılmadan görünür
     try { updateOpenDataButton(); } catch {}
+    try { updateContactButton(); } catch {}
     hide(qs('#login-card')); 
     hide(qs('#register-card')); 
     hide(qs('#forgot-card')); 
@@ -12566,6 +12712,7 @@ function reflectAuth(){
     show(qs('#btn-open-login')); 
     hide(qs('#btn-logout'));
     try { updateOpenDataButton(); } catch {}
+    try { updateContactButton(); } catch {}
     show(qs('#login-card')); 
     hide(qs('#register-card')); 
     hide(qs('#forgot-card')); 

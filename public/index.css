@@ -5605,3 +5605,133 @@ body.supervisor-mode-form #map{
 /* 10) Profil sayfa noktaları: pasif nokta koyu zeminde görünmüyordu */
 :root.theme-dark .profile-dot{ background: rgba(103,232,249,.32) !important; }
 :root.theme-dark .profile-dot.is-active{ background: var(--dk-neon, #22d3ee) !important; box-shadow: 0 0 8px rgba(34,211,238,.6); }
+/* ===================== İLETİŞİM (CONTACT) BUTONU VE PANELİ =====================
+   Giriş yapılmadan açılan haritanın sağ alt köşesinde YUVARLAK, mektup ikonlu buton.
+   Leaflet'in sağ alttaki atıf (attribution) yazısının ÜSTÜNDE durur. Tıklanınca sayfanın
+   tamamı (harita + header) bulanıklaşır ve iletişim paneli butonun köşesinden açılır. */
+.contact-btn{
+  position:absolute;
+  right:calc(clamp(10px, 2vw, 16px) + env(safe-area-inset-right, 0px));
+  bottom:calc(30px + env(safe-area-inset-bottom, 0px));
+  z-index:1200;
+  width:clamp(48px, 11vw, 56px);
+  height:clamp(48px, 11vw, 56px);
+  padding:0; margin:0;
+  display:inline-flex; align-items:center; justify-content:center;
+  border-radius:50%;
+  border:2px solid #2563eb;
+  background:#ffffff;
+  color:#2563eb;
+  box-shadow:0 6px 18px rgba(37,99,235,.28), 0 2px 6px rgba(0,0,0,.12);
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+  transition:transform .14s ease, box-shadow .18s ease, background .18s ease;
+}
+.contact-btn.hidden{ display:none !important; }
+.contact-btn svg{ width:52%; height:52%; display:block; }
+.contact-btn:hover{ transform:translateY(-2px); background:#eff6ff; box-shadow:0 10px 24px rgba(37,99,235,.36), 0 2px 6px rgba(0,0,0,.12); }
+.contact-btn:active{ transform:translateY(0) scale(.96); }
+.contact-btn:focus-visible{ outline:3px solid #f59e0b; outline-offset:3px; }
+/* Koyu tema: koyu iç + neon çerçeve ve neon mektup çizgileri, hafif parlama */
+:root.theme-dark .contact-btn{
+  background:#0b1324;
+  border-color:#22d3ee;
+  color:#67e8f9;
+  box-shadow:0 0 0 1px rgba(34,211,238,.15), 0 0 16px rgba(34,211,238,.45), 0 6px 18px rgba(0,0,0,.5);
+}
+:root.theme-dark .contact-btn svg{ filter:drop-shadow(0 0 4px rgba(103,232,249,.85)) !important; }
+:root.theme-dark .contact-btn:hover{ background:#10233a; color:#a5f3fc; box-shadow:0 0 0 1px rgba(34,211,238,.3), 0 0 24px rgba(34,211,238,.7), 0 8px 22px rgba(0,0,0,.55); }
+
+/* Panel açıkken sayfanın geri kalanı bulanık (header dahil: z-index header'ın üstünde,
+   bildirimlerin (toast) altında) */
+.contact-overlay{
+  position:fixed; inset:0;
+  z-index:12000;
+  background:rgba(15,23,42,.28);
+  -webkit-backdrop-filter:blur(7px) saturate(.9);
+  backdrop-filter:blur(7px) saturate(.9);
+  opacity:0;
+  transition:opacity .18s ease;
+}
+.contact-overlay.hidden{ display:none !important; }
+.contact-overlay.is-open{ opacity:1; }
+:root.theme-dark .contact-overlay{ background:rgba(2,6,23,.5); }
+
+.contact-panel{
+  position:absolute;
+  right:calc(clamp(10px, 2vw, 16px) + env(safe-area-inset-right, 0px));
+  bottom:calc(30px + clamp(48px, 11vw, 56px) + 14px + env(safe-area-inset-bottom, 0px));
+  width:min(440px, calc(100vw - 32px));
+  max-height:calc(100dvh - 140px);
+  overflow:auto;
+  box-sizing:border-box;
+  padding:16px 16px 14px;
+  border-radius:18px;
+  background:#ffffff;
+  color:#0f172a;
+  border:1px solid #e5e7eb;
+  box-shadow:0 24px 60px rgba(15,23,42,.28);
+  transform-origin:bottom right;
+  transform:translateY(10px) scale(.96);
+  transition:transform .2s cubic-bezier(.2,.8,.2,1);
+}
+.contact-overlay.is-open .contact-panel{ transform:none; }
+:root.theme-dark .contact-panel{
+  background:#0f172a; color:#e5e7eb;
+  border:1.5px solid rgba(34,211,238,.55);
+  box-shadow:0 0 22px rgba(34,211,238,.25), 0 24px 60px rgba(0,0,0,.6);
+}
+.contact-head{ display:flex; align-items:center; gap:10px; }
+.contact-head-icon{
+  flex:0 0 auto; width:34px; height:34px; border-radius:50%;
+  display:inline-flex; align-items:center; justify-content:center;
+  background:#eff6ff; color:#2563eb; border:1.5px solid #2563eb;
+}
+.contact-head-icon svg{ width:58%; height:58%; }
+:root.theme-dark .contact-head-icon{ background:#0b1324; color:#67e8f9; border-color:#22d3ee; box-shadow:0 0 10px rgba(34,211,238,.4); }
+.contact-title{ flex:1 1 auto; margin:0; font-size:1.08rem; font-weight:800; }
+.contact-close{
+  flex:0 0 auto; width:34px; height:34px; border-radius:50%;
+  border:1px solid #e5e7eb; background:transparent; color:inherit;
+  font-size:1.35rem; line-height:1; cursor:pointer; padding:0;
+}
+.contact-close:hover{ background:#f1f5f9; }
+:root.theme-dark .contact-close{ border:1.5px solid #22d3ee !important; color:#67e8f9 !important; background:#0b1324 !important; }
+:root.theme-dark .contact-close:hover{ background:#10233a !important; }
+.contact-sub{ margin:12px 2px 10px; font-weight:600; color:#334155; }
+:root.theme-dark .contact-sub{ color:#cbd5e1; }
+.contact-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.contact-item{
+  display:flex; flex-direction:column; gap:4px;
+  padding:10px 12px; border-radius:12px;
+  background:#f8fafc; border:1px solid #e2e8f0;
+}
+:root.theme-dark .contact-item{ background:#0b1324; border-color:rgba(34,211,238,.25); }
+.contact-name{ font-weight:800; font-size:.95rem; overflow-wrap:anywhere; }
+.contact-mail-row{ display:flex; align-items:center; gap:8px; min-width:0; }
+.contact-mail{
+  flex:1 1 auto; min-width:0;
+  color:#2563eb; font-weight:600; text-decoration:none;
+  font-size:.95rem;
+  overflow-wrap:break-word; word-break:normal;
+}
+.contact-mail:hover, .contact-mail:focus-visible{ text-decoration:underline; }
+:root.theme-dark .contact-mail{ color:#67e8f9; }
+.contact-copy{
+  flex:0 0 auto; width:32px; height:32px; border-radius:9px; padding:0;
+  display:inline-flex; align-items:center; justify-content:center;
+  border:1px solid #cbd5e1; background:#ffffff; color:#2563eb; cursor:pointer;
+}
+.contact-copy svg{ width:17px; height:17px; }
+.contact-copy:hover{ background:#eff6ff; }
+:root.theme-dark .contact-copy{ border:1.5px solid #22d3ee !important; background:#0b1324 !important; color:#67e8f9 !important; }
+
+/* Telefonlar: panel ekranın altından açılan geniş bir kart olur */
+@media (max-width:576px){
+  .contact-panel{
+    left:12px; right:12px; width:auto;
+    bottom:calc(12px + env(safe-area-inset-bottom, 0px));
+    border-radius:20px;
+    transform-origin:bottom center;
+  }
+}

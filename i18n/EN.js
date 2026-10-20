@@ -680,5 +680,13 @@ window.i18nLangs.en = {
     translation_required: 'The English translation of the event type is required; it cannot be left empty.',
     translation_too_long: 'The English translation can be at most 200 characters.',
     duplicate_active_translation: 'An active event type with this English translation already exists.',
-    duplicate_inactive_translation: 'An event type with this English translation exists in the database but is currently inactive.'
+    duplicate_inactive_translation: 'An event type with this English translation exists in the database but is currently inactive.',
+
+    // İletişim (CONTACT_MAIL_ADDRESS)
+    contactBtn: 'Contact',
+    contactTitle: 'Contact',
+    contactSubtitle: 'You can reach us here.',
+    contactClose: 'Close',
+    contactCopy: 'Copy email address',
+    contactCopied: 'Email address copied.'
 };

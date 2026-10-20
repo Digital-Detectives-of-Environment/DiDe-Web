@@ -95,6 +95,40 @@ if (OPEN_DATA_RAW === '') {
 }
 const OPEN_DATA = OPEN_DATA_NORM === 'true';
 
+// ==================== CONTACT_MAIL_ADDRESS (iletişim) ====================
+// Giriş ekranının sağ alt köşesindeki yuvarlak "İletişim" (mektup) butonunda gösterilen
+// ad + e-posta listesi. İSTEĞE BAĞLIDIR: boşsa / tanımlı değilse buton hiç görünmez.
+// Biçim: her kayıt çift tırnak içinde "Ad:e-posta", kayıtlar noktalı virgülle ayrılır:
+//   CONTACT_MAIL_ADDRESS="AFAD:info@afad.gov.tr";"İbrahim:ibrahim.topcu@hacettepe.edu.tr"
+// (dotenv en dıştaki tırnakları kaldırır; aradaki ";" ile kalan tırnaklar burada temizlenir.)
+// Ad ile e-posta SON ":" işaretinden ayrılır (adın içinde ":" olabilir, e-postada olamaz).
+// Geçersiz kayıtlar atlanır ve konsola uyarı yazılır; sistem yine de başlar.
+const CONTACT_EMAIL_RE = /^[^\s@<>"';:]+@[^\s@<>"';:]+\.[^\s@<>"';:]{2,}$/;
+const CONTACTS = (() => {
+  const raw = String(process.env.CONTACT_MAIL_ADDRESS ?? '').trim();
+  if (!raw) return [];
+  const out = [];
+  const seen = new Set();
+  for (const part of raw.split(';')) {
+    const item = part.trim().replace(/^["']+|["']+$/g, '').trim();
+    if (!item) continue;
+    const i = item.lastIndexOf(':');
+    const name = i > 0 ? item.slice(0, i).trim() : '';
+    const email = i > 0 ? item.slice(i + 1).trim() : '';
+    if (!name || !CONTACT_EMAIL_RE.test(email) || name.length > 100 || email.length > 254) {
+      console.warn(`[WARN] CONTACT_MAIL_ADDRESS: skipped invalid entry "${item}" (expected "Name:email@domain").`);
+      continue;
+    }
+    const key = (name + '|' + email).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ name, email });
+  }
+  if (out.length) console.log(`[OK] Contact addresses: ${out.map(c => c.name).join(', ')}`);
+  else console.warn(`[WARN] CONTACT_MAIL_ADDRESS has no valid entries → contact button hidden.`);
+  return out;
+})();
+
 // ==================== LICENSE (veri lisansı dosyası) ====================
 // Projenin KÖK klasöründeki lisans dosyasının ADI (ör. LICENSE=DATA_LICENSE.txt).
 // Tanımlıysa bu dosya, hem ziyaretçinin açık veri ZIP'ine hem de kullanıcının
@@ -3318,6 +3352,8 @@ app.get('/api/config', (_req, res) => {
     restrictGnss: RESTRICT_GNSS,
     // .env → OPEN_DATA: true ise giriş ekranında "Açık veri" indirme butonu görünür
     openData: OPEN_DATA,
+    // .env → CONTACT_MAIL_ADDRESS: [{ name, email }]. Boşsa iletişim butonu gösterilmez.
+    contacts: CONTACTS,
     eventTypeValidityUnits: EVENT_TYPE_VALIDITY_UNITS,
     zoomLevelBoundary: String(process.env.ZOOM_LEVEL_BOUNDARY || '').trim().toLowerCase(),
     // İki gönderi arasındaki bekleme süresi (saat). 0 => sınır yok.
