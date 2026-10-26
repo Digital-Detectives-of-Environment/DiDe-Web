@@ -688,5 +688,23 @@ window.i18nLangs.tr = {
     contactSubtitle: 'Buradan bize ulaşabilirsiniz.',
     contactClose: 'Kapat',
     contactCopy: 'E-posta adresini kopyala',
-    contactCopied: 'E-posta adresi kopyalandı.'
+    contactCopied: 'E-posta adresi kopyalandı.',
+
+    // Tampon kayıtları: başlık, yardım, 1-2-3 görsel, çoklu medya, puan animasyonu
+    bufferNearbyTitle: 'Yakınlarınızdaki mevcut kayıtlar:',
+    bufferAgreeHint: 'Eklemek istediğiniz veri bu kayıtlardan biriyse ekrana dokunun ve açılan marker\'da {{plus}} butonuna basın.',
+    bufferHowStep1: 'Kayda dokunun',
+    bufferHowStep2: 'Marker açılır',
+    bufferHowStep3: '+ butonuna basın',
+    bufferHowAlt: 'Nasıl katılırım: 1) kayda dokunun, 2) marker açılır, 3) + butonuna basın',
+    bufferTapToOpen: 'Haritada açmak için dokunun',
+    bufferMarkerHidden: 'Bu kaydın marker\'ı haritada şu an gizli. Katmanlar panelinden olay türünü açın.',
+    mediaPrev: 'Önceki',
+    mediaNext: 'Sonraki',
+    pointsUnitOne: 'puan',
+    pointsUnit: 'puan',
+    pointsGainedMsg: 'Katılım yaptınız, {{n}} puan kazandınız!',
+    pointsLostMsg: 'Katılımınızı geri çektiniz, {{n}} puan düştü.',
+    pointsGainedMsgOne: 'Katılım yaptınız, {{n}} puan kazandınız!',
+    pointsLostMsgOne: 'Katılımınızı geri çektiniz, {{n}} puan düştü.'
 };

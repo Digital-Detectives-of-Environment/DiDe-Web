@@ -688,5 +688,23 @@ window.i18nLangs.en = {
     contactSubtitle: 'You can reach us here.',
     contactClose: 'Close',
     contactCopy: 'Copy email address',
-    contactCopied: 'Email address copied.'
+    contactCopied: 'Email address copied.',
+
+    // Tampon kayıtları: başlık, yardım, 1-2-3 görsel, çoklu medya, puan animasyonu
+    bufferNearbyTitle: 'Existing records near you:',
+    bufferAgreeHint: 'If what you want to add is one of these records, tap the screen and press the {{plus}} button on the marker that opens.',
+    bufferHowStep1: 'Tap the record',
+    bufferHowStep2: 'The marker opens',
+    bufferHowStep3: 'Press +',
+    bufferHowAlt: 'How to agree: 1) tap the record, 2) the marker opens, 3) press +',
+    bufferTapToOpen: 'Tap to open on the map',
+    bufferMarkerHidden: 'This record\'s marker is currently hidden on the map. Turn its event type on in the Layers panel.',
+    mediaPrev: 'Previous',
+    mediaNext: 'Next',
+    pointsUnitOne: 'point',
+    pointsUnit: 'points',
+    pointsGainedMsg: 'You agreed and earned {{n}} points!',
+    pointsLostMsg: 'You withdrew your agreement: {{n}} points deducted.',
+    pointsGainedMsgOne: 'You agreed and earned {{n}} point!',
+    pointsLostMsgOne: 'You withdrew your agreement: {{n}} point deducted.'
 };

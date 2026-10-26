@@ -679,5 +679,23 @@ window.i18nLangs.it = {
     contactSubtitle: 'Puoi contattarci qui.',
     contactClose: 'Chiudi',
     contactCopy: 'Copia l\'indirizzo email',
-    contactCopied: 'Indirizzo email copiato.'
+    contactCopied: 'Indirizzo email copiato.',
+
+    // Tampon kayıtları: başlık, yardım, 1-2-3 görsel, çoklu medya, puan animasyonu
+    bufferNearbyTitle: 'Segnalazioni esistenti vicino a te:',
+    bufferAgreeHint: 'Se ciò che vuoi aggiungere è una di queste segnalazioni, tocca lo schermo e premi il pulsante {{plus}} nel marker che si apre.',
+    bufferHowStep1: 'Tocca la segnalazione',
+    bufferHowStep2: 'Si apre il marker',
+    bufferHowStep3: 'Premi +',
+    bufferHowAlt: 'Come aderire: 1) tocca la segnalazione, 2) si apre il marker, 3) premi +',
+    bufferTapToOpen: 'Tocca per aprire sulla mappa',
+    bufferMarkerHidden: 'Il marker di questa segnalazione è nascosto sulla mappa. Attiva il suo tipo di evento nel pannello Livelli.',
+    mediaPrev: 'Precedente',
+    mediaNext: 'Successivo',
+    pointsUnitOne: 'punto',
+    pointsUnit: 'punti',
+    pointsGainedMsg: 'Hai aderito e guadagnato {{n}} punti!',
+    pointsLostMsg: 'Hai ritirato l\'adesione: {{n}} punti in meno.',
+    pointsGainedMsgOne: 'Hai aderito e guadagnato {{n}} punto!',
+    pointsLostMsgOne: 'Hai ritirato l\'adesione: {{n}} punto in meno.'
 };

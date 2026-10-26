@@ -1758,6 +1758,200 @@ function showPolygonRecordsCard(records, count) {
 
 /* Kayıt sayfalarını (swipe edilebilir kartlar) oluşturur.
    Hem grid (polygon) akışı hem de tampon (buffer) akışı aynı tasarımı kullanır. */
+/* ===================== TAMPON (BUFFER) KAYITLARI — YARDIM, DOKUN-AÇ, PUAN ANİMASYONU ===================== */
+
+/* Açıklamanın altındaki dikkat çekici bilgi kutusu + 1-2-3 adımlı küçük görsel.
+   Metindeki {{plus}}, pop-up'taki katılım (+) butonunun AYNI ikonuyla (agree.svg) gösterilir. */
+function bufferAgreeHintHtml(){
+  const TOKEN = '\u0000PLUS\u0000';
+  const plusImg = '<img class="pr-hint-plus" src="/agree.svg" alt="+" width="22" height="22" draggable="false"/>';
+  const text = escapeHtml(t('bufferAgreeHint', { plus: TOKEN })).split(TOKEN).join(plusImg);
+  const s1 = escapeHtml(t('bufferHowStep1')), s2 = escapeHtml(t('bufferHowStep2')), s3 = escapeHtml(t('bufferHowStep3'));
+  const arrow = '<span class="pr-how-arrow" aria-hidden="true"><svg viewBox="0 0 24 12"><path d="M1 6h19m-5-4.5L20.5 6 15 10.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>';
+  // 1) Kayıt kartı + dokunan parmak (dalga halkalarıyla)
+  const svgTap = '<svg viewBox="0 0 64 48" aria-hidden="true">' +
+    '<rect x="5" y="4" width="38" height="34" rx="5" fill="none" stroke="currentColor" stroke-width="2"/>' +
+    '<rect x="9" y="8" width="30" height="13" rx="2" fill="currentColor" opacity=".22"/>' +
+    '<path d="M10 27h22M10 32h15" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".7"/>' +
+    '<circle class="pr-how-ripple" cx="47" cy="34" r="11" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".35"/>' +
+    '<circle cx="47" cy="34" r="7" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".6"/>' +
+    '<circle class="pr-how-touch" cx="47" cy="34" r="4" fill="currentColor"/></svg>';
+  // 2) Marker + üstünde açılan pop-up balonu
+  const svgPin = '<svg viewBox="0 0 64 48" aria-hidden="true">' +
+    '<rect x="13" y="2" width="38" height="20" rx="4" fill="none" stroke="currentColor" stroke-width="2"/>' +
+    '<path d="M28 22l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>' +
+    '<path d="M18 9h20M18 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".6"/>' +
+    '<path d="M32 47c-5-6.5-8-10.5-8-14.5a8 8 0 0 1 16 0c0 4-3 8-8 14.5z" fill="currentColor"/>' +
+    '<circle cx="32" cy="32.5" r="3" fill="var(--pr-how-bg, #fff)"/></svg>';
+  return `
+    <div class="pr-agree-hint" role="note">
+      <div class="pr-agree-hint-text">
+        <span class="pr-hint-bulb" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.3 1.1 2.2h5c0-.9.4-1.6 1.1-2.2A6 6 0 0 0 12 3z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="pr-agree-hint-msg">${text}</span>
+      </div>
+      <div class="pr-agree-how" role="img" aria-label="${escapeHtml(t('bufferHowAlt'))}">
+        <div class="pr-how-step"><span class="pr-how-num">1</span><div class="pr-how-art">${svgTap}</div><span class="pr-how-cap">${s1}</span></div>
+        ${arrow}
+        <div class="pr-how-step"><span class="pr-how-num">2</span><div class="pr-how-art">${svgPin}</div><span class="pr-how-cap">${s2}</span></div>
+        ${arrow}
+        <div class="pr-how-step"><span class="pr-how-num">3</span><div class="pr-how-art pr-how-pop"><span class="pr-how-lines" aria-hidden="true"></span><img src="/agree.svg" alt="" draggable="false"/></div><span class="pr-how-cap">${s3}</span></div>
+      </div>
+    </div>`;
+}
+
+/* "Yakınlarınızdaki mevcut kayıtlar:" başlığı — tampon akışında olay türü süzgecinin ÜSTÜNDE */
+function ensureBufferNearbyTitle(){
+  const row = qs('#buffer-type-row');
+  if (!row || !row.parentNode) return null;
+  let el = qs('#buffer-nearby-title');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'buffer-nearby-title';
+    el.className = 'buffer-nearby-title';
+    row.parentNode.insertBefore(el, row);
+  }
+  el.innerHTML = '<span class="bnt-dot" aria-hidden="true"></span><span class="bnt-text"></span>';
+  el.querySelector('.bnt-text').textContent = t('bufferNearbyTitle');
+  return el;
+}
+
+/* Kaydın marker'ını bulur, gerekirse kümeyi açıp yakınlaştırır ve pop-up'ını (+ butonuyla) açar */
+function openEventMarkerById(eventId){
+  if (!map || !markersLayer) return false;
+  const layers = (typeof markersLayer.getLayers === 'function') ? markersLayer.getLayers() : [];
+  const mk = layers.find(l => l && String(l._dideEventId) === String(eventId));
+  if (!mk) { toast(t('bufferMarkerHidden'), 'info', 3500); return false; }
+  const open = () => {
+    try { mk.openPopup(); } catch {}
+    // Pop-up içeriği açılışta yeniden oluşturulur; ardından + butonu görünür alana kaydırılır
+    setTimeout(() => focusLikeButtonInPopup(mk), 260);
+  };
+  try {
+    if (typeof markersLayer.zoomToShowLayer === 'function') markersLayer.zoomToShowLayer(mk, open);
+    else { map.setView(mk.getLatLng(), Math.max(map.getZoom(), 18)); setTimeout(open, 250); }
+  } catch { open(); }
+  return true;
+}
+
+/* Açılan pop-up'ta katılım (+) butonunu görünür alana getirir ve kısa süre parlatır.
+   Yalnızca pop-up'ın KENDİ kaydırılabilir içeriği kaydırılır (harita / sayfa kaymaz). */
+function focusLikeButtonInPopup(mk){
+  try {
+    const pop = mk && mk.getPopup && mk.getPopup();
+    const root = pop && pop.getElement && pop.getElement();
+    if (!root) return;
+    const btn = root.querySelector('.like-btn');
+    if (!btn) return;
+    let sc = btn.parentElement;
+    while (sc && sc !== root) {
+      const cs = getComputedStyle(sc);
+      if (/(auto|scroll)/.test(cs.overflowY) && sc.scrollHeight > sc.clientHeight + 2) break;
+      sc = sc.parentElement;
+    }
+    if (sc && sc !== root) {
+      const br = btn.getBoundingClientRect(), sr = sc.getBoundingClientRect();
+      const target = sc.scrollTop + (br.top - sr.top) - (sc.clientHeight - br.height) / 2;
+      try { sc.scrollTo({ top: Math.max(0, target), behavior: 'smooth' }); } catch { sc.scrollTop = Math.max(0, target); }
+    }
+    btn.classList.add('like-attn');
+    setTimeout(() => btn.classList.remove('like-attn'), 2600);
+  } catch {}
+}
+
+/* Tampon kayıt sayfasında herhangi bir yere dokununca (kaydırma değilse) kaydın marker'ı açılır.
+   Panel, ✗ butonuyla aynı şekilde kapanır (konum işareti ve tampon kaldırılır). */
+function wireBufferRecordTaps(swiper){
+  if (!swiper || swiper.__bufTapWired) return;
+  swiper.__bufTapWired = true;
+  let px = 0, py = 0;
+  swiper.addEventListener('pointerdown', (e) => { px = e.clientX; py = e.clientY; }, true);
+  swiper.addEventListener('click', (e) => {
+    if (__recordsMode !== 'buffer') return;
+    const page = e.target && e.target.closest ? e.target.closest('.polygon-record-page.pr-tappable') : null;
+    if (!page) return;
+    if (Math.abs(e.clientX - px) > 8 || Math.abs(e.clientY - py) > 8) return;        // sürükleme, dokunma değil
+    if (e.target.closest('.pr-media-nav, video, button, a, select, input, textarea')) return;
+    const sec = e.target.closest('.pr-media-section');
+    if (sec && sec.dataset.justSwiped) return;                                        // fotoğraf kaydırıldı
+    const id = page.dataset.eventId;
+    if (!id) return;
+    hide(qs('#polygon-records-card'));
+    bufferRecordsCancel();
+    setTimeout(() => openEventMarkerById(id), 120);
+  });
+}
+
+/* Katılım puan animasyonu:
+   - Katılım (+): yeşil "+1 puan" ekranın ORTASINDAN yükselerek en üste çıkar ve kaybolur.
+   - Geri çekme (−): kırmızı "−1 puan" ekranın ÜSTÜNDEN düşerek katılımın yapıldığı marker'ın
+     ucuna iner, orada küçülüp kaybolur. Hareket azaltma tercihi açıksa yalnızca belirip kaybolur. */
+function showAgreePointsFx(delta, evt){
+  delta = Number(delta) || 0;
+  if (!delta) return;
+  const gain = delta > 0;
+  const n = Math.abs(delta);
+  const unit = t(n === 1 ? 'pointsUnitOne' : 'pointsUnit');
+  const el = document.createElement('div');
+  el.className = 'points-fx ' + (gain ? 'gain' : 'loss');
+  el.setAttribute('role', 'status');
+  el.setAttribute('aria-live', 'polite');
+  el.innerHTML = `<div class="points-fx-big">${gain ? '+' : '\u2212'}${n} <span class="points-fx-unit">${escapeHtml(unit)}</span></div>` +
+                 `<div class="points-fx-sub">${escapeHtml(t((gain ? 'pointsGainedMsg' : 'pointsLostMsg') + (n === 1 ? 'One' : ''), { n }))}</div>`;
+  document.body.appendChild(el);
+  const W = window.innerWidth, H = window.innerHeight;
+  const w = el.offsetWidth || 220, h = el.offsetHeight || 70;
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const done = () => { try { el.remove(); } catch {} };
+  if (!el.animate) { setTimeout(done, 2200); return; }
+  const at = (x, y, sc = 1) => `translate(${Math.round(x - w / 2)}px, ${Math.round(y)}px) scale(${sc})`;
+  let anim;
+  if (reduce) {
+    anim = el.animate([{ opacity: 0, transform: at(W / 2, H / 2 - h / 2) }, { opacity: 1, offset: .2, transform: at(W / 2, H / 2 - h / 2) },
+                       { opacity: 1, offset: .8, transform: at(W / 2, H / 2 - h / 2) }, { opacity: 0, transform: at(W / 2, H / 2 - h / 2) }], { duration: 1800 });
+  } else if (gain) {
+    // Zamanlama adım adım verilir (her anahtar karenin easing'i o adıma uygulanır):
+    // ortada belirir (~0,3 sn) → yukarı süzülür (~0,9 sn) → en üstte OKUNUR kalır (~0,8 sn) → kaybolur
+    const topY = Math.max(12, H * 0.06);
+    const midY = H / 2 - h / 2;
+    anim = el.animate([
+      { opacity: 0, transform: at(W / 2, midY, .55), easing: 'cubic-bezier(.2,.9,.3,1.25)' },
+      { opacity: 1, offset: .12, transform: at(W / 2, midY - 8, 1.1), easing: 'ease-out' },
+      { opacity: 1, offset: .2,  transform: at(W / 2, midY - 20, 1), easing: 'cubic-bezier(.33,.7,.3,1)' },
+      { opacity: 1, offset: .55, transform: at(W / 2, topY + 8, 1), easing: 'linear' },
+      { opacity: 1, offset: .86, transform: at(W / 2, topY + 4, 1), easing: 'ease-in' },
+      { opacity: 0, transform: at(W / 2, topY - 6, .92) }
+    ], { duration: 2600, easing: 'linear', fill: 'forwards' });
+  } else {
+    // Hedef: marker'ın ucu (ekran koordinatı). Bulunamazsa ekranın ortası.
+    let tx = W / 2, ty = H * 0.6;
+    try {
+      const lat = parseFloat(evt && evt.latitude), lng = parseFloat(evt && evt.longitude);
+      if (map && Number.isFinite(lat) && Number.isFinite(lng)) {
+        const cp = map.latLngToContainerPoint([lat, lng]);
+        const r = map.getContainer().getBoundingClientRect();
+        const x = r.left + cp.x, y = r.top + cp.y;
+        if (x > 0 && x < W && y > 0 && y < H) { tx = x; ty = y; }
+      }
+    } catch {}
+    const startY = Math.max(10, H * 0.04);
+    const landY = ty - h;                 // kutunun alt kenarı marker'ın ucuna değer
+    // Üstte belirir ve kısa bir an asılı kalır → yerçekimi gibi HIZLANARAK düşer →
+    // marker'ın ucuna değip bir kez seker → orada küçülerek "düşer" ve kaybolur
+    anim = el.animate([
+      { opacity: 0, transform: at(tx, startY - 20, .9), easing: 'ease-out' },
+      { opacity: 1, offset: .1,  transform: at(tx, startY, 1), easing: 'linear' },
+      { opacity: 1, offset: .22, transform: at(tx, startY + 4, 1), easing: 'cubic-bezier(.55,0,1,.55)' },
+      { opacity: 1, offset: .56, transform: at(tx, landY, 1), easing: 'ease-out' },
+      { opacity: 1, offset: .64, transform: at(tx, landY - 16, 1), easing: 'ease-in' },
+      { opacity: 1, offset: .72, transform: at(tx, landY, 1), easing: 'linear' },
+      { opacity: 1, offset: .86, transform: at(tx, landY, 1), easing: 'ease-in' },
+      { opacity: 0, transform: at(tx, landY + h * .35, .35) }
+    ], { duration: 2600, easing: 'linear', fill: 'forwards' });
+  }
+  anim.onfinish = done;
+  anim.oncancel = done;
+}
+
 function renderRecordsPages(records) {
   records = Array.isArray(records) ? records : [];
   __recordsTotal = records.length;
@@ -1807,35 +2001,40 @@ function renderRecordsPages(records) {
           let photoSlides = photos.map(u => `<img src="${u}" alt="photo" loading="lazy"/>`).join('');
           let videoSlides = videos.map(u => `<video src="${u}" preload="metadata" controls playsinline></video>`).join('');
           mediaHtml = `
-            <div class="pr-media-section" data-media-count="${Math.max(photos.length, videos.length)}">
-              <div class="pr-media-float-counter" data-media-counter></div>
+            <div class="pr-media-section${Math.max(photos.length, videos.length) > 1 ? ' is-multi' : ''}" data-media-count="${Math.max(photos.length, videos.length)}">
+              <div class="pr-media-float-counter${Math.max(photos.length, videos.length) > 1 ? ' is-static visible' : ''}" data-media-counter>${Math.max(photos.length, videos.length) > 1 ? '1/' + Math.max(photos.length, videos.length) : ''}</div>
               <div class="pr-media-half" data-media-scroll>${photoSlides}</div>
               <div class="pr-media-half" data-media-scroll>${videoSlides}</div>
             </div>`;
         } else if (hasPhotos) {
           let photoSlides = photos.map(u => `<img src="${u}" alt="photo" loading="lazy"/>`).join('');
           mediaHtml = `
-            <div class="pr-media-section" data-media-count="${photos.length}">
-              <div class="pr-media-float-counter" data-media-counter></div>
+            <div class="pr-media-section${photos.length > 1 ? ' is-multi' : ''}" data-media-count="${photos.length}">
+              <div class="pr-media-float-counter${photos.length > 1 ? ' is-static visible' : ''}" data-media-counter>${photos.length > 1 ? '1/' + photos.length : ''}</div>
               <div class="pr-media-half single" data-media-scroll>${photoSlides}</div>
             </div>`;
         } else {
           let videoSlides = videos.map(u => `<video src="${u}" preload="metadata" controls playsinline></video>`).join('');
           mediaHtml = `
-            <div class="pr-media-section" data-media-count="${videos.length}">
-              <div class="pr-media-float-counter" data-media-counter></div>
+            <div class="pr-media-section${videos.length > 1 ? ' is-multi' : ''}" data-media-count="${videos.length}">
+              <div class="pr-media-float-counter${videos.length > 1 ? ' is-static visible' : ''}" data-media-counter>${videos.length > 1 ? '1/' + videos.length : ''}</div>
               <div class="pr-media-half single" data-media-scroll>${videoSlides}</div>
             </div>`;
         }
 
-        // Instagram-style dots for multi-media within record
+        // Birden fazla fotoğraf/video: fotoğrafın hemen altında ‹ noktalar › geçiş butonları.
+        // (Fotoğrafın üstünde parmakla / fareyle sağa-sola kaydırmak da aynı geçişi yapar.)
         const totalMedia = Math.max(photos.length, videos.length);
         if (totalMedia > 1) {
           let dots = '';
           for (let d = 0; d < totalMedia; d++) {
             dots += `<span${d === 0 ? ' class="active"' : ''}></span>`;
           }
-          mediaHtml += `<div class="pr-media-dots" data-media-dots>${dots}</div>`;
+          mediaHtml += `<div class="pr-media-nav" data-media-nav>
+              <button type="button" class="pr-media-btn pr-media-prev" data-media-prev disabled aria-label="${escapeHtml(t('mediaPrev'))}" title="${escapeHtml(t('mediaPrev'))}">&#8249;</button>
+              <div class="pr-media-dots" data-media-dots>${dots}</div>
+              <button type="button" class="pr-media-btn pr-media-next" data-media-next aria-label="${escapeHtml(t('mediaNext'))}" title="${escapeHtml(t('mediaNext'))}">&#8250;</button>
+            </div>`;
         }
       } else {
         mediaHtml = `<div class="pr-no-media">${t('noPhoto')}</div>`;
@@ -1845,12 +2044,21 @@ function renderRecordsPages(records) {
         ? new Date(rec.created_at).toLocaleDateString() + ' ' + new Date(rec.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})
         : '-';
 
+      // Tampon akışı: açıklamanın altında "bu kayıtlardan biriyse dokunun → + butonuna basın"
+      // bilgisi ve 1-2-3 adımlı küçük görsel. Sayfaya dokununca kaydın marker'ı açılır.
+      const isBuffer = (__recordsMode === 'buffer');
+      if (isBuffer && rec.event_id != null) {
+        page.classList.add('pr-tappable');
+        page.dataset.eventId = String(rec.event_id);
+        page.title = t('bufferTapToOpen');
+      }
       page.innerHTML = `
         ${mediaHtml}
         <div class="pr-info-section">
           <div class="pr-info-type">${escapeHtml(etName(rec, '-'))}</div>
           <div class="pr-info-date">${dateStr}</div>
           ${rec.description ? '<div class="pr-info-desc">' + rec.description + '</div>' : ''}
+          ${isBuffer ? bufferAgreeHintHtml() : ''}
         </div>
       `;
       track.appendChild(page);
@@ -1867,8 +2075,14 @@ function renderRecordsPages(records) {
       onPageChange: (newPage) => {
         __recordsCurrentPage = newPage;
         updateRecordsPageIndicator();
-      }
+      },
+      // Çoklu fotoğraf alanından ve geçiş butonlarından başlayan hareketler KAYIT değiştirmez;
+      // o alan kendi fotoğrafları/videoları arasında geçer. Kayıtlar arası geçiş aynen sürer.
+      ignoreStart: (el) => !!(el && el.closest && el.closest('.pr-media-section.is-multi, .pr-media-nav'))
     });
+
+    // Tampon akışı: sayfaya dokununca o kaydın marker'ı açılır (+ butonu görünür)
+    if (__recordsMode === 'buffer') wireBufferRecordTaps(swiper);
   }
 
   // Generate bottom dots for record pages
@@ -1933,6 +2147,9 @@ function setupInstagramSwiper(container, track, opts) {
   // ── Touch ──
   container.addEventListener('touchstart', (e) => {
     if (isAnimating) return;
+    // İsteğe bağlı: bu öğeden başlayan hareketler sayfa değiştirmez (ör. çoklu fotoğraf alanı
+    // kendi içinde kaydırılır). Seçenek verilmezse davranış tamamen eskisi gibidir.
+    if (opts.ignoreStart && opts.ignoreStart(e.target)) { isDragging = false; return; }
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
     startTime = Date.now();
@@ -1986,6 +2203,7 @@ function setupInstagramSwiper(container, track, opts) {
   // ── Mouse drag (desktop) ──
   container.addEventListener('mousedown', (e) => {
     if (isAnimating) return;
+    if (opts.ignoreStart && opts.ignoreStart(e.target)) { isDragging = false; return; }
     startX = e.clientX;
     startTime = Date.now();
     isDragging = true;
@@ -2062,40 +2280,91 @@ function setupInstagramSwiper(container, track, opts) {
 }
 
 /* Setup media scroll listeners inside record pages */
+/* Bir kaydın birden fazla fotoğrafı / videosu arasında geçiş (kayıtlar arası geçişten bağımsız):
+   - fotoğrafın altındaki ‹ › butonları,
+   - fotoğrafın üstünde parmakla ya da fareyle sağa / sola kaydırma,
+   - sağ üstte her zaman görünen "1/3" sayacı ve alttaki noktalar.
+   Fotoğraf ve video birlikte varsa iki yarı aynı sıraya birlikte geçer (mevcut düzen). */
 function setupMediaScrollListeners(swiperEl) {
   swiperEl.querySelectorAll('.pr-media-section').forEach(section => {
     const mediaCount = parseInt(section.dataset.mediaCount || '0', 10);
     if (mediaCount <= 1) return;
 
-    const scrollables = section.querySelectorAll('[data-media-scroll]');
+    const page = section.closest('.polygon-record-page');
+    const halves = section.querySelectorAll('[data-media-scroll]');
     const counter = section.querySelector('[data-media-counter]');
-    const dotsContainer = section.closest('.polygon-record-page')?.querySelector('[data-media-dots]');
-    let mediaTimer = null;
+    const nav = page ? page.querySelector('[data-media-nav]') : null;
+    const dots = nav ? nav.querySelectorAll('[data-media-dots] span') : [];
+    const prevBtn = nav ? nav.querySelector('[data-media-prev]') : null;
+    const nextBtn = nav ? nav.querySelector('[data-media-next]') : null;
+    let idx = 0;
 
-    scrollables.forEach(half => {
-      half.addEventListener('scroll', () => {
-        const itemW = half.offsetWidth;
-        if (itemW <= 0) return;
-        const currentIdx = Math.round(half.scrollLeft / itemW);
-
-        scrollables.forEach(other => {
-          if (other !== half) other.scrollLeft = currentIdx * other.offsetWidth;
-        });
-
-        if (dotsContainer) {
-          dotsContainer.querySelectorAll('span').forEach((dot, di) => {
-            dot.classList.toggle('active', di === currentIdx);
-          });
-        }
-
-        if (counter) {
-          counter.textContent = (currentIdx + 1) + '/' + mediaCount;
-          counter.classList.add('visible');
-          clearTimeout(mediaTimer);
-          mediaTimer = setTimeout(() => counter.classList.remove('visible'), 1000);
-        }
+    const goTo = (i, smooth = true) => {
+      idx = Math.max(0, Math.min(mediaCount - 1, i));
+      halves.forEach(h => {
+        const w = h.clientWidth || h.offsetWidth;
+        // Bu yarıda daha az öğe varsa son öğesinde kalır
+        const n = h.children.length;
+        const target = Math.min(idx, Math.max(0, n - 1)) * w;
+        try { h.scrollTo({ left: target, behavior: smooth ? 'smooth' : 'auto' }); } catch { h.scrollLeft = target; }
       });
+      // Geçilen videolar durdurulur
+      section.querySelectorAll('video').forEach(v => { try { v.pause(); } catch {} });
+      if (counter) counter.textContent = (idx + 1) + '/' + mediaCount;
+      dots.forEach((d, di) => d.classList.toggle('active', di === idx));
+      if (prevBtn) prevBtn.disabled = idx === 0;
+      if (nextBtn) nextBtn.disabled = idx === mediaCount - 1;
+    };
+
+    const stop = (e) => { e.stopPropagation(); };
+    [prevBtn, nextBtn].forEach(b => {
+      if (!b) return;
+      b.addEventListener('pointerdown', stop);
+      b.addEventListener('mousedown', stop);
+      b.addEventListener('touchstart', stop, { passive: true });
     });
+    if (prevBtn) prevBtn.addEventListener('click', (e) => { e.stopPropagation(); goTo(idx - 1); });
+    if (nextBtn) nextBtn.addEventListener('click', (e) => { e.stopPropagation(); goTo(idx + 1); });
+    dots.forEach((d, di) => d.addEventListener('click', (e) => { e.stopPropagation(); goTo(di); }));
+
+    // Kaydırma (dokunmatik + fare): yatay hareket ≥ 40px → bir sonraki / önceki öğe
+    let sx = 0, sy = 0, dragging = false, decided = null, moved = false;
+    const begin = (x, y) => { sx = x; sy = y; dragging = true; decided = null; moved = false; };
+    const move = (x, y, ev) => {
+      if (!dragging) return;
+      const dx = x - sx, dy = y - sy;
+      if (decided === null && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) decided = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+      if (decided === 'h') { moved = true; if (ev && ev.cancelable) ev.preventDefault(); }
+    };
+    const end = (x) => {
+      if (!dragging) return;
+      dragging = false;
+      if (decided !== 'h') return;
+      const dx = x - sx;
+      if (Math.abs(dx) >= 40) goTo(idx + (dx < 0 ? 1 : -1));
+      section.dataset.justSwiped = '1';
+      setTimeout(() => { delete section.dataset.justSwiped; }, 350);
+    };
+    section.addEventListener('touchstart', (e) => { if (e.touches.length === 1) begin(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+    section.addEventListener('touchmove', (e) => { if (e.touches.length === 1) move(e.touches[0].clientX, e.touches[0].clientY, e); }, { passive: false });
+    section.addEventListener('touchend', (e) => { const t0 = e.changedTouches && e.changedTouches[0]; end(t0 ? t0.clientX : sx); }, { passive: true });
+    section.addEventListener('mousedown', (e) => {
+      if (e.target && e.target.closest && e.target.closest('video')) return;   // video kontrolleri çalışsın
+      e.preventDefault(); begin(e.clientX, e.clientY);
+      const mm = (ev) => move(ev.clientX, ev.clientY, ev);
+      const mu = (ev) => { end(ev.clientX); window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); };
+      window.addEventListener('mousemove', mm);
+      window.addEventListener('mouseup', mu);
+    });
+    // Klavye: odak bu alandayken ← →
+    section.tabIndex = 0;
+    section.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); goTo(idx + 1); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); goTo(idx - 1); }
+    });
+    // Ekran boyutu değişince geçerli öğede hizalı kal
+    window.addEventListener('resize', () => goTo(idx, false));
+    goTo(0, false);
   });
 }
 
@@ -2709,6 +2978,9 @@ function ensureBufferTypeRow(){
 function hideBufferTypeRow(){
   const row = qs('#buffer-type-row');
   if (row) row.style.display = 'none';
+  const ttl = qs('#buffer-nearby-title');
+  if (ttl) ttl.style.display = 'none';
+  const card = qs('#polygon-records-card'); if (card) card.classList.remove('is-buffer');
 }
 
 /* Süzgeç seçenekleri YALNIZCA tamponun içindeki kayıtların olay türlerinden üretilir. */
@@ -2740,6 +3012,8 @@ function fillBufferTypeFilter(){
   if (prev && opts.some(([id]) => id === prev)) sel.value = prev;
 
   row.style.display = '';
+  // Başlık: "Yakınlarınızdaki mevcut kayıtlar:" (olay türü süzgecinin üstünde)
+  const ttl = ensureBufferNearbyTitle(); if (ttl) ttl.style.display = '';
   sel.onchange = () => { if (__recordsMode === 'buffer') renderBufferRecords(); };
 }
 
@@ -2752,6 +3026,8 @@ function bufferFilteredRecords(){
 
 function renderBufferRecords(){
   const list = bufferFilteredRecords();
+  // Tampon akışına özel (sıkı) yerleşim kuralları için işaret sınıfı
+  const card = qs('#polygon-records-card'); if (card) card.classList.add('is-buffer');
   const countEl = qs('#polygon-records-count');
   if (countEl) countEl.textContent = t('bufferRecordCount', { count: list.length, radius: bufferRadiusMeters() });
   renderRecordsPages(list);
@@ -10540,6 +10816,8 @@ function addLikeControl(container, evt, opts = {}) {
         else { try { refreshLikeRangeStates(); } catch {} }
         // Diğer görünümlerdeki (varsa) aynı olayın verisini de tazele
         try { if (typeof syncEventLikeInStates === 'function') syncEventLikeInStates(evt.event_id, d.num_agrees, d.agreed); } catch {}
+        // Puan animasyonu: katılım +1 (yeşil, yukarı) / geri çekme −1 (kırmızı, marker'a düşer)
+        try { showAgreePointsFx(d.points_delta, evt); } catch {}
       }
     } catch (err) {
       toast(t('unknownError') + ': ' + err.message, 'error');
@@ -10817,6 +11095,7 @@ async function loadExistingEvents(opts = {}) {
       }
 
       const m = markerFor(e2);
+      m._dideEventId = e2.event_id;   // tampon kayıtlarından marker'ı bulup açabilmek için
       if (markersLayer) {
         m.addTo(markersLayer);
         addedMarkers++;

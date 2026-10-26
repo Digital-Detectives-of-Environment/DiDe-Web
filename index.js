@@ -4177,11 +4177,19 @@ app.post('/api/event/:id/agree', requireAuth, async (req, res) => {
     // Katılan kullanıcının kendi puanı da güncellenir (her katılım +1 puan)
     try { if (uid !== cur.rows[0].created_by_id) await recomputeUserStats(uid); } catch {}
 
+    // Katılan kullanıcının puan değişimi (ön yüzdeki "+1 / −1 puan" animasyonu için).
+    // Puan formülünde (recomputeUserStats → given.cnt) geri çekilmemiş HER katılım katılan
+    // kullanıcıya +1 puan sayar; bu yüzden bir katılım +1, geri çekme −1 puandır.
+    // Kendi gönderisine katılım zaten engelli olduğundan burada uid ≠ gönderi sahibi.
+    const AGREE_GIVER_POINTS = 1;
+    const pointsDelta = (uid !== cur.rows[0].created_by_id) ? (agreed ? AGREE_GIVER_POINTS : -AGREE_GIVER_POINTS) : 0;
+
     res.json({
       ok: true, event_id: id, num_agrees: newCount, agreed,
       // Bir sonraki yeni katılım için beklenecek süre (saniye); 0 => bekleme yok
       // (son katılım geri alındığında 0 döner → bekleme sıfırlanmıştır)
-      agree_retry_after_seconds: agreeRetryAfter
+      agree_retry_after_seconds: agreeRetryAfter,
+      points_delta: pointsDelta
     });
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch {}
