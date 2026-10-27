@@ -697,5 +697,10 @@ window.i18nLangs.it = {
     pointsGainedMsg: 'Hai aderito e guadagnato {{n}} punti!',
     pointsLostMsg: 'Hai ritirato l\'adesione: {{n}} punti in meno.',
     pointsGainedMsgOne: 'Hai aderito e guadagnato {{n}} punto!',
-    pointsLostMsgOne: 'Hai ritirato l\'adesione: {{n}} punto in meno.'
+    pointsLostMsgOne: 'Hai ritirato l\'adesione: {{n}} punto in meno.',
+
+    // Aggregation layer başlığı + süpervizör olay indirme (ZIP)
+    polygonNearbyTitle: 'Segnalazioni esistenti nell\'area selezionata:',
+    downloadEventsZip: 'Scarica eventi (ZIP: GeoJSON + foto + licenza)',
+    eventsZipPreparing: 'Preparazione dei dati degli eventi…'
 };

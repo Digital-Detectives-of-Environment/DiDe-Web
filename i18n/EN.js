@@ -706,5 +706,10 @@ window.i18nLangs.en = {
     pointsGainedMsg: 'You agreed and earned {{n}} points!',
     pointsLostMsg: 'You withdrew your agreement: {{n}} points deducted.',
     pointsGainedMsgOne: 'You agreed and earned {{n}} point!',
-    pointsLostMsgOne: 'You withdrew your agreement: {{n}} point deducted.'
+    pointsLostMsgOne: 'You withdrew your agreement: {{n}} point deducted.',
+
+    // Aggregation layer başlığı + süpervizör olay indirme (ZIP)
+    polygonNearbyTitle: 'Existing records in the selected area:',
+    downloadEventsZip: 'Download events (ZIP: GeoJSON + photos + license)',
+    eventsZipPreparing: 'Preparing event data…'
 };

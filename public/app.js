@@ -1745,6 +1745,10 @@ function showPolygonRecordsCard(records, count) {
 
   __recordsMode = 'polygon';
   hideBufferTypeRow();
+  // Tampon akışıyla AYNI tasarım: başlık ("Seçtiğiniz bölgedeki mevcut kayıtlar:"), yardım kutusu,
+  // 1-2-3 görseli, dokununca marker'ı açma ve ekrana sığdırma yerleşimi.
+  const ttl = ensureBufferNearbyTitle(); if (ttl) ttl.style.display = '';
+  card.classList.add('is-polygon');
 
   const countEl = qs('#polygon-records-count');
   if (countEl) countEl.textContent = t('existingRecordCount', { count: count });
@@ -1811,7 +1815,7 @@ function ensureBufferNearbyTitle(){
     row.parentNode.insertBefore(el, row);
   }
   el.innerHTML = '<span class="bnt-dot" aria-hidden="true"></span><span class="bnt-text"></span>';
-  el.querySelector('.bnt-text').textContent = t('bufferNearbyTitle');
+  el.querySelector('.bnt-text').textContent = t(__recordsMode === 'buffer' ? 'bufferNearbyTitle' : 'polygonNearbyTitle');
   return el;
 }
 
@@ -1866,7 +1870,7 @@ function wireBufferRecordTaps(swiper){
   let px = 0, py = 0;
   swiper.addEventListener('pointerdown', (e) => { px = e.clientX; py = e.clientY; }, true);
   swiper.addEventListener('click', (e) => {
-    if (__recordsMode !== 'buffer') return;
+    if (__recordsMode !== 'buffer' && __recordsMode !== 'polygon') return;
     const page = e.target && e.target.closest ? e.target.closest('.polygon-record-page.pr-tappable') : null;
     if (!page) return;
     if (Math.abs(e.clientX - px) > 8 || Math.abs(e.clientY - py) > 8) return;        // sürükleme, dokunma değil
@@ -1875,8 +1879,9 @@ function wireBufferRecordTaps(swiper){
     if (sec && sec.dataset.justSwiped) return;                                        // fotoğraf kaydırıldı
     const id = page.dataset.eventId;
     if (!id) return;
-    hide(qs('#polygon-records-card'));
-    bufferRecordsCancel();
+    // Panel, o akışın ✗ butonuyla aynı şekilde kapanır
+    if (__recordsMode === 'buffer') { hide(qs('#polygon-records-card')); bufferRecordsCancel(); }
+    else { polygonRecordsClose(); }
     setTimeout(() => openEventMarkerById(id), 120);
   });
 }
@@ -1995,37 +2000,23 @@ function renderRecordsPages(records) {
 
       let mediaHtml = '';
       if (hasPhotos || hasVideos) {
-        const bothExist = hasPhotos && hasVideos;
-
-        if (bothExist) {
-          let photoSlides = photos.map(u => `<img src="${u}" alt="photo" loading="lazy"/>`).join('');
-          let videoSlides = videos.map(u => `<video src="${u}" preload="metadata" controls playsinline></video>`).join('');
-          mediaHtml = `
-            <div class="pr-media-section${Math.max(photos.length, videos.length) > 1 ? ' is-multi' : ''}" data-media-count="${Math.max(photos.length, videos.length)}">
-              <div class="pr-media-float-counter${Math.max(photos.length, videos.length) > 1 ? ' is-static visible' : ''}" data-media-counter>${Math.max(photos.length, videos.length) > 1 ? '1/' + Math.max(photos.length, videos.length) : ''}</div>
-              <div class="pr-media-half" data-media-scroll>${photoSlides}</div>
-              <div class="pr-media-half" data-media-scroll>${videoSlides}</div>
+        // Ekran BÖLÜNMEZ: tek görüntüleyicide önce kaydın tüm fotoğrafları, ardından tüm
+        // videoları sırayla gösterilir (‹ › butonları / kaydırma ile geçilir; sayaç toplamı sayar).
+        const slides = [
+          ...photos.map(u => `<img src="${u}" alt="photo" loading="lazy"/>`),
+          ...videos.map(u => `<video src="${u}" preload="metadata" controls playsinline></video>`)
+        ].join('');
+        const totalMedia = photos.length + videos.length;
+        const multi = totalMedia > 1;
+        mediaHtml = `
+            <div class="pr-media-section${multi ? ' is-multi' : ''}" data-media-count="${totalMedia}">
+              <div class="pr-media-float-counter${multi ? ' is-static visible' : ''}" data-media-counter>${multi ? '1/' + totalMedia : ''}</div>
+              <div class="pr-media-half single" data-media-scroll>${slides}</div>
             </div>`;
-        } else if (hasPhotos) {
-          let photoSlides = photos.map(u => `<img src="${u}" alt="photo" loading="lazy"/>`).join('');
-          mediaHtml = `
-            <div class="pr-media-section${photos.length > 1 ? ' is-multi' : ''}" data-media-count="${photos.length}">
-              <div class="pr-media-float-counter${photos.length > 1 ? ' is-static visible' : ''}" data-media-counter>${photos.length > 1 ? '1/' + photos.length : ''}</div>
-              <div class="pr-media-half single" data-media-scroll>${photoSlides}</div>
-            </div>`;
-        } else {
-          let videoSlides = videos.map(u => `<video src="${u}" preload="metadata" controls playsinline></video>`).join('');
-          mediaHtml = `
-            <div class="pr-media-section${videos.length > 1 ? ' is-multi' : ''}" data-media-count="${videos.length}">
-              <div class="pr-media-float-counter${videos.length > 1 ? ' is-static visible' : ''}" data-media-counter>${videos.length > 1 ? '1/' + videos.length : ''}</div>
-              <div class="pr-media-half single" data-media-scroll>${videoSlides}</div>
-            </div>`;
-        }
 
         // Birden fazla fotoğraf/video: fotoğrafın hemen altında ‹ noktalar › geçiş butonları.
         // (Fotoğrafın üstünde parmakla / fareyle sağa-sola kaydırmak da aynı geçişi yapar.)
-        const totalMedia = Math.max(photos.length, videos.length);
-        if (totalMedia > 1) {
+        if (multi) {
           let dots = '';
           for (let d = 0; d < totalMedia; d++) {
             dots += `<span${d === 0 ? ' class="active"' : ''}></span>`;
@@ -2046,7 +2037,8 @@ function renderRecordsPages(records) {
 
       // Tampon akışı: açıklamanın altında "bu kayıtlardan biriyse dokunun → + butonuna basın"
       // bilgisi ve 1-2-3 adımlı küçük görsel. Sayfaya dokununca kaydın marker'ı açılır.
-      const isBuffer = (__recordsMode === 'buffer');
+      // Yardım + dokun-aç her iki akışta da (tampon ve aggregation layer) aynı
+      const isBuffer = (__recordsMode === 'buffer' || __recordsMode === 'polygon');
       if (isBuffer && rec.event_id != null) {
         page.classList.add('pr-tappable');
         page.dataset.eventId = String(rec.event_id);
@@ -2081,8 +2073,8 @@ function renderRecordsPages(records) {
       ignoreStart: (el) => !!(el && el.closest && el.closest('.pr-media-section.is-multi, .pr-media-nav'))
     });
 
-    // Tampon akışı: sayfaya dokununca o kaydın marker'ı açılır (+ butonu görünür)
-    if (__recordsMode === 'buffer') wireBufferRecordTaps(swiper);
+    // Tampon ve aggregation layer akışı: sayfaya dokununca o kaydın marker'ı açılır (+ butonu görünür)
+    wireBufferRecordTaps(swiper);
   }
 
   // Generate bottom dots for record pages
@@ -3027,7 +3019,7 @@ function bufferFilteredRecords(){
 function renderBufferRecords(){
   const list = bufferFilteredRecords();
   // Tampon akışına özel (sıkı) yerleşim kuralları için işaret sınıfı
-  const card = qs('#polygon-records-card'); if (card) card.classList.add('is-buffer');
+  const card = qs('#polygon-records-card'); if (card) { card.classList.add('is-buffer'); card.classList.remove('is-polygon'); }
   const countEl = qs('#polygon-records-count');
   if (countEl) countEl.textContent = t('bufferRecordCount', { count: list.length, radius: bufferRadiusMeters() });
   renderRecordsPages(list);
@@ -3949,44 +3941,45 @@ function removeDownloadIfAny(){
 }
 
 /* === TABLE EXPORT BUTTON === */
-function downloadFilteredEventsAsGeoJSON() {
+/* Yönetim paneli → Olaylar: tablodaki (filtrelenmiş) AKTİF olayları ZIP olarak indirir
+   (events.geojson + photos/ + veri lisansı). Sunucu: POST /api/admin/events/export */
+async function downloadAdminEventsZip() {
   const filtered = tableStates?.events?.filtered || [];
-  
   if (filtered.length === 0) {
     toast(t('noEventsToDownload'), 'error');
     return;
   }
-  
   const eventIds = filtered.map(e => parseInt(e.event_id, 10)).filter(id => !isNaN(id));
-  
-  fetch('/api/export/geojson', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ eventIds: eventIds })
-  })
-  .then(async r => {
+  toast(t('eventsZipPreparing'), 'info', 2500);
+  try {
+    const r = await fetch('/api/admin/events/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventIds })
+    });
     if (!r.ok) {
-      const errText = await r.text().catch(() => t('unknownError'));
-      throw new Error(t('downloadError') + ': ' + errText);
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.message || d.error || String(r.status));
     }
     const blob = await r.blob();
+    let fname = 'dide_events.zip';
+    const m = (r.headers.get('Content-Disposition') || '').match(/filename="?([^";]+)"?/i);
+    if (m && m[1]) fname = m[1];
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `events_${Date.now()}.geojson`;
+    a.download = fname;
     document.body.appendChild(a);
     a.click();
-    setTimeout(() => {
-      URL.revokeObjectURL(url);
-      a.remove();
-    }, 800);
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 800);
     toast(t('eventsDownloaded'), 'success');
-  })
-  .catch(err => {
-    console.error('[GeoJSON Export Error]', err);
-    toast(t('geojsonDownloadFailed') + ': ' + err.message, 'error');
-  });
+  } catch (err) {
+    console.error('[Events ZIP Export Error]', err);
+    toast(t('downloadError') + ': ' + ((err && err.message) || t('unknownError')), 'error', 4500);
+  }
 }
+// Eski ad korunur (başka yerlerden çağrılıyorsa aynı ZIP indirmesini yapar)
+function downloadFilteredEventsAsGeoJSON() { return downloadAdminEventsZip(); }
 
 function boolFromConfigValue(v) {
   if (typeof v === 'boolean') return v;
@@ -4054,7 +4047,7 @@ function ensureEventsExportControl() {
       const wrap = L.DomUtil.create('div','leaflet-bar');
       const btn = L.DomUtil.create('a','',wrap);
       btn.href='#'; 
-      btn.title = t('downloadVisibleEventsGeoJSON');
+      btn.title = t('downloadEventsZip');
       btn.style.width='34px'; 
       btn.style.height='34px';
       btn.style.display='inline-flex'; 
@@ -4063,32 +4056,8 @@ function ensureEventsExportControl() {
       btn.innerHTML = `<img src="/download.svg" alt="" width="18" height="18"/>`;
       L.DomEvent.on(btn, 'click', async (e)=>{
         L.DomEvent.stop(e);
-        try{
-          const filtered = tableStates?.events?.filtered || [];
-          const eventIds = filtered.map(ev => parseInt(ev.event_id, 10)).filter(id => !isNaN(id));
-          
-          const r = await fetch('/api/export/geojson', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ eventIds: eventIds })
-          });
-          if(!r.ok) {
-            const errText = await r.text().catch(() => t('unknownError'));
-            throw new Error(t('downloadError') + ': ' + errText);
-          }
-          const blob = await r.blob();
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url; 
-          a.download = 'events.geojson';
-          document.body.appendChild(a); 
-          a.click();
-          setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 800);
-          toast(t('geojsonDownloaded'), 'success');
-        }catch(err){ 
-          console.error('[ensureEventsExportControl] Export error:', err);
-          toast(t('geojsonDownloadFailed') + ':' + err.message, 'error'); 
-        }
+        // Olay haritasındaki indirme de tablodaki ile aynı ZIP'i indirir
+        await downloadAdminEventsZip();
       });
       return wrap;
     }
@@ -7532,9 +7501,9 @@ function renderEventTableRows(data) {
           const exportBtn = document.createElement('button');
           exportBtn.className = 'btn ghost icon-btn table-export-btn';
           exportBtn.innerHTML = '<img src="/download.svg" alt="' + t('download') + '" width="18" height="18" />';
-          exportBtn.title = t('downloadFilteredEventsGeoJSON');
+          exportBtn.title = t('downloadEventsZip');
           exportBtn.style.cssText = 'margin-left: 8px; vertical-align: middle;';
-          exportBtn.onclick = downloadFilteredEventsAsGeoJSON;
+          exportBtn.onclick = downloadAdminEventsZip;
           lastTh.appendChild(exportBtn);
         }
       }

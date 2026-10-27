@@ -706,5 +706,10 @@ window.i18nLangs.tr = {
     pointsGainedMsg: 'Katılım yaptınız, {{n}} puan kazandınız!',
     pointsLostMsg: 'Katılımınızı geri çektiniz, {{n}} puan düştü.',
     pointsGainedMsgOne: 'Katılım yaptınız, {{n}} puan kazandınız!',
-    pointsLostMsgOne: 'Katılımınızı geri çektiniz, {{n}} puan düştü.'
+    pointsLostMsgOne: 'Katılımınızı geri çektiniz, {{n}} puan düştü.',
+
+    // Aggregation layer başlığı + süpervizör olay indirme (ZIP)
+    polygonNearbyTitle: 'Seçtiğiniz bölgedeki mevcut kayıtlar:',
+    downloadEventsZip: 'Olayları indir (ZIP: GeoJSON + fotoğraflar + lisans)',
+    eventsZipPreparing: 'Olay verisi hazırlanıyor…'
 };

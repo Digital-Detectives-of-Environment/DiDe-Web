@@ -6149,6 +6149,144 @@ app.delete('/api/admin/users/:id/hard', adminOnly, async (req, res) => {
 });
 
 /* ===================== Export Endpoint (GeoJSON) ===================== */
+/* =============== SÜPERVİZÖR: Olaylar sekmesi indirme (ZIP) ===============
+   Yönetim paneli → Olaylar sekmesindeki indirme butonları bu ucu kullanır.
+   Açık veri / "Verilerimi indir" ile aynı mantık, daha kapsamlı içerik:
+     events.geojson  : yalnızca AKTİF olaylar (tablodaki filtre uygulanmışsa yalnızca o olaylar)
+     photos/         : olayların fotoğrafları — veritabanındaki photo_urls ile AYNI dosya adlarıyla
+     <LICENSE>       : .env → LICENSE ile tanımlı veri lisansı dosyası (varsa)
+   events.geojson sütunları (bu sırayla):
+     event_id, latitude, longitude, event_type (tür ADI), description, created_by_name,
+     created_by_id, created_at, photo_urls, video_urls, [aggregation layer PK sütunları],
+     updated_by_name, updated_by_id, updated_at, num_agrees, last_agreed_date, direction */
+app.post('/api/admin/events/export', adminOnly, async (req, res) => {
+  try {
+    // İsteğe bağlı olay ID listesi (tablodaki filtre). Boş/verilmemişse TÜM aktif olaylar.
+    const rawIds = Array.isArray(req.body?.eventIds) ? req.body.eventIds : [];
+    const ids = [...new Set(rawIds.map(v => parseInt(v, 10)).filter(v => Number.isInteger(v) && v > 0))];
+    if (rawIds.length && !ids.length) {
+      return res.status(400).json({ error: 'gecersiz_idler', message: getErrorMessage(req, 'gecersiz_idler') });
+    }
+
+    // Aggregation layer tanımlıysa olay tablosundaki PK sütunları da dışa aktarılır
+    const pkCols = (POLYGON_TABLE && Array.isArray(POLYGON_PKS)) ? POLYGON_PKS : [];
+    const pkSelect = pkCols.map((p, i) => `,\n              o."${p.safeName}" AS "__pk_${i}"`).join('');
+
+    const params = [];
+    let idFilter = '';
+    if (ids.length) { params.push(ids); idFilter = `AND o.event_id = ANY($1::int[])`; }
+
+    const { rows } = await pool.query(
+      `SELECT o.event_id,
+              o.latitude,
+              o.longitude,
+              l.event_type_name              AS event_type_name,
+              o.description,
+              o.created_by_name,
+              o.created_by_id,
+              o.created_at,
+              o.photo_urls,
+              o.video_urls${pkSelect},
+              o.updated_by_name,
+              o.updated_by_id,
+              o.updated_at,
+              COALESCE(o.num_agrees, 0)      AS num_agrees,
+              o.last_agreed_date,
+              o.direction
+         FROM public.event o
+         LEFT JOIN public.event_type l ON l.event_type_id = o.event_type
+        WHERE COALESCE(o.active, true) = true
+          ${idFilter}
+        ORDER BY o.event_id`,
+      params
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'olay_yok', message: getErrorMessage(req, 'olay_yok') });
+    }
+
+    const parseList = (v) => {
+      let a = [];
+      try { a = JSON.parse(String(v || '[]')); } catch { a = []; }
+      return Array.isArray(a) ? a : [];
+    };
+    const photoFiles = new Map();
+    const features = rows.map((r) => {
+      // photo_urls: veritabanındaki ad (/uploads/<ad>) → ZIP'te photos/<ad>; diskte olmayanlar listede
+      // kalır (veritabanı ile birebir), yalnızca ZIP'e eklenemez.
+      const photos = parseList(r.photo_urls).map(u => path.basename(String(u || ''))).filter(Boolean);
+      for (const name of photos) {
+        const abs = path.join(UPLOAD_DIR, name);
+        if (abs.startsWith(UPLOAD_DIR) && _fileExists(abs)) photoFiles.set(name, abs);
+      }
+      const videos = parseList(r.video_urls).map(u => path.basename(String(u || ''))).filter(Boolean);
+      const lat = r.latitude != null ? parseFloat(r.latitude) : null;
+      const lng = r.longitude != null ? parseFloat(r.longitude) : null;
+      const properties = {
+        event_id: r.event_id,
+        latitude: lat,
+        longitude: lng,
+        event_type: r.event_type_name || null,             // ID değil, olay türünün ADI
+        description: r.description ?? null,
+        created_by_name: r.created_by_name ?? null,
+        created_by_id: r.created_by_id ?? null,
+        created_at: r.created_at ?? null,
+        photo_urls: photos,                                 // photos/ klasöründeki dosya adları
+        video_urls: videos
+      };
+      // Aggregation layer PK sütunları (yalnızca tanımlıysa)
+      pkCols.forEach((p, i) => { properties[p.name] = r[`__pk_${i}`] ?? null; });
+      Object.assign(properties, {
+        updated_by_name: r.updated_by_name ?? null,
+        updated_by_id: r.updated_by_id ?? null,
+        updated_at: r.updated_at ?? null,
+        num_agrees: r.num_agrees,
+        last_agreed_date: r.last_agreed_date ?? null,
+        direction: r.direction != null ? Number(r.direction) : null   // derece, kuzeyden saat yönünde
+      });
+      return {
+        type: 'Feature',
+        geometry: (Number.isFinite(lat) && Number.isFinite(lng)) ? { type: 'Point', coordinates: [lng, lat] } : null,
+        properties
+      };
+    });
+
+    const geojson = {
+      type: 'FeatureCollection',
+      features,
+      metadata: {
+        dataset: 'DiDe events — supervisor export (active events)',
+        total_events: features.length,
+        filtered: ids.length > 0,
+        export_date: new Date().toISOString(),
+        exported_by: req.user?.username || null,
+        license: DATA_LICENSE_NAME || null
+      }
+    };
+
+    const entries = [
+      { name: 'events.geojson', data: Buffer.from(JSON.stringify(geojson, null, 2), 'utf8') },
+      { name: 'photos/', dir: true }
+    ];
+    for (const [name, abs] of photoFiles) {
+      try { entries.push({ name: `photos/${name}`, data: fs.readFileSync(abs), mtime: fs.statSync(abs).mtime }); } catch {}
+    }
+    const lic = dataLicenseZipEntry();
+    if (lic) entries.push(lic);
+
+    const zip = buildZipBuffer(entries);
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="dide_events_${stamp}.zip"`);
+    res.setHeader('Content-Length', String(zip.length));
+    return res.end(zip);
+  } catch (e) {
+    console.error('POST /api/admin/events/export error:', e);
+    res.status(500).json({ error: 'veritabani_hatasi', message: getErrorMessage(req, 'veritabani_hatasi') });
+  }
+});
+
 app.post('/api/export/geojson', requireAuth, async (req, res) => {
   try {
     let eventIds = req.body?.eventIds || req.body?.events || [];
