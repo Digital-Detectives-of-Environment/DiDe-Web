@@ -554,6 +554,7 @@ function _restyleGridLayers() {
   if (typeof __polygonLayer !== 'undefined' && __polygonLayer) {
     try {
       __polygonLayer.setStyle({ color: gridColor, fillColor: gridColor });
+      try { reapplyGridHighlight(); } catch {}
     } catch {}
   }
   // Regions map grid layer
@@ -1528,6 +1529,12 @@ async function loadPolygonLayer() {
       },
       onEachFeature: (feature, layer) => {
         // No tooltip — user requested removal of grid label on hover
+        // Gride tıklanınca (giriş yapmadan da): grid vurgulanır ve
+        // "Bu bölgede N kayıt var, görmek ister misiniz?" sorusu açılır.
+        layer.on('click', (e) => {
+          try { L.DomEvent.stopPropagation(e); } catch {}
+          onGridClick(feature, layer, e && e.latlng);
+        });
       }
     });
     __polygonLayer.addTo(map);
@@ -1549,6 +1556,197 @@ async function loadPolygonLayer() {
     console.warn('[VG0] Polygon layer load error:', e);
   }
 }
+
+/* ===================== GRİD SORUSU VE GRİD KAYITLARI (aggregation layer) =====================
+   Gride tıklanınca (giriş yapmadan da):
+     1) grid vurgulanır (açık temada amber, koyu temada neon camgöbeği + parlama),
+     2) alttan bir kart açılır: "Bu bölgede N kayıt var. Görmek ister misiniz?" ✓ / ✗
+        ✓ → grid kayıtları, tampon akışıyla AYNI tasarımda açılır (başlık, olay türü süzgeci,
+            kayıt sayfaları); altta ekleme ✓/✗ YOK, sağ üstte ✗ ile kapanır.
+     3) Yalnızca giriş yapmış ve ekleme yetkisi olan kullanıcıda, restrictGNSS=false iken:
+        "Bu bölgeye yeni kayıt eklemek ister misiniz?" ✓ / ✗ satırı da gösterilir;
+        ✓ → tıklanan noktada mevcut ekleme akışı (tampon → form) başlar.
+   ✗ (her satırda) o satırı kapatır; açık satır kalmazsa kart kapanır ve vurgu kalkar. */
+let __gridSel = null;        // { feature, layer, latlng, records, total }
+let __gridPromptSeq = 0;
+
+function _gridHighlightStyle(){
+  const dark = document.documentElement.classList.contains('theme-dark');
+  return dark
+    ? { color: '#22d3ee', fillColor: '#22d3ee', weight: 4, opacity: 1, fillOpacity: 0.32, dashArray: null }
+    : { color: '#f59e0b', fillColor: '#fbbf24', weight: 4, opacity: 1, fillOpacity: 0.38, dashArray: null };
+}
+function reapplyGridHighlight(){
+  if (!__gridSel || !__gridSel.layer) return;
+  try { __gridSel.layer.setStyle(_gridHighlightStyle()); __gridSel.layer.bringToFront(); } catch {}
+  try { const el = __gridSel.layer.getElement && __gridSel.layer.getElement(); if (el) el.classList.add('grid-selected'); } catch {}
+}
+function clearGridHighlight(){
+  if (!__gridSel || !__gridSel.layer) return;
+  try { if (__polygonLayer) __polygonLayer.resetStyle(__gridSel.layer); } catch {}
+  try { const el = __gridSel.layer.getElement && __gridSel.layer.getElement(); if (el) el.classList.remove('grid-selected'); } catch {}
+}
+function _gridCanAddHere(){
+  return !!(currentUser && currentUser.role === 'user' && APP_CONFIG.polygonTable &&
+            !boolFromConfigValue(APP_CONFIG.restrictGnss) &&
+            (typeof allowBlackMarker !== 'function' || allowBlackMarker()));
+}
+function _gridPkValues(feature){
+  const props = (feature && feature.properties) || {};
+  const out = {};
+  const pks = [APP_CONFIG.polygonPk1, APP_CONFIG.polygonPk2].filter(Boolean);
+  if (pks.length) pks.forEach(k => { if (props[k] != null) out[k] = props[k]; });
+  else Object.keys(props).forEach(k => { out[k] = props[k]; });
+  return out;
+}
+function _ensureGridPrompt(){
+  let el = document.getElementById('grid-prompt');
+  if (el) return el;
+  el = document.createElement('section');
+  el.id = 'grid-prompt';
+  el.className = 'card polygon-flow-card grid-prompt hidden';
+  el.setAttribute('role', 'dialog');
+  el.innerHTML =
+    '<div class="grid-prompt-head"><span class="grid-prompt-title"></span>' +
+      '<button type="button" class="grid-prompt-close" aria-label="">&times;</button></div>' +
+    '<div class="grid-prompt-row" data-row="records">' +
+      '<div class="grid-prompt-q" data-q="records"></div>' +
+      '<div class="pr-action-buttons"><button type="button" class="polygon-action-btn polygon-action-tick" data-act="records-yes">&#10003;</button>' +
+      '<button type="button" class="polygon-action-btn polygon-action-cross" data-act="records-no">&#10007;</button></div>' +
+    '</div>' +
+    '<div class="grid-prompt-row" data-row="add">' +
+      '<div class="grid-prompt-q" data-q="add"></div>' +
+      '<div class="pr-action-buttons"><button type="button" class="polygon-action-btn polygon-action-tick" data-act="add-yes">&#10003;</button>' +
+      '<button type="button" class="polygon-action-btn polygon-action-cross" data-act="add-no">&#10007;</button></div>' +
+    '</div>';
+  document.body.appendChild(el);
+  // Kart üzerindeki tıklamalar haritaya geçmesin
+  try { L.DomEvent.disableClickPropagation(el); } catch {}
+  el.querySelector('.grid-prompt-close').addEventListener('click', () => closeGridPrompt());
+  el.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    const act = b.getAttribute('data-act');
+    if (act === 'records-yes') openGridRecords();
+    else if (act === 'add-yes') gridStartAdd();
+    else if (act === 'records-no' || act === 'add-no') {
+      const row = el.querySelector(`[data-row="${act.startsWith('records') ? 'records' : 'add'}"]`);
+      if (row) row.classList.add('hidden');
+      if (!el.querySelector('.grid-prompt-row:not(.hidden)')) closeGridPrompt();
+    }
+  });
+  return el;
+}
+function _renderGridPromptTexts(){
+  const el = document.getElementById('grid-prompt'); if (!el || !__gridSel) return;
+  const props = (__gridSel.feature && __gridSel.feature.properties) || {};
+  const label = Object.values(props).filter(v => v != null && v !== '').join(' · ');
+  el.querySelector('.grid-prompt-title').textContent = t('gridPromptTitle') + (label ? ': ' + label : '');
+  const close = el.querySelector('.grid-prompt-close');
+  close.setAttribute('aria-label', t('gridClose')); close.title = t('gridClose');
+  const q = el.querySelector('[data-q="records"]');
+  const yes = el.querySelector('[data-act="records-yes"]');
+  if (__gridSel.total == null) { q.textContent = t('gridLoading'); yes.disabled = true; }
+  else if (__gridSel.total === 0) { q.textContent = t('gridNoRecords'); yes.disabled = true; }
+  else { q.textContent = t(__gridSel.total === 1 ? 'gridRecordsQuestionOne' : 'gridRecordsQuestion', { count: __gridSel.total }); yes.disabled = false; }
+  el.querySelector('[data-q="add"]').textContent = t('gridAddQuestion');
+  el.querySelectorAll('[data-act$="-yes"]').forEach(b => { b.setAttribute('aria-label', t('yes')); });
+  el.querySelectorAll('[data-act$="-no"]').forEach(b => { b.setAttribute('aria-label', t('no')); });
+}
+async function onGridClick(feature, layer, latlng){
+  // Başka bir akış (kayıt paneli, form, tampon) açıkken grid sorusu açılmaz
+  const busy = ['#polygon-records-card', '#olay-card', '#polygon-confirm-card', '#login-card', '#register-card', '#forgot-card']
+    .some(sel => { const n = qs(sel); return n && !n.classList.contains('hidden'); });
+  if (busy || (typeof __polygonFlowLocked !== 'undefined' && __polygonFlowLocked)) return;
+
+  clearGridHighlight();
+  __gridSel = { feature, layer, latlng, records: [], total: null };
+  reapplyGridHighlight();
+
+  const el = _ensureGridPrompt();
+  el.querySelectorAll('.grid-prompt-row').forEach(r => r.classList.remove('hidden'));
+  el.querySelector('[data-row="add"]').classList.toggle('hidden', !_gridCanAddHere());
+  _renderGridPromptTexts();
+  el.classList.remove('hidden');
+
+  const seq = ++__gridPromptSeq;
+  try {
+    const r = await fetch('/api/polygon/records', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pk_values: _gridPkValues(feature) })
+    });
+    const d = r.ok ? await r.json() : {};
+    if (seq !== __gridPromptSeq || !__gridSel) return;      // bu arada başka grid seçildi
+    __gridSel.records = Array.isArray(d.records) ? d.records : [];
+    __gridSel.total = Number.isFinite(Number(d.total)) ? Number(d.total) : __gridSel.records.length;
+  } catch (e) {
+    if (seq !== __gridPromptSeq || !__gridSel) return;
+    __gridSel.records = []; __gridSel.total = 0;
+  }
+  _renderGridPromptTexts();
+}
+function closeGridPrompt(silent){
+  const el = document.getElementById('grid-prompt');
+  if (el) el.classList.add('hidden');
+  if (!silent || !document.getElementById('polygon-records-card') ||
+      document.getElementById('polygon-records-card').classList.contains('hidden')) {
+    clearGridHighlight();
+    __gridSel = null;
+  }
+}
+/* ✓ Kayıtları gör: tampon akışıyla aynı görüntüleyici (süzgeç + sayfalar), ekleme butonları yok */
+function openGridRecords(){
+  if (!__gridSel || !__gridSel.records || !__gridSel.records.length) return;
+  const el = document.getElementById('grid-prompt'); if (el) el.classList.add('hidden');
+  const card = qs('#polygon-records-card'); if (!card) return;
+  __recordsMode = 'grid';
+  __bufferRecordsAll = __gridSel.records.slice();
+  const sel = qs('#buffer-type-filter'); if (sel) sel.value = '';
+  fillBufferTypeFilter();
+  renderBufferRecords();
+  let x = qs('#grid-records-close');
+  if (!x) {
+    x = document.createElement('button');
+    x.id = 'grid-records-close'; x.type = 'button'; x.className = 'grid-records-close';
+    x.innerHTML = '&times;';
+    x.addEventListener('click', () => gridRecordsClose());
+    card.appendChild(x);
+  }
+  x.setAttribute('aria-label', t('gridClose')); x.title = t('gridClose');
+  show(card);
+  const mapEl = document.getElementById('map');
+  if (mapEl) mapEl.classList.add('blur-background');
+  pushOverlayState('polygon-records-card');
+}
+function gridRecordsClose(){
+  const card = qs('#polygon-records-card');
+  if (card) { hide(card); card.classList.remove('is-grid'); }
+  hideBufferTypeRow();
+  __recordsMode = 'polygon';
+  const mapEl = document.getElementById('map');
+  if (mapEl) mapEl.classList.remove('blur-background');
+  try { restoreMapViewFromOverlay(); } catch {}
+  clearGridHighlight();
+  __gridSel = null;
+}
+/* ✓ Yeni kayıt ekle (yalnızca opener + restrictGNSS=false): tıklanan noktada mevcut akış */
+function gridStartAdd(){
+  const ll = __gridSel && __gridSel.latlng;
+  closeGridPrompt();
+  if (!ll) return;
+  try { stopLiveLocation(); } catch {}
+  startAddAtPoint(ll.lat, ll.lng);
+}
+(function wireGridPrompt(){
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const el = document.getElementById('grid-prompt');
+    if (el && !el.classList.contains('hidden')) closeGridPrompt();
+  });
+  window.addEventListener('languagechange', () => {
+    try { _renderGridPromptTexts(); } catch {}
+    const x = qs('#grid-records-close'); if (x) { x.setAttribute('aria-label', t('gridClose')); x.title = t('gridClose'); }
+  });
+})();
 
 /* ===================== VG1: Point-in-Polygon Check ===================== */
 async function checkPolygonContainment(lat, lng) {
@@ -1870,7 +2068,7 @@ function wireBufferRecordTaps(swiper){
   let px = 0, py = 0;
   swiper.addEventListener('pointerdown', (e) => { px = e.clientX; py = e.clientY; }, true);
   swiper.addEventListener('click', (e) => {
-    if (__recordsMode !== 'buffer' && __recordsMode !== 'polygon') return;
+    if (__recordsMode !== 'buffer' && __recordsMode !== 'polygon' && __recordsMode !== 'grid') return;
     const page = e.target && e.target.closest ? e.target.closest('.polygon-record-page.pr-tappable') : null;
     if (!page) return;
     if (Math.abs(e.clientX - px) > 8 || Math.abs(e.clientY - py) > 8) return;        // sürükleme, dokunma değil
@@ -1881,6 +2079,7 @@ function wireBufferRecordTaps(swiper){
     if (!id) return;
     // Panel, o akışın ✗ butonuyla aynı şekilde kapanır
     if (__recordsMode === 'buffer') { hide(qs('#polygon-records-card')); bufferRecordsCancel(); }
+    else if (__recordsMode === 'grid') { gridRecordsClose(); }
     else { polygonRecordsClose(); }
     setTimeout(() => openEventMarkerById(id), 120);
   });
@@ -2038,7 +2237,9 @@ function renderRecordsPages(records) {
       // Tampon akışı: açıklamanın altında "bu kayıtlardan biriyse dokunun → + butonuna basın"
       // bilgisi ve 1-2-3 adımlı küçük görsel. Sayfaya dokununca kaydın marker'ı açılır.
       // Yardım + dokun-aç her iki akışta da (tampon ve aggregation layer) aynı
-      const isBuffer = (__recordsMode === 'buffer' || __recordsMode === 'polygon');
+      const isBuffer = (__recordsMode === 'buffer' || __recordsMode === 'polygon' || __recordsMode === 'grid');
+      // "+ butonuna basın" yardımı yalnızca katılım yapabilen kullanıcıya gösterilir
+      const canAgreeHint = !!(currentUser && currentUser.role === 'user');
       if (isBuffer && rec.event_id != null) {
         page.classList.add('pr-tappable');
         page.dataset.eventId = String(rec.event_id);
@@ -2050,7 +2251,7 @@ function renderRecordsPages(records) {
           <div class="pr-info-type">${escapeHtml(etName(rec, '-'))}</div>
           <div class="pr-info-date">${dateStr}</div>
           ${rec.description ? '<div class="pr-info-desc">' + rec.description + '</div>' : ''}
-          ${isBuffer ? bufferAgreeHintHtml() : ''}
+          ${(isBuffer && canAgreeHint) ? bufferAgreeHintHtml() : ''}
         </div>
       `;
       track.appendChild(page);
@@ -2910,7 +3111,8 @@ function bufferRadiusMeters(){
 function bufferFlowEnabled(){
   if (!currentUser || currentUser.role !== 'user') return false;
   try { if (isSolverUser()) return false; } catch {}
-  if (APP_CONFIG.polygonTable) return false;
+  // Aggregation layer tanımlı olsa da konum bazlı tampon akışı kullanılır
+  // (eskiden aggregation layer varken tampon yerine grid akışı vardı; o akış kaldırıldı).
   return bufferRadiusMeters() > 0;
 }
 
@@ -3006,7 +3208,7 @@ function fillBufferTypeFilter(){
   row.style.display = '';
   // Başlık: "Yakınlarınızdaki mevcut kayıtlar:" (olay türü süzgecinin üstünde)
   const ttl = ensureBufferNearbyTitle(); if (ttl) ttl.style.display = '';
-  sel.onchange = () => { if (__recordsMode === 'buffer') renderBufferRecords(); };
+  sel.onchange = () => { if (__recordsMode === 'buffer' || __recordsMode === 'grid') renderBufferRecords(); };
 }
 
 function bufferFilteredRecords(){
@@ -3019,7 +3221,13 @@ function bufferFilteredRecords(){
 function renderBufferRecords(){
   const list = bufferFilteredRecords();
   // Tampon akışına özel (sıkı) yerleşim kuralları için işaret sınıfı
-  const card = qs('#polygon-records-card'); if (card) { card.classList.add('is-buffer'); card.classList.remove('is-polygon'); }
+  // Yerleşim sınıfları: tampon akışı (is-buffer) ya da grid kayıtları (is-grid: ekleme butonları yok, sağ üstte ✗)
+  const card = qs('#polygon-records-card');
+  if (card) {
+    card.classList.toggle('is-buffer', __recordsMode !== 'grid');
+    card.classList.toggle('is-grid', __recordsMode === 'grid');
+    card.classList.remove('is-polygon');
+  }
   const countEl = qs('#polygon-records-count');
   if (countEl) countEl.textContent = t('bufferRecordCount', { count: list.length, radius: bufferRadiusMeters() });
   renderRecordsPages(list);
@@ -3080,11 +3288,10 @@ function bufferRecordsContinue(){
 
   if (lat == null || lng == null) return;
 
-  if (APP_CONFIG.polygonTable) {
-    startPolygonFlow(lat, lng);          // grid akışı (mevcut mantık) devam eder
-  } else {
-    openEventFormDirectly(lat, lng);
-  }
+  // Aggregation layer olsa da artık ayrı bir grid akışı YOK: tampon (konum bazlı) kayıtlar
+  // gösterildikten sonra doğrudan olay formuna geçilir. Olayın grid PK'leri sunucuda,
+  // noktanın düştüğü gridden otomatik atanır.
+  openEventFormDirectly(lat, lng);
 }
 
 /* Çarpı: akışı iptal et (marker + tampon kaldırılır) */
@@ -10606,7 +10813,9 @@ function pointInBoundary(lng, lat){
 
 // Sınır dışı ise uyarı gösterip true döner (çağıran işlemi durdurur).
 function boundaryBlocks(lng, lat, kind){
-  if (!__boundary.enabled || __boundary.source !== 'file') return false;
+  // Sınır kaynağı dosya, aggregation layer ya da ikisinin kesişimi olabilir; hepsinde
+  // /api/boundary'nin döndürdüğü geometri geçerli alandır.
+  if (!__boundary.enabled || !__boundary.geojson) return false;
   if (pointInBoundary(lng, lat)) return false;
   showGridWarning(kind === 'location' ? t('outsideBoundaryLocation') : t('outsideBoundaryMap'));
   return true;
@@ -11535,10 +11744,9 @@ function geoFindMeWithPolygonFlow() {
           return;
         }
         setWorking(false);
+        // Aggregation layer olsa da konum bazlı (tampon) akış kullanılır
         if (__bufOn) {
           startBufferFlow(latitude, longitude);
-        } else if (currentUser && currentUser.role === 'user' && APP_CONFIG.polygonTable) {
-          startPolygonFlow(latitude, longitude);
         } else {
           openEventFormDirectly(latitude, longitude);
         }
@@ -13416,15 +13624,19 @@ async function logout(){
     console.warn('[LOGOUT] Geom layers reload error:', e);
   }
 
-  // Polygon katmanını logout sonrası kaldır — giriş ekranında görünmemeli
+  // Polygon katmanı çıkıştan sonra da (giriş ekranında) görünür: önce eski katman kaldırılır,
+  // aşağıda __geomLayers temizlendikten sonra yeniden yüklenir.
   if (__polygonLayer) {
     try { map.removeLayer(__polygonLayer); } catch {}
     __polygonLayer = null;
   }
+  try { closeGridPrompt(true); } catch {}
   // __geomLayers içinden de polygon referansını temizle
   for (let i = __geomLayers.length - 1; i >= 0; i--){
     if (__geomLayers[i].table === '__polygon_env') __geomLayers.splice(i, 1);
   }
+  // Giriş ekranında da gridler görünür → yeniden yükle
+  if (APP_CONFIG.polygonTable) { try { await loadPolygonLayer(); } catch (e) { console.warn('[LOGOUT] polygon layer', e); } }
 
   try {
     await loadRasterLayers(map, __geomLayers, 'layer-list');
@@ -13815,14 +14027,22 @@ function attachMapClickForLoggedIn(){
       return;
     }
     
+    const { lat, lng } = e.latlng;
+    startAddAtPoint(lat, lng);
+  });
+}
+
+/* Haritada seçilen noktada olay ekleme akışını başlatır (siyah pin → [tampon] → form).
+   Haritaya tıklama ve (aggregation layer + restrictGNSS=false iken) grid sorusundaki
+   "Yeni kayıt eklemek ister misiniz? ✓" aynı akışı kullanır. */
+function startAddAtPoint(lat, lng){
     if (liveMarker) { try { map.removeLayer(liveMarker); } catch {} ; liveMarker = null; }
     if (liveAccuracyCircle) { try { map.removeLayer(liveAccuracyCircle); } catch {} ; liveAccuracyCircle = null; }
-    
-    const { lat, lng } = e.latlng;
+    const latlng = L.latLng(lat, lng);
 
     // Nereye tıklandığı görünsün diye siyah markerı önce koy (sınır içi/dışı fark etmez)
     if (clickMarker) {
-      clickMarker.setLatLng(e.latlng);
+      clickMarker.setLatLng(latlng);
     } else {
       clickMarker = L.marker([lat, lng], { icon: BLACK_PIN(), zIndexOffset: 1000 })
         .addTo(map)
@@ -13842,16 +14062,14 @@ function attachMapClickForLoggedIn(){
         return;
       }
       if (currentUser && currentUser.role === 'user') {
+        // Aggregation layer olsa da konum bazlı (tampon) akış kullanılır
         if (__bufOnClick) {
           startBufferFlow(lat, lng);
-        } else if (APP_CONFIG.polygonTable) {
-          startPolygonFlow(lat, lng);
         } else {
           openEventFormDirectly(lat, lng);
         }
       }
     }, __bufOnClick ? 2200 : 500);
-  });
 }
 
 function detachMapClickForLoggedOut(){
@@ -14319,7 +14537,6 @@ function importWizardBack() {
   if (!currentUser) {
     await goToDefaultLoginScreen();
     detachMapClickForLoggedOut();
-
     if (showAny) {
       try { 
         await loadExistingEvents({ publicMode: true });
@@ -14353,6 +14570,11 @@ function importWizardBack() {
     } catch(e) {
       console.warn('[INIT] Public raster layers error:', e);
     }
+
+    // Aggregation layer gridleri giriş yapmadan da görünür (gride tıklayınca kayıt sorusu).
+    // Ziyaretçi katmanları (loadGeomLayersForMap) haritayı kendi listesine göre düzenlediği
+    // için gridler onlardan SONRA yüklenir.
+    if (APP_CONFIG.polygonTable) { try { await loadPolygonLayer(); } catch (e) { console.warn('[INIT] guest polygon layer', e); } }
 
     try { ensureMapLegend(map); } catch {}
 

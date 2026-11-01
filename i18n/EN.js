@@ -711,5 +711,14 @@ window.i18nLangs.en = {
     // Aggregation layer başlığı + süpervizör olay indirme (ZIP)
     polygonNearbyTitle: 'Existing records in the selected area:',
     downloadEventsZip: 'Download events (ZIP: GeoJSON + photos + license)',
-    eventsZipPreparing: 'Preparing event data…'
+    eventsZipPreparing: 'Preparing event data…',
+
+    // Grid sorusu (aggregation layer)
+    gridPromptTitle: 'Selected area',
+    gridClose: 'Close',
+    gridLoading: 'Loading records…',
+    gridNoRecords: 'There are no records in this area yet.',
+    gridRecordsQuestionOne: 'There is {{count}} record in this area. Would you like to see it?',
+    gridRecordsQuestion: 'There are {{count}} records in this area. Would you like to see them?',
+    gridAddQuestion: 'Would you like to add a new record in this area?'
 };

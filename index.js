@@ -1549,29 +1549,42 @@ app.post('/api/polygon/records', async (req, res) => {
       return res.json({ ok: true, records: [], count: 0 });
     }
 
-    // Spatial join: find all active events whose point falls inside the polygon
+    // Görüntüleyen giriş yapmamışsa (ziyaretçi): ziyaretçi haritasıyla AYNI kural uygulanır —
+    // yalnızca aktif ve herkese açık (public) türlerin olayları. Gridler artık giriş yapmadan da
+    // tıklanabildiği için private olayların grid üzerinden görünmesi bu şekilde engellenir.
+    let viewer = null;
+    try { const tk = getTokenFrom(req); if (tk) viewer = jwt.verify(tk, JWT_SECRET); } catch { viewer = null; }
+    const guestFilter = viewer ? '' : `
+        AND COALESCE(o.active, true) = true
+        AND (${publicGoodBadWhere()})`;
+
+    // Spatial join: find all active events whose point falls inside the polygon.
+    // total_count: gridde kaç kayıt olduğu (liste en fazla 50 kayıt döndürür)
     const q = `
       SELECT
-        o.event_id,
-        o.event_type,
-        l.event_type_name AS event_type_name,
-        l.event_type_name_translations AS event_type_name_translations,
-        o.description,
-        o.photo_urls,
-        o.video_urls,
-        o.created_at,
-        o.created_by_name
-      FROM event o
-      LEFT JOIN event_type l ON l.event_type_id = o.event_type
-      JOIN public.${table} p ON ST_Contains(p.geom, o.geom)
-      WHERE COALESCE(o.active, true) = true
-        AND o.geom IS NOT NULL
+        ev.event_id,
+        ev.event_type,
+        o.event_type_name AS event_type_name,
+        o.event_type_name_translations AS event_type_name_translations,
+        ev.description,
+        ev.photo_urls,
+        ev.video_urls,
+        ev.created_at,
+        ev.created_by_name,
+        COUNT(*) OVER() AS total_count
+      FROM event ev
+      LEFT JOIN event_type o ON o.event_type_id = ev.event_type
+      JOIN public.${table} p ON ST_Contains(p.geom, ev.geom)
+      WHERE COALESCE(ev.active, true) = true
+        AND ev.geom IS NOT NULL
         AND ${polyConditions.join(' AND ')}
-        ${BOUNDARY_MODE === 'intersection' ? `AND ST_Contains(${BOUNDARY_UNION_SQL}, o.geom)` : ''}
-      ORDER BY o.created_at DESC
+        ${BOUNDARY_MODE === 'intersection' ? `AND ST_Contains(${BOUNDARY_UNION_SQL}, ev.geom)` : ''}
+        ${guestFilter}
+      ORDER BY ev.created_at DESC
       LIMIT 50
     `;
     const { rows } = await pool.query(q, vals);
+    const total = rows.length ? Number(rows[0].total_count) || rows.length : 0;
 
     const records = rows.map(r => ({
       event_id: r.event_id,
@@ -1582,10 +1595,11 @@ app.post('/api/polygon/records', async (req, res) => {
       photo_urls: parseJsonText(r.photo_urls),
       video_urls: parseJsonText(r.video_urls),
       created_at: r.created_at,
-      created_by_name: r.created_by_name
+      // Ziyaretçiye kişisel bilgi (kullanıcı adı) gönderilmez
+      created_by_name: viewer ? r.created_by_name : null
     }));
 
-    return res.json({ ok: true, records, count: records.length });
+    return res.json({ ok: true, records, count: records.length, total });
   } catch (e) {
     console.error('[polygon/records] error:', e.message);
     return res.status(500).json({ error: 'sunucu_hatasi' });
@@ -4632,7 +4646,7 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
       const videos = collect(r.video_urls, videoFiles);
       let geometry = null;
       if (priv) {
-        geometry = aggCellGeometry(r);                       // grid poligonu (tam konum değil)
+        geometry = aggCellGeometry(r);                       // gridin temsilî noktası (tam konum değil)
       } else {
         try { geometry = r.geom_json ? JSON.parse(r.geom_json) : null; } catch { geometry = null; }
         if (!geometry && Number.isFinite(parseFloat(r.longitude)) && Number.isFinite(parseFloat(r.latitude))) {
@@ -4712,7 +4726,10 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
    olayın TAM konumu verilmez:
      - latitude / longitude sütunları YOK,
      - yerine olayın düştüğü gridin birincil anahtar (PK) sütunları,
-     - GeoJSON geometrisi nokta değil, o GRİDİN POLİGONU (kesişim modunda boundary ile kırpılmış).
+     - GeoJSON geometrisi bir NOKTADIR ama olayın tam yeri değil, gridin TEMSİLİ NOKTASIDIR
+       (ST_PointOnSurface: her zaman gridin içinde kalır; kesişim modunda boundary ile kırpılmış
+       gridin içinde). Aynı griddeki tüm olaylar aynı noktayı paylaşır → nokta verisi gibi
+       kullanılır, gerçek konum ortaya çıkmaz.
    Supervisor indirmesi değişmez (enlem/boylam + PK birlikte). */
 function aggPrivacyEnabled() {
   return !!(POLYGON_TABLE && Array.isArray(POLYGON_PKS) && POLYGON_PKS.length > 0);
@@ -4726,7 +4743,7 @@ function aggCellSql(alias) {
     : 'pg.geom';
   return {
     select: POLYGON_PKS.map((p, i) => `,\n              ${alias}."${p.safeName}" AS "__pk_${i}"`).join('') +
-            `,\n              ST_AsGeoJSON(${g}, 7) AS __cell_gj`,
+            `,\n              ST_AsGeoJSON(ST_PointOnSurface(${g}), 7) AS __cell_gj`,
     join: `LEFT JOIN public.${t} pg ON ${on}`
   };
 }
@@ -4821,7 +4838,7 @@ app.get('/api/open-data/export', async (req, res) => {
         direction: r.direction != null ? Number(r.direction) : null   // derece, kuzeyden saat yönünde
       };
       if (priv) {
-        // Konum gizliliği: enlem/boylam YOK; grid PK'leri + geometri = grid poligonu
+        // Konum gizliliği: enlem/boylam YOK; grid PK'leri + geometri = gridin temsilî noktası
         return {
           type: 'Feature',
           geometry: aggCellGeometry(r),

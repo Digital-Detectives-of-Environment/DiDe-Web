@@ -702,5 +702,14 @@ window.i18nLangs.it = {
     // Aggregation layer başlığı + süpervizör olay indirme (ZIP)
     polygonNearbyTitle: 'Segnalazioni esistenti nell\'area selezionata:',
     downloadEventsZip: 'Scarica eventi (ZIP: GeoJSON + foto + licenza)',
-    eventsZipPreparing: 'Preparazione dei dati degli eventi…'
+    eventsZipPreparing: 'Preparazione dei dati degli eventi…',
+
+    // Grid sorusu (aggregation layer)
+    gridPromptTitle: 'Area selezionata',
+    gridClose: 'Chiudi',
+    gridLoading: 'Caricamento delle segnalazioni…',
+    gridNoRecords: 'Non ci sono ancora segnalazioni in quest\'area.',
+    gridRecordsQuestionOne: 'C\'è {{count}} segnalazione in quest\'area. Vuoi vederla?',
+    gridRecordsQuestion: 'Ci sono {{count}} segnalazioni in quest\'area. Vuoi vederle?',
+    gridAddQuestion: 'Vuoi aggiungere una nuova segnalazione in quest\'area?'
 };

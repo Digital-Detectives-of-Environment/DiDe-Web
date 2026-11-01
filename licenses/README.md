@@ -14,6 +14,12 @@ Each type of user downloads a different level of detail, so each gets a differen
 | `expert_license.txt` | **Expert**: opener / solver | Profile → **Download my data** | The user's own reports (also closed ones), photos and videos |
 | `supervisor_license.txt` | **Supervisor** / admin | Management panel → **Events** → download | All active reports listed in the panel, **with usernames and user IDs** (confidential), photos |
 
+**Location privacy:** when an aggregation layer (`AGGREGATION_LAYER`) is configured, the citizen and
+expert exports do **not** contain latitude/longitude: they contain the grid-cell key column(s) instead, and
+each feature's point is a representative point inside its grid cell (shared by all reports in that cell),
+not the real position. Only the supervisor export keeps exact coordinates
+(together with the grid keys).
+
 In short, the stricter the data, the stricter the license:
 
 - **Citizen**: open, non-commercial use with attribution; no re-identification.

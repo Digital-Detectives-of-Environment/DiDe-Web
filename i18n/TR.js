@@ -711,5 +711,14 @@ window.i18nLangs.tr = {
     // Aggregation layer başlığı + süpervizör olay indirme (ZIP)
     polygonNearbyTitle: 'Seçtiğiniz bölgedeki mevcut kayıtlar:',
     downloadEventsZip: 'Olayları indir (ZIP: GeoJSON + fotoğraflar + lisans)',
-    eventsZipPreparing: 'Olay verisi hazırlanıyor…'
+    eventsZipPreparing: 'Olay verisi hazırlanıyor…',
+
+    // Grid sorusu (aggregation layer)
+    gridPromptTitle: 'Seçilen bölge',
+    gridClose: 'Kapat',
+    gridLoading: 'Kayıtlar yükleniyor…',
+    gridNoRecords: 'Bu bölgede henüz kayıt yok.',
+    gridRecordsQuestionOne: 'Bu bölgede {{count}} kayıt var. Görmek ister misiniz?',
+    gridRecordsQuestion: 'Bu bölgede {{count}} kayıt var. Görmek ister misiniz?',
+    gridAddQuestion: 'Bu bölgeye yeni kayıt eklemek ister misiniz?'
 };
