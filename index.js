@@ -134,9 +134,9 @@ const CONTACTS = (() => {
 //   LICENSE_CITIZEN    → ziyaretçi / vatandaş: giriş yapmadan "Açık veri" indirmesi
 //   LICENSE_EXPERT     → expert (opener / solver): profildeki "Verilerimi indir"
 //   LICENSE_SUPERVISOR → supervisor / admin: Yönetim paneli → Olaylar indirmesi
-// Değerler, proje kökündeki "license/" klasöründeki DOSYA ADLARIDIR, ör.:
-//   LICENSE_CITIZEN=citizen_license.txt     → <proje>/license/citizen_license.txt
-// Yalnızca dosya adı kullanılır (klasör yolu verilse de yalnızca adı alınır, license/ dışına
+// Değerler, proje kökündeki "licenses/" klasöründeki DOSYA ADLARIDIR, ör.:
+//   LICENSE_CITIZEN=citizen_license.txt     → <proje>/licenses/citizen_license.txt
+// Yalnızca dosya adı kullanılır (klasör yolu verilse de yalnızca adı alınır, licenses/ dışına
 // çıkılamaz). Dosya her indirmede okunur; değiştirince yeniden başlatmaya gerek yoktur.
 // Değişken adı büyük/küçük harf duyarsızdır; "licens_citizen" gibi yazımlar da tanınır.
 // GEÇİŞ: Bir rol için değişken tanımlı değilse ve eski tekil LICENSE (kök klasördeki dosya)
