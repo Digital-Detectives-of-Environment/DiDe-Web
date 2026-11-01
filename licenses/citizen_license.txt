@@ -1,0 +1,90 @@
+==============================================================================
+              DiDe OPEN DATA LICENSE — CITIZEN (Public Download)
+                              Version 1.0
+              DiDe — Digital Detectives of Environment
+==============================================================================
+
+This licence comes with the "Open data" download that anyone can make from
+the DiDe map WITHOUT logging in. By downloading or using the data you accept
+it. If you do not accept it, do not use the data and delete your copy.
+
+The software (source code) of DiDe has its own licence (GPL-3.0, file
+"LICENSE" in the code repository). This document covers only the DATA.
+
+------------------------------------------------------------------------------
+1. WHAT YOU DOWNLOADED
+------------------------------------------------------------------------------
+Environmental reports made by volunteers on the DiDe platform:
+  * only ACTIVE reports of PUBLIC event types;
+  * fields: event_id, latitude, longitude, event_type, description,
+    created_at, photo_urls, num_agrees, direction;
+  * the photos of these reports (folder "photos/").
+No account data is included (no names, usernames, IDs or roles).
+The data is crowd-sourced and has NOT been verified.
+
+------------------------------------------------------------------------------
+2. YOU MAY (non-commercial use only)
+------------------------------------------------------------------------------
+  * use it for education, learning, research and student projects;
+  * use it for environmental, civic and public-interest work (e.g. informing
+    the responsible authority, planning a clean-up, raising awareness);
+  * analyse it, make maps, charts and statistics, and publish the results;
+  * share it free of charge, together with this licence.
+
+------------------------------------------------------------------------------
+3. YOU MUST
+------------------------------------------------------------------------------
+  * credit the source:
+      "Data: DiDe – Digital Detectives of Environment contributors,
+       DiDe Open Data Licence (Citizen) v1.0, downloaded on <date>";
+  * say so if you changed or filtered the data;
+  * blur faces, licence plates and any other identifying detail before you
+    publish or share a photo;
+  * delete specific records or photos if the DiDe team asks you to
+    (for example because of a privacy or removal request).
+
+------------------------------------------------------------------------------
+4. YOU MUST NOT
+------------------------------------------------------------------------------
+  * sell the data or use it in a paid product or service without written
+    permission from the DiDe team;
+  * try to find out who made a report, or identify, track or contact any
+    person who appears in or is mentioned by the data;
+  * use the photos for face recognition or to collect licence plates or
+    other personal identifiers;
+  * harass, shame or target any person, household, business or community;
+  * alter the data to mislead, create fake reports or spread misinformation;
+  * use it to harm the environment (e.g. to find places where illegal
+    dumping is less likely to be reported);
+  * use it for any unlawful purpose, or to attack or overload the platform.
+
+------------------------------------------------------------------------------
+5. PERSONAL DATA
+------------------------------------------------------------------------------
+Photos and descriptions are made by the public and may accidentally contain
+personal data. You are responsible for complying with data protection law
+(e.g. the Turkish Personal Data Protection Law No. 6698 "KVKK" and the EU
+GDPR) for anything you do with the data. If you find personal data, do not
+use or spread it; remove it from your copy and tell the DiDe team.
+
+------------------------------------------------------------------------------
+6. NO WARRANTY — LIMITATION OF LIABILITY
+------------------------------------------------------------------------------
+The data is provided "AS IS", without any warranty. Reports may be wrong,
+outdated, duplicated or already solved; locations may be inaccurate by many
+metres. Do not rely on it for emergencies, safety, legal or official
+decisions — always check on site or with the competent authority.
+To the extent the law allows, the DiDe team and the contributors are not
+liable for any damage caused by using the data. You are responsible for how
+you use it and agree to hold them harmless from claims caused by your use.
+
+------------------------------------------------------------------------------
+7. END OF LICENCE — GENERAL
+------------------------------------------------------------------------------
+This licence ends automatically if you break it; you must then stop using
+the data and delete all copies. The applicable law is that of the place
+where the DiDe team operating the platform is established; this does not
+limit rights that you cannot waive under your local law.
+Questions, removal requests or permission for commercial use: contact the
+DiDe team through the contact details published on the platform.
+==============================================================================

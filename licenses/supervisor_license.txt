@@ -1,0 +1,85 @@
+==============================================================================
+        DiDe DATA LICENSE — SUPERVISOR (Management Panel Events Export)
+                              Version 1.0
+              DiDe — Digital Detectives of Environment
+==============================================================================
+
+This licence comes with the events export made by a supervisor (or admin)
+from the DiDe management panel. By downloading or using the data you accept
+it. The software (source code) of DiDe has its own licence (GPL-3.0); this
+document covers only the DATA.
+
+------------------------------------------------------------------------------
+1. WHAT YOU DOWNLOADED — CONFIDENTIAL INTERNAL DATA
+------------------------------------------------------------------------------
+All ACTIVE reports listed in the panel (with the panel filters applied):
+event_id, latitude, longitude, event_type, description, created_by_name,
+created_by_id, created_at, photo_urls, video_urls, aggregation area codes
+(if used), updated_by_name, updated_by_id, updated_at, num_agrees,
+last_agreed_date, direction; plus the photos ("photos/").
+It contains USERNAMES and USER IDs of contributors and moderators, linked to
+places and times. This is PERSONAL DATA and is classified CONFIDENTIAL.
+
+------------------------------------------------------------------------------
+2. PERMITTED PURPOSES
+------------------------------------------------------------------------------
+You may use the export ONLY for your duties on the DiDe project:
+  * moderation, quality control and verification of reports;
+  * reporting problems to the responsible authorities;
+  * project evaluation, scientific analysis and statistics;
+  * operating the points, reward and partner-company systems.
+Any other purpose requires prior written approval of the DiDe project team.
+
+------------------------------------------------------------------------------
+3. YOUR OBLIGATIONS
+------------------------------------------------------------------------------
+  * Confidentiality: keep the export on protected devices/storage only;
+    do not upload it to public places, personal cloud links or chats.
+  * Need to know: share it only with authorised project members, and only
+    the part they need.
+  * Data minimisation: before publishing or sending data outside the project,
+    REMOVE created_by_*, updated_by_* and any other user identifier, and blur
+    faces, licence plates and other identifying details in photos. For public
+    sharing, prefer the platform's "Open data" download.
+  * Accuracy: do not change the data in a way that misrepresents a report,
+    a user or a place.
+  * Retention: keep the export only as long as your task requires; delete it
+    when you finish, when your supervisor role ends, or when the project asks.
+  * Requests: if a user asks for access, correction or deletion of their
+    data, forward it to the DiDe project team without delay.
+  * Incidents: if the export is lost, leaked or accessed by someone not
+    authorised, inform the DiDe project team IMMEDIATELY.
+  * Law: as a person processing personal data on behalf of the project, you
+    must comply with data protection law (e.g. KVKK No. 6698, EU GDPR) and
+    with the project's instructions.
+
+------------------------------------------------------------------------------
+4. YOU MUST NOT
+------------------------------------------------------------------------------
+  * sell, rent or give the export to third parties, or use it commercially;
+  * profile, monitor or evaluate individual users outside your moderation
+    duties, or use the data against any user;
+  * combine it with other datasets to identify people;
+  * use the photos for face recognition or to collect personal identifiers;
+  * use it for any unlawful purpose or for personal benefit.
+
+------------------------------------------------------------------------------
+5. NO WARRANTY — LIABILITY
+------------------------------------------------------------------------------
+Reports are crowd-sourced and not verified; the export is provided "AS IS"
+and reflects the moment of download. Do not use it alone for safety-critical,
+legal or official decisions.
+You are personally responsible for misuse of the export, for breaches of
+this licence and of data protection law caused by you, and you agree to hold
+the DiDe project team and the contributors harmless from resulting claims,
+fines and costs, to the extent the law allows.
+
+------------------------------------------------------------------------------
+6. END OF LICENCE — GENERAL
+------------------------------------------------------------------------------
+This licence ends automatically if you break it or when your supervisor role
+ends; you must then delete all copies of the export. Obligations on
+confidentiality and personal data continue after the licence ends.
+The applicable law is that of the place where the DiDe team operating the
+platform is established.
+==============================================================================

@@ -129,39 +129,73 @@ const CONTACTS = (() => {
   return out;
 })();
 
-// ==================== LICENSE (veri lisansı dosyası) ====================
-// Projenin KÖK klasöründeki lisans dosyasının ADI (ör. LICENSE=DATA_LICENSE.txt).
-// Tanımlıysa bu dosya, hem ziyaretçinin açık veri ZIP'ine hem de kullanıcının
-// "Verilerimi indir" ZIP'ine aynı adla eklenir. Yalnızca dosya adı kullanılır
-// (klasör yolu kabul edilmez); dosya her indirmede okunur, değişince yeniden
-// başlatmaya gerek yoktur.
-// NOT: Kök klasördeki "LICENSE" dosyası yazılımın (kodun) lisansıdır; veri lisansı
-//      için ayrı bir dosya (ör. DATA_LICENSE.txt) kullanın.
-const DATA_LICENSE_NAME = (() => {
-  const raw = String(process.env.LICENSE ?? process.env.license ?? '').trim();
+// ==================== VERİ LİSANSLARI (role göre üç ayrı lisans) ====================
+// İndirilen her ZIP'e, indiren kişinin türüne göre FARKLI bir lisans dosyası eklenir:
+//   LICENSE_CITIZEN    → ziyaretçi / vatandaş: giriş yapmadan "Açık veri" indirmesi
+//   LICENSE_EXPERT     → expert (opener / solver): profildeki "Verilerimi indir"
+//   LICENSE_SUPERVISOR → supervisor / admin: Yönetim paneli → Olaylar indirmesi
+// Değerler, proje kökündeki "license/" klasöründeki DOSYA ADLARIDIR, ör.:
+//   LICENSE_CITIZEN=citizen_license.txt     → <proje>/license/citizen_license.txt
+// Yalnızca dosya adı kullanılır (klasör yolu verilse de yalnızca adı alınır, license/ dışına
+// çıkılamaz). Dosya her indirmede okunur; değiştirince yeniden başlatmaya gerek yoktur.
+// Değişken adı büyük/küçük harf duyarsızdır; "licens_citizen" gibi yazımlar da tanınır.
+// GEÇİŞ: Bir rol için değişken tanımlı değilse ve eski tekil LICENSE (kök klasördeki dosya)
+// hâlâ tanımlıysa o kullanılır ve uyarı yazılır. Hiçbiri yoksa ZIP lisanssız iner.
+// NOT: Kök klasördeki "LICENSE" DOSYASI yazılımın (kodun) GPL lisansıdır; veri lisansı değildir.
+const LICENSE_DIR = path.join(__dirname, 'licenses');
+function _envAny(names) {
+  const wanted = names.map(n => n.toLowerCase());
+  for (const [k, v] of Object.entries(process.env)) {
+    if (wanted.includes(k.toLowerCase()) && String(v ?? '').trim()) return String(v).trim();
+  }
+  return '';
+}
+function _safeBaseName(raw, label) {
   if (!raw) return '';
-  const base = path.basename(raw);
-  if (!base || base === '.' || base === '..' || base !== raw.replace(/^\.\//, '')) {
-    console.warn(`[WARN] LICENSE must be a file name in the project root (got "${raw}") → using "${base}".`);
+  const base = path.basename(String(raw).replace(/\\/g, '/'));
+  if (!base || base === '.' || base === '..') return '';
+  if (base !== String(raw).trim()) {
+    console.warn(`[WARN] ${label} must be a file name inside licenses/ (got "${raw}") → using "${base}".`);
   }
   return base;
-})();
-const DATA_LICENSE_PATH = DATA_LICENSE_NAME ? path.join(__dirname, DATA_LICENSE_NAME) : '';
-if (!DATA_LICENSE_NAME) {
-  console.warn(`[WARN] LICENSE is not set in your .env file → downloaded ZIP files will not include a data license.`);
-} else if (!fs.existsSync(DATA_LICENSE_PATH)) {
-  console.warn(`[WARN] LICENSE="${DATA_LICENSE_NAME}" was not found in the project root (${DATA_LICENSE_PATH}).`);
-  console.warn(`       Downloaded ZIP files will not include a data license until the file is added.`);
-} else {
-  console.log(`[OK] Data license file: ${DATA_LICENSE_NAME}`);
 }
+// Eski tekil LICENSE (yalnızca geçiş için; kök klasörde aranır)
+const LEGACY_LICENSE_NAME = _safeBaseName(_envAny(['LICENSE']), 'LICENSE');
+const LEGACY_LICENSE_PATH = LEGACY_LICENSE_NAME ? path.join(__dirname, LEGACY_LICENSE_NAME) : '';
+const DATA_LICENSES = {};
+for (const [role, label, aliases] of [
+  ['citizen',    'LICENSE_CITIZEN',    ['LICENSE_CITIZEN', 'LICENS_CITIZEN', 'LICENSE-CITIZEN']],
+  ['expert',     'LICENSE_EXPERT',     ['LICENSE_EXPERT', 'LICENS_EXPERT', 'LICENSE-EXPERT']],
+  ['supervisor', 'LICENSE_SUPERVISOR', ['LICENSE_SUPERVISOR', 'LICENS_SUPERVISOR', 'LICENSE-SUPERVISOR']]
+]) {
+  const name = _safeBaseName(_envAny(aliases), label);
+  if (name) {
+    const p = path.join(LICENSE_DIR, name);
+    DATA_LICENSES[role] = { name, path: p };
+    if (fs.existsSync(p)) console.log(`[OK] ${label}: licenses/${name}`);
+    else console.warn(`[WARN] ${label}="${name}" was not found in licenses/ (${p}). ZIPs for this role will have no license until the file is added.`);
+  } else if (LEGACY_LICENSE_PATH && fs.existsSync(LEGACY_LICENSE_PATH)) {
+    DATA_LICENSES[role] = { name: LEGACY_LICENSE_NAME, path: LEGACY_LICENSE_PATH };
+    console.warn(`[WARN] ${label} is not set → using the old LICENSE="${LEGACY_LICENSE_NAME}" for now. Please set ${label} (file in licenses/).`);
+  } else {
+    DATA_LICENSES[role] = null;
+    console.warn(`[WARN] ${label} is not set → ${role} downloads will not include a data license.`);
+  }
+}
+// Kullanıcı rolünden lisans türü: supervisor/admin → supervisor; diğer girişli roller → expert
+function licenseRoleForUser(user) {
+  const r = String(user && user.role || '').toLowerCase();
+  return (r === 'supervisor' || r === 'admin') ? 'supervisor' : 'expert';
+}
+function dataLicenseName(role) { const l = DATA_LICENSES[role]; return l ? l.name : null; }
 // ZIP'e eklenecek lisans girdisi (yoksa null)
-function dataLicenseZipEntry() {
-  if (!DATA_LICENSE_PATH) return null;
+function dataLicenseZipEntry(role) {
+  const l = DATA_LICENSES[role];
+  if (!l) return null;
   try {
-    const st = fs.statSync(DATA_LICENSE_PATH);
+    const st = fs.statSync(l.path);
     if (!st.isFile()) return null;
-    return { name: DATA_LICENSE_NAME, data: fs.readFileSync(DATA_LICENSE_PATH), mtime: st.mtime };
+    return { name: l.name, data: fs.readFileSync(l.path), mtime: st.mtime };
   } catch { return null; }
 }
 
@@ -4537,7 +4571,8 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
       metadata: {
         username: req.user.username,
         total_events: features.length,
-        export_date: new Date().toISOString()
+        export_date: new Date().toISOString(),
+        license: dataLicenseName(licenseRoleForUser(req.user))
       }
     };
 
@@ -4553,7 +4588,8 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
       try { entries.push({ name: `videos/${name}`, data: fs.readFileSync(abs), mtime: fs.statSync(abs).mtime }); } catch {}
     }
     // Veri lisansı (.env → LICENSE) tanımlıysa ZIP'e eklenir
-    const lic = dataLicenseZipEntry();
+    // Lisans: opener/solver → expert lisansı (supervisor kullanırsa supervisor lisansı)
+    const lic = dataLicenseZipEntry(licenseRoleForUser(req.user));
     if (lic) entries.push(lic);
 
     const zip = buildZipBuffer(entries);
@@ -4661,7 +4697,7 @@ app.get('/api/open-data/export', async (req, res) => {
         dataset: 'DiDe open data — public events',
         total_events: features.length,
         export_date: new Date().toISOString(),
-        license: DATA_LICENSE_NAME || null
+        license: dataLicenseName('citizen')
       }
     };
 
@@ -4672,7 +4708,8 @@ app.get('/api/open-data/export', async (req, res) => {
     for (const [name, abs] of photoFiles) {
       try { entries.push({ name: `photos/${name}`, data: fs.readFileSync(abs), mtime: fs.statSync(abs).mtime }); } catch {}
     }
-    const lic = dataLicenseZipEntry();
+    // Lisans: giriş yapmamış ziyaretçi (vatandaş) → citizen lisansı
+    const lic = dataLicenseZipEntry('citizen');
     if (lic) entries.push(lic);
 
     const zip = buildZipBuffer(entries);
@@ -6154,7 +6191,7 @@ app.delete('/api/admin/users/:id/hard', adminOnly, async (req, res) => {
    Açık veri / "Verilerimi indir" ile aynı mantık, daha kapsamlı içerik:
      events.geojson  : yalnızca AKTİF olaylar (tablodaki filtre uygulanmışsa yalnızca o olaylar)
      photos/         : olayların fotoğrafları — veritabanındaki photo_urls ile AYNI dosya adlarıyla
-     <LICENSE>       : .env → LICENSE ile tanımlı veri lisansı dosyası (varsa)
+     <LICENSE>       : .env → LICENSE_SUPERVISOR ile tanımlı lisans (licenses/ klasöründen, varsa)
    events.geojson sütunları (bu sırayla):
      event_id, latitude, longitude, event_type (tür ADI), description, created_by_name,
      created_by_id, created_at, photo_urls, video_urls, [aggregation layer PK sütunları],
@@ -6260,7 +6297,7 @@ app.post('/api/admin/events/export', adminOnly, async (req, res) => {
         filtered: ids.length > 0,
         export_date: new Date().toISOString(),
         exported_by: req.user?.username || null,
-        license: DATA_LICENSE_NAME || null
+        license: dataLicenseName('supervisor')
       }
     };
 
@@ -6271,7 +6308,8 @@ app.post('/api/admin/events/export', adminOnly, async (req, res) => {
     for (const [name, abs] of photoFiles) {
       try { entries.push({ name: `photos/${name}`, data: fs.readFileSync(abs), mtime: fs.statSync(abs).mtime }); } catch {}
     }
-    const lic = dataLicenseZipEntry();
+    // Lisans: Yönetim paneli indirmesi → supervisor lisansı
+    const lic = dataLicenseZipEntry('supervisor');
     if (lic) entries.push(lic);
 
     const zip = buildZipBuffer(entries);

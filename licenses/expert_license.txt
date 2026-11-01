@@ -1,0 +1,83 @@
+==============================================================================
+          DiDe DATA LICENSE — EXPERT ("Download my data", Opener / Solver)
+                              Version 1.0
+              DiDe — Digital Detectives of Environment
+==============================================================================
+
+This licence comes with the "Download my data" export that a registered
+expert (opener or solver) makes from their own profile. By downloading or
+using the data you accept it. The software (source code) of DiDe has its own
+licence (GPL-3.0); this document covers only the DATA.
+
+------------------------------------------------------------------------------
+1. WHAT YOU DOWNLOADED
+------------------------------------------------------------------------------
+The reports YOU submitted to DiDe (open and closed), with:
+event_id, latitude, longitude, event_type, description, active,
+deactivated_by_name, deactivated_at, created_at, photo_urls, video_urls,
+num_agrees, last_agreed_date, direction and, if the platform uses an
+aggregation layer, the area codes of your reports; plus your photos
+("photos/") and videos ("videos/").
+
+------------------------------------------------------------------------------
+2. YOUR OWN CONTENT
+------------------------------------------------------------------------------
+  * You keep your rights in the descriptions, photos and videos you made.
+    You may reuse them freely, also outside DiDe.
+  * The other fields (identifiers, agreement counts and dates, the name of
+    the user who closed a report, area codes) are platform data and are
+    covered by this licence.
+
+------------------------------------------------------------------------------
+3. YOU MAY
+------------------------------------------------------------------------------
+  * keep, back up and review your contributions;
+  * use the data for your studies, research, reports, portfolio and
+    non-commercial environmental or civic projects;
+  * share the results of your work, crediting the source:
+      "Data: DiDe – Digital Detectives of Environment,
+       DiDe Data Licence (Expert) v1.0".
+
+------------------------------------------------------------------------------
+4. YOU MUST
+------------------------------------------------------------------------------
+  * remove or blur third-party personal data (faces, licence plates, names,
+    house numbers) before you publish a photo, video or description;
+  * not publish the username of the person who closed a report
+    ("deactivated_by_name") or any other user's identity;
+  * keep in mind that your export is a record of WHERE and WHEN you were
+    present; publishing it can reveal your own movements and routine;
+  * comply with data protection law (e.g. KVKK No. 6698, EU GDPR) for any
+    personal data you process or publish.
+
+------------------------------------------------------------------------------
+5. YOU MUST NOT
+------------------------------------------------------------------------------
+  * sell the platform data or use it commercially without written permission;
+  * use the data to identify, track, harass or discredit other users or any
+    person or business;
+  * present closed or modified reports as current, or alter data to mislead;
+  * use the data to manipulate the points, agreement, discount or treat
+    systems, or re-submit the same reports to gain points;
+  * use the data for any unlawful purpose.
+
+------------------------------------------------------------------------------
+6. NO WARRANTY — LIMITATION OF LIABILITY
+------------------------------------------------------------------------------
+The export is provided "AS IS". Coordinates come from consumer devices and
+may be inaccurate; agreement counts and dates reflect the moment of export.
+To the extent the law allows, the DiDe team is not liable for any damage
+caused by the use of the export. You are solely responsible for what you
+publish or share and agree to hold the DiDe team harmless from claims
+arising from it.
+
+------------------------------------------------------------------------------
+7. END OF LICENCE — GENERAL
+------------------------------------------------------------------------------
+This licence ends automatically if you break it; you must then stop using
+the platform data and delete it (your own content stays yours). If your
+account is deleted, delete the platform data from your copies as well.
+The applicable law is that of the place where the DiDe team operating the
+platform is established. Questions: contact the DiDe team through the
+contact details published on the platform.
+==============================================================================
