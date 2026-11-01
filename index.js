@@ -811,7 +811,9 @@ const RASTER_DIR = path.join(__dirname, 'case_study', CASE_STUDY_NAME, 'raw_data
 // Aksi halde existing_data'daki boundary dosyası kullanılır. İkisi de yoksa sınır yok (serbest).
 const EXISTING_DATA_DIR = path.join(__dirname, 'case_study', CASE_STUDY_NAME, 'existing_data');
 const BOUNDARY_DB_TABLE = 'dide_boundary';
-let BOUNDARY_MODE = null;        // 'aggregation' | 'file' | null
+let BOUNDARY_MODE = null;        // 'aggregation' | 'file' | 'intersection' | null
+// 'intersection': aggregation layer VE boundary dosyası birlikte var → geçerli alan ikisinin
+// KESİŞİMİDİR; boundary baskındır (gridler boundary ile kırpılır, boundary dışı kabul edilmez).
 let BOUNDARY_GEOJSON = null;     // file modunda ön yüze gönderilecek GeoJSON (FeatureCollection/Feature)
 const { execFile } = require('child_process');
 
@@ -1375,7 +1377,23 @@ app.get('/api/polygon-layer', async (req, res) => {
     const propParts = cols.map(c => `'${c}', t.${c}`).join(', ');
     const propObj = cols.length > 0 ? `jsonb_build_object(${propParts})` : `'{}'::jsonb`;
 
-    const q = `
+    // Kesişim modunda gridler boundary ile KIRPILIR; boundary dışında kalanlar gösterilmez
+    const clip = BOUNDARY_MODE === 'intersection';
+    const q = clip ? `
+      WITH b AS (SELECT ${BOUNDARY_UNION_SQL} AS u)
+      SELECT jsonb_build_object(
+        'type','FeatureCollection',
+        'features', COALESCE(jsonb_agg(jsonb_build_object(
+          'type','Feature',
+          'geometry', ST_AsGeoJSON(ST_CollectionExtract(ST_Intersection(ST_MakeValid(t.geom), b.u), 3))::jsonb,
+          'properties', ${propObj}
+        )), '[]'::jsonb)
+      ) AS fc
+      FROM public.${table} t, b
+      WHERE t.geom IS NOT NULL
+        AND ST_Intersects(t.geom, b.u)
+        AND ST_Area(ST_Intersection(ST_MakeValid(t.geom), b.u)) > 0;
+    ` : `
       SELECT jsonb_build_object(
         'type','FeatureCollection',
         'features', COALESCE(jsonb_agg(jsonb_build_object(
@@ -1410,7 +1428,14 @@ app.get('/api/polygon/grid-data', requireAuth, async (req, res) => {
       if (!allCols.includes(safe)) allCols.push(safe);
     }
     const selectCols = allCols.map(c => `t.${c}`).join(', ');
-    const q = `SELECT ${selectCols}, ST_AsGeoJSON(ST_Centroid(t.geom))::jsonb AS centroid, ST_AsGeoJSON(t.geom)::jsonb AS geojson FROM public.${table} t WHERE t.geom IS NOT NULL ORDER BY ${pkCols[0]} ASC`;
+    // Kesişim modunda yalnızca boundary ile kesişen gridler, kırpılmış geometriyle
+    const q = (BOUNDARY_MODE === 'intersection')
+      ? `WITH b AS (SELECT ${BOUNDARY_UNION_SQL} AS u),
+              c AS (SELECT t.*, ST_CollectionExtract(ST_Intersection(ST_MakeValid(t.geom), b.u), 3) AS cg FROM public.${table} t, b
+                     WHERE t.geom IS NOT NULL AND ST_Intersects(t.geom, b.u))
+         SELECT ${selectCols}, ST_AsGeoJSON(ST_PointOnSurface(t.cg))::jsonb AS centroid, ST_AsGeoJSON(t.cg)::jsonb AS geojson
+           FROM c t WHERE NOT ST_IsEmpty(t.cg) AND ST_Area(t.cg) > 0 ORDER BY ${pkCols[0]} ASC`
+      : `SELECT ${selectCols}, ST_AsGeoJSON(ST_Centroid(t.geom))::jsonb AS centroid, ST_AsGeoJSON(t.geom)::jsonb AS geojson FROM public.${table} t WHERE t.geom IS NOT NULL ORDER BY ${pkCols[0]} ASC`;
     const { rows } = await pool.query(q);
     return res.json({
       ok: true,
@@ -1451,7 +1476,15 @@ app.post('/api/polygon/find', async (req, res) => {
 
     const selectCols = allCols.length > 0 ? allCols.map(c => `t.${c}`).join(', ') + ',' : '';
 
-    const q = `
+    // Kesişim modunda nokta boundary içinde olmalı; dönen grid geometrisi boundary ile kırpılır
+    const q = (BOUNDARY_MODE === 'intersection') ? `
+      WITH b AS (SELECT ${BOUNDARY_UNION_SQL} AS u)
+      SELECT ${selectCols} ST_AsGeoJSON(ST_CollectionExtract(ST_Intersection(ST_MakeValid(t.geom), b.u), 3))::jsonb AS geojson
+      FROM public.${table} t, b
+      WHERE ST_Contains(t.geom, ST_SetSRID(ST_MakePoint($1, $2), 4326))
+        AND ST_Contains(b.u, ST_SetSRID(ST_MakePoint($1, $2), 4326))
+      LIMIT 1;
+    ` : `
       SELECT ${selectCols} ST_AsGeoJSON(t.geom)::jsonb AS geojson
       FROM public.${table} t
       WHERE ST_Contains(t.geom, ST_SetSRID(ST_MakePoint($1, $2), 4326))
@@ -1534,6 +1567,7 @@ app.post('/api/polygon/records', async (req, res) => {
       WHERE COALESCE(o.active, true) = true
         AND o.geom IS NOT NULL
         AND ${polyConditions.join(' AND ')}
+        ${BOUNDARY_MODE === 'intersection' ? `AND ST_Contains(${BOUNDARY_UNION_SQL}, o.geom)` : ''}
       ORDER BY o.created_at DESC
       LIMIT 50
     `;
@@ -2341,12 +2375,67 @@ async function _loadBoundaryIntoDb(geojson) {
   return ok;
 }
 
+// Boundary dosyasını okuyup dide_boundary tablosuna yükler; yüklenen geometri sayısını döndürür
+async function _readAndLoadBoundaryFile(file) {
+  let geojson = null;
+  const ext = path.extname(file).toLowerCase();
+  if (ext === '.geojson' || ext === '.json') geojson = _readGeoJsonFile(file);
+  else if (ext === '.geopackage' || ext === '.gpkg') geojson = await _gpkgToGeoJson(file);
+  if (!geojson) return { geojson: null, n: 0 };
+  const n = await _loadBoundaryIntoDb(geojson);
+  return { geojson, n };
+}
+
+// Aggregation layer ile boundary'nin KESİŞİMİ (dissolve edilmiş tek geometri). Kesişim modunda
+// açılışta bir kez hesaplanır; /api/boundary, rota sınırı ve zoom bu geometriyi kullanır.
+let BOUNDARY_INTERSECTION_GEOJSON = null;
+// Kesişim modunda gridleri boundary ile kırpmak için ortak SQL parçası (boundary birleşimi)
+const BOUNDARY_UNION_SQL = `(SELECT ST_Union(ST_MakeValid(geom)) FROM public.dide_boundary WHERE geom IS NOT NULL)`;
+
 async function initBoundary() {
   try {
-    // 1) Aggregation layer öncelikli
+    // 1) Aggregation layer tanımlı
     if (POLYGON_TABLE && POLYGON_PKS.length > 0) {
-      BOUNDARY_MODE = 'aggregation';
-      console.log(`[BOUNDARY] Source: aggregation layer ("${POLYGON_TABLE}").`);
+      const file = _findBoundaryFile();
+      if (!file) {
+        BOUNDARY_MODE = 'aggregation';
+        console.log(`[BOUNDARY] Source: aggregation layer ("${POLYGON_TABLE}").`);
+        return;
+      }
+      // Aggregation layer + boundary dosyası birlikte → KESİŞİM (boundary baskın)
+      const { geojson, n } = await _readAndLoadBoundaryFile(file);
+      if (!geojson || n === 0) {
+        BOUNDARY_MODE = 'aggregation';
+        console.warn(`[BOUNDARY] "${path.basename(file)}" unreadable / empty → using only the aggregation layer ("${POLYGON_TABLE}").`);
+        return;
+      }
+      const polyTable = assertSafeIdent(POLYGON_TABLE, 'table');
+      const ov = await pool.query(
+        `SELECT ST_AsGeoJSON(ST_Intersection(a.u, b.u), 7) AS gj,
+                ST_Area(ST_Intersection(a.u, b.u)::geography) AS m2
+           FROM (SELECT ST_Union(ST_MakeValid(geom)) AS u FROM public.${polyTable} WHERE geom IS NOT NULL) a,
+                (SELECT ST_Union(ST_MakeValid(geom)) AS u FROM public.${BOUNDARY_DB_TABLE} WHERE geom IS NOT NULL) b`
+      );
+      const m2 = Number(ov.rows[0] && ov.rows[0].m2) || 0;
+      const gj = ov.rows[0] && ov.rows[0].gj;
+      if (!(m2 > 0) || !gj) {
+        console.error('\n[FATAL] The aggregation layer and the boundary file do not overlap.');
+        console.error(`        Aggregation layer : "${POLYGON_TABLE}" (AGGREGATION_LAYER in .env)`);
+        console.error(`        Boundary file     : "${file}"`);
+        console.error('        No common area was found between them, so no location could ever be');
+        console.error('        accepted. Please check that both layers cover the same study area');
+        console.error('        (and use the same coordinate system, EPSG:4326), or remove one of them:');
+        console.error('          - delete/rename the boundary file to use only the aggregation layer, or');
+        console.error('          - empty AGGREGATION_LAYER in .env to use only the boundary file.');
+        console.error('        System cannot start. Exiting.\n');
+        process.exit(1);
+      }
+      BOUNDARY_MODE = 'intersection';
+      BOUNDARY_GEOJSON = geojson;
+      BOUNDARY_INTERSECTION_GEOJSON = { type: 'Feature', properties: {}, geometry: JSON.parse(gj) };
+      const km2 = (m2 / 1e6).toFixed(m2 < 1e6 ? 4 : 2);
+      console.log(`[BOUNDARY] Source: aggregation layer ("${POLYGON_TABLE}") ∩ boundary file ("${path.basename(file)}", ${n} geometries).`);
+      console.log(`[BOUNDARY] Common area: ${km2} km². The boundary is dominant: grid cells are clipped to it; data outside is blocked.`);
       return;
     }
 
@@ -2358,21 +2447,12 @@ async function initBoundary() {
       return;
     }
 
-    let geojson = null;
-    const ext = path.extname(file).toLowerCase();
-    if (ext === '.geojson' || ext === '.json') {
-      geojson = _readGeoJsonFile(file);
-    } else if (ext === '.geopackage' || ext === '.gpkg') {
-      geojson = await _gpkgToGeoJson(file);
-    }
-
+    const { geojson, n } = await _readAndLoadBoundaryFile(file);
     if (!geojson) {
       BOUNDARY_MODE = null;
       console.warn(`[BOUNDARY] "${path.basename(file)}" unreadable → no boundary (free).`);
       return;
     }
-
-    const n = await _loadBoundaryIntoDb(geojson);
     if (n > 0) {
       BOUNDARY_MODE = 'file';
       BOUNDARY_GEOJSON = geojson;
@@ -2396,6 +2476,14 @@ async function isInsideBoundary(lng, lat) {
     if (BOUNDARY_MODE === 'aggregation') {
       const polyTable = assertSafeIdent(POLYGON_TABLE, 'table');
       const q = `SELECT 1 FROM public.${polyTable} WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint($1,$2),4326)) LIMIT 1`;
+      const r = await pool.query(q, [lng, lat]);
+      return r.rowCount > 0;
+    } else if (BOUNDARY_MODE === 'intersection') {
+      // Nokta hem bir gridin hem de boundary'nin içinde olmalı
+      const polyTable = assertSafeIdent(POLYGON_TABLE, 'table');
+      const q = `SELECT 1
+                  WHERE EXISTS (SELECT 1 FROM public.${polyTable} WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint($1,$2),4326)))
+                    AND EXISTS (SELECT 1 FROM public.${BOUNDARY_DB_TABLE} WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint($1,$2),4326)))`;
       const r = await pool.query(q, [lng, lat]);
       return r.rowCount > 0;
     } else {
@@ -4486,7 +4574,12 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
     // Aggregation layer tanımlıysa, olay tablosuna eklenen birincil anahtar (PK) sütunları da
     // dışa aktarılır (ör. bölge/ızgara kimliği). Tanımlı değilse hiçbir ek sütun gelmez.
     const pkCols = (POLYGON_TABLE && Array.isArray(POLYGON_PKS)) ? POLYGON_PKS : [];
-    const pkSelect = pkCols.map((p, i) => `,\n              o."${p.safeName}" AS "__pk_${i}"`).join('');
+    // Konum gizliliği: aggregation layer varsa expert (opener/solver) indirmesinde tam konum yerine
+    // grid PK'leri + grid poligonu verilir. Supervisor bu ucu kullanırsa tam konum korunur.
+    const priv = aggPrivacyEnabled() && licenseRoleForUser(req.user) === 'expert';
+    const pkSelect = priv
+      ? aggCellSql('o').select
+      : pkCols.map((p, i) => `,\n              o."${p.safeName}" AS "__pk_${i}"`).join('');
 
     const { rows } = await pool.query(
       `SELECT o.event_id,
@@ -4506,6 +4599,7 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
               o.direction                    AS direction${pkSelect}
          FROM event o
          LEFT JOIN event_type l ON l.event_type_id = o.event_type
+         ${priv ? aggCellSql('o').join : ''}
         WHERE o.created_by_id = $1
         ORDER BY o.event_id`,
       [req.user.id]
@@ -4537,17 +4631,25 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
       const photos = collect(r.photo_urls, photoFiles);
       const videos = collect(r.video_urls, videoFiles);
       let geometry = null;
-      try { geometry = r.geom_json ? JSON.parse(r.geom_json) : null; } catch { geometry = null; }
-      if (!geometry && Number.isFinite(parseFloat(r.longitude)) && Number.isFinite(parseFloat(r.latitude))) {
-        geometry = { type: 'Point', coordinates: [parseFloat(r.longitude), parseFloat(r.latitude)] };
+      if (priv) {
+        geometry = aggCellGeometry(r);                       // grid poligonu (tam konum değil)
+      } else {
+        try { geometry = r.geom_json ? JSON.parse(r.geom_json) : null; } catch { geometry = null; }
+        if (!geometry && Number.isFinite(parseFloat(r.longitude)) && Number.isFinite(parseFloat(r.latitude))) {
+          geometry = { type: 'Point', coordinates: [parseFloat(r.longitude), parseFloat(r.latitude)] };
+        }
       }
+      // Konum alanları: gizlilik açıksa enlem/boylam yerine grid PK'leri (sütunların yerinde)
+      const locProps = priv
+        ? aggCellProps(r)
+        : { latitude: r.latitude != null ? parseFloat(r.latitude) : null,
+            longitude: r.longitude != null ? parseFloat(r.longitude) : null };
       return {
         type: 'Feature',
         geometry,
         properties: {
           event_id: r.event_id,
-          latitude: r.latitude != null ? parseFloat(r.latitude) : null,
-          longitude: r.longitude != null ? parseFloat(r.longitude) : null,
+          ...locProps,
           event_type: r.event_type_name || null,   // ham ID değil, okunabilir tür adı
           description: r.description ?? null,
           active: r.active === true,
@@ -4559,8 +4661,8 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
           num_agrees: r.num_agrees,
           last_agreed_date: r.last_agreed_date ?? null,                     // son katılım tarihi
           direction: r.direction != null ? Number(r.direction) : null,   // derece, kuzeyden saat yönünde
-          // Aggregation layer PK sütunları (yalnızca tanımlıysa)
-          ...Object.fromEntries(pkCols.map((p, i) => [p.name, r[`__pk_${i}`] ?? null]))
+          // Aggregation layer PK sütunları (gizlilik kapalıyken sonda; açıkken konum alanlarının yerinde)
+          ...(priv ? {} : Object.fromEntries(pkCols.map((p, i) => [p.name, r[`__pk_${i}`] ?? null])))
         }
       };
     });
@@ -4572,6 +4674,7 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
         username: req.user.username,
         total_events: features.length,
         export_date: new Date().toISOString(),
+        location_precision: priv ? 'aggregation_cell' : 'point',
         license: dataLicenseName(licenseRoleForUser(req.user))
       }
     };
@@ -4604,6 +4707,38 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
   }
 });
 
+/* =============== İNDİRMELERDE KONUM GİZLİLİĞİ (aggregation layer) ===============
+   Aggregation layer tanımlıysa vatandaş (açık veri) ve expert ("Verilerimi indir") indirmelerinde
+   olayın TAM konumu verilmez:
+     - latitude / longitude sütunları YOK,
+     - yerine olayın düştüğü gridin birincil anahtar (PK) sütunları,
+     - GeoJSON geometrisi nokta değil, o GRİDİN POLİGONU (kesişim modunda boundary ile kırpılmış).
+   Supervisor indirmesi değişmez (enlem/boylam + PK birlikte). */
+function aggPrivacyEnabled() {
+  return !!(POLYGON_TABLE && Array.isArray(POLYGON_PKS) && POLYGON_PKS.length > 0);
+}
+// Olay tablosu takma adı (alias) için ek SELECT ve JOIN parçaları
+function aggCellSql(alias) {
+  const t = assertSafeIdent(POLYGON_TABLE, 'table');
+  const on = POLYGON_PKS.map(p => `pg."${p.safeName}" = ${alias}."${p.safeName}"`).join(' AND ');
+  const g = (BOUNDARY_MODE === 'intersection')
+    ? `ST_CollectionExtract(ST_Intersection(ST_MakeValid(pg.geom), ${BOUNDARY_UNION_SQL}), 3)`
+    : 'pg.geom';
+  return {
+    select: POLYGON_PKS.map((p, i) => `,\n              ${alias}."${p.safeName}" AS "__pk_${i}"`).join('') +
+            `,\n              ST_AsGeoJSON(${g}, 7) AS __cell_gj`,
+    join: `LEFT JOIN public.${t} pg ON ${on}`
+  };
+}
+function aggCellProps(r) {
+  const o = {};
+  POLYGON_PKS.forEach((p, i) => { o[p.name] = r[`__pk_${i}`] ?? null; });
+  return o;
+}
+function aggCellGeometry(r) {
+  try { return r.__cell_gj ? JSON.parse(r.__cell_gj) : null; } catch { return null; }
+}
+
 /* =============== AÇIK VERİ (OPEN_DATA) — giriş gerektirmez =============== */
 // .env → OPEN_DATA=true iken ziyaretçiler, haritada herkese açık gösterilen AKTİF olayları
 // fotoğraflarıyla birlikte ZIP olarak indirir: events.geojson + photos/ + (varsa) lisans dosyası.
@@ -4633,6 +4768,9 @@ app.get('/api/open-data/export', async (req, res) => {
       return res.status(429).json({ error: 'open_data_rate_limited', message: getErrorMessage(req, 'open_data_rate_limited') });
     }
 
+    // Aggregation layer varsa tam konum yerine grid PK'leri + grid poligonu (konum gizliliği)
+    const priv = aggPrivacyEnabled();
+    const agg = priv ? aggCellSql('e') : { select: '', join: '' };
     // Ziyaretçi haritasıyla aynı kural: aktif olay + aktif olay türü + public_ (publicGoodBadWhere)
     const { rows } = await pool.query(
       `SELECT e.event_id,
@@ -4643,9 +4781,10 @@ app.get('/api/open-data/export', async (req, res) => {
               e.created_at,
               e.photo_urls,
               COALESCE(e.num_agrees, 0)   AS num_agrees,
-              e.direction                 AS direction
+              e.direction                 AS direction${agg.select}
          FROM public.event e
          JOIN public.event_type o ON o.event_type_id = e.event_type
+         ${agg.join}
         WHERE COALESCE(e.active, true) = true
           AND COALESCE(o.active, true) = true
           AND (${publicGoodBadWhere()})
@@ -4673,20 +4812,26 @@ app.get('/api/open-data/export', async (req, res) => {
       }
       const lat = r.latitude != null ? parseFloat(r.latitude) : null;
       const lng = r.longitude != null ? parseFloat(r.longitude) : null;
+      const common = {
+        event_type: r.event_type_name || null,   // ID değil, okunabilir tür adı
+        description: r.description ?? null,
+        created_at: r.created_at ?? null,
+        photo_urls: photos,                      // ZIP içindeki photos/ dosya adları
+        num_agrees: r.num_agrees,
+        direction: r.direction != null ? Number(r.direction) : null   // derece, kuzeyden saat yönünde
+      };
+      if (priv) {
+        // Konum gizliliği: enlem/boylam YOK; grid PK'leri + geometri = grid poligonu
+        return {
+          type: 'Feature',
+          geometry: aggCellGeometry(r),
+          properties: { event_id: r.event_id, ...aggCellProps(r), ...common }
+        };
+      }
       return {
         type: 'Feature',
         geometry: (Number.isFinite(lat) && Number.isFinite(lng)) ? { type: 'Point', coordinates: [lng, lat] } : null,
-        properties: {
-          event_id: r.event_id,
-          latitude: lat,
-          longitude: lng,
-          event_type: r.event_type_name || null,   // ID değil, okunabilir tür adı
-          description: r.description ?? null,
-          created_at: r.created_at ?? null,
-          photo_urls: photos,                      // ZIP içindeki photos/ dosya adları
-          num_agrees: r.num_agrees,
-          direction: r.direction != null ? Number(r.direction) : null   // derece, kuzeyden saat yönünde
-        }
+        properties: { event_id: r.event_id, latitude: lat, longitude: lng, ...common }
       };
     });
 
@@ -4696,6 +4841,7 @@ app.get('/api/open-data/export', async (req, res) => {
       metadata: {
         dataset: 'DiDe open data — public events',
         total_events: features.length,
+        location_precision: priv ? 'aggregation_cell' : 'point',
         export_date: new Date().toISOString(),
         license: dataLicenseName('citizen')
       }
@@ -4732,6 +4878,10 @@ app.get('/api/boundary', async (req, res) => {
 
     if (BOUNDARY_MODE === 'file') {
       return res.json({ enabled: true, source: 'file', geojson: BOUNDARY_GEOJSON });
+    }
+    // Kesişim: aggregation layer ∩ boundary (açılışta hesaplandı)
+    if (BOUNDARY_MODE === 'intersection' && BOUNDARY_INTERSECTION_GEOJSON) {
+      return res.json({ enabled: true, source: 'intersection', geojson: BOUNDARY_INTERSECTION_GEOJSON });
     }
 
     // aggregation: birleşik (dissolve) sınırı GeoJSON olarak döndür
@@ -4904,9 +5054,14 @@ async function exportRoutingBoundary() {
   }
   // Aggregation layer modunda sınır yalnızca veritabanındadır; osmium'un kesebilmesi için
   // poligonlar bir GeoJSON dosyasına yazılır (rotalamanın sınırını da gösterir).
-  const srcTable = (BOUNDARY_MODE === 'aggregation')
-    ? assertSafeIdent(POLYGON_TABLE, 'table')
-    : BOUNDARY_DB_TABLE;
+  // Kesişim modunda kaynak, aggregation layer ∩ boundary geometrisidir
+  const srcFrom = (BOUNDARY_MODE === 'aggregation')
+    ? `public.${assertSafeIdent(POLYGON_TABLE, 'table')}`
+    : (BOUNDARY_MODE === 'intersection')
+      ? `(SELECT ST_Intersection(
+            (SELECT ST_Union(ST_MakeValid(geom)) FROM public.${assertSafeIdent(POLYGON_TABLE, 'table')} WHERE geom IS NOT NULL),
+            ${BOUNDARY_UNION_SQL}) AS geom) AS s`
+      : `public.${BOUNDARY_DB_TABLE}`;
   // Sınır, küçük bir toleransla genişletilir (sınıra teğet yollar kesilmesin) ve
   // osmium'un hızlı çalışması için sadeleştirilir.
   const r = await pool.query(
@@ -4916,7 +5071,7 @@ async function exportRoutingBoundary() {
                 0.00005
               ), 7
             ) AS g
-       FROM public.${srcTable}
+       FROM ${srcFrom}
       WHERE geom IS NOT NULL`,
     [ROUTE_BOUNDARY_TOLERANCE]
   );

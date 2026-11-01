@@ -20,6 +20,10 @@ Environmental reports made by volunteers on the DiDe platform:
     created_at, photo_urls, num_agrees, direction;
   * the photos of these reports (folder "photos/").
 No account data is included (no names, usernames, IDs or roles).
+If the platform uses an aggregation layer (a grid of areas), the exact
+location is NOT included: latitude/longitude are replaced by the code(s) of
+the grid cell that contains the report, and each feature's geometry is that
+cell's polygon. Do not try to recover exact positions (e.g. from photos).
 The data is crowd-sourced and has NOT been verified.
 
 ------------------------------------------------------------------------------

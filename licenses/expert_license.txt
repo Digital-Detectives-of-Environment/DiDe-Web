@@ -18,6 +18,10 @@ deactivated_by_name, deactivated_at, created_at, photo_urls, video_urls,
 num_agrees, last_agreed_date, direction and, if the platform uses an
 aggregation layer, the area codes of your reports; plus your photos
 ("photos/") and videos ("videos/").
+If the platform uses an aggregation layer (a grid of areas), the exact
+location is NOT included: latitude/longitude are replaced by the code(s) of
+the grid cell that contains each report, and the geometry is that cell's
+polygon.
 
 ------------------------------------------------------------------------------
 2. YOUR OWN CONTENT
