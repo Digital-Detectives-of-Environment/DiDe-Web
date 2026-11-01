@@ -20,11 +20,11 @@ Environmental reports made by volunteers on the DiDe platform:
     created_at, photo_urls, num_agrees, direction;
   * the photos of these reports (folder "photos/").
 No account data is included (no names, usernames, IDs or roles).
-If the platform uses an aggregation layer (a grid of areas), the exact
-location is NOT included: latitude/longitude are replaced by the code(s) of
-the grid cell that contains the report, and each feature's point is a
-representative point of that cell (shared by all reports in the cell), not
-the real position. Do not try to recover exact positions (e.g. from photos).
+If the platform uses an aggregation layer (a grid of areas), you do NOT get
+individual reports: the archive contains "grid_events.geojson", one feature
+per grid cell (the cell polygon) with its key column(s), the number of
+reports (event_count) and the number per event type (counts_by_type).
+No coordinates, descriptions or photos are included in that case.
 The data is crowd-sourced and has NOT been verified.
 
 ------------------------------------------------------------------------------

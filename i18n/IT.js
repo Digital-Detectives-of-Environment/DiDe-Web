@@ -711,5 +711,10 @@ window.i18nLangs.it = {
     gridNoRecords: 'Non ci sono ancora segnalazioni in quest\'area.',
     gridRecordsQuestionOne: 'C\'è {{count}} segnalazione in quest\'area. Vuoi vederla?',
     gridRecordsQuestion: 'Ci sono {{count}} segnalazioni in quest\'area. Vuoi vederle?',
-    gridAddQuestion: 'Vuoi aggiungere una nuova segnalazione in quest\'area?'
+    gridAddQuestion: 'Vuoi aggiungere una nuova segnalazione in quest\'area?',
+
+    // Tematik (ısı) haritası lejantı
+    thematicLegendSub: 'Eventi per cella',
+    thematicLegendNone: 'Nessuna segnalazione',
+    thematicLegendTotal: 'Totale: {{n}} eventi'
 };

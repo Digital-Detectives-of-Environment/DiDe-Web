@@ -15,10 +15,10 @@ Each type of user downloads a different level of detail, so each gets a differen
 | `supervisor_license.txt` | **Supervisor** / admin | Management panel → **Events** → download | All active reports listed in the panel, **with usernames and user IDs** (confidential), photos |
 
 **Location privacy:** when an aggregation layer (`AGGREGATION_LAYER`) is configured, the citizen and
-expert exports do **not** contain latitude/longitude: they contain the grid-cell key column(s) instead, and
-each feature's point is a representative point inside its grid cell (shared by all reports in that cell),
-not the real position. Only the supervisor export keeps exact coordinates
-(together with the grid keys).
+expert exports contain **no individual reports**: the ZIP holds `grid_events.geojson` (one polygon feature per
+grid cell with its key column(s), `event_count` and `counts_by_type`; the expert export also has
+`active_count` / `closed_count`) plus the license — no coordinates, descriptions, photos or videos.
+The supervisor export is unchanged: individual reports with exact coordinates and grid keys.
 
 In short, the stricter the data, the stricter the license:
 

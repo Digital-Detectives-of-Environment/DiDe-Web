@@ -6043,3 +6043,31 @@ path.grid-selected{ filter:drop-shadow(0 0 4px rgba(245,158,11,.75)); }
 }
 /* ✗ ile başlık çakışmasın */
 .polygon-records-fullscreen.is-grid .buffer-nearby-title{ padding-right:60px; }
+/* ===================== TEMATİK (ISI) HARİTASI LEJANTI — aggregation layer ===================== */
+.thematic-legend{
+  background:rgba(255,255,255,.94);
+  border:1px solid #e5e7eb; border-radius:12px;
+  padding:8px 10px 7px;
+  box-shadow:0 4px 14px rgba(0,0,0,.15);
+  font-size:12px; line-height:1.3; color:#0f172a;
+  min-width:120px; max-width:min(220px, 46vw);
+  margin-bottom:calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+}
+.thematic-legend .tl-title{ font-weight:800; font-size:13px; margin-bottom:1px; overflow-wrap:anywhere; }
+.thematic-legend .tl-sub{ color:#64748b; font-size:11px; margin-bottom:5px; }
+.thematic-legend .tl-row{ display:flex; align-items:center; gap:7px; margin:2px 0; font-weight:600; }
+.thematic-legend .tl-sw{ width:18px; height:12px; border-radius:3px; flex:0 0 auto; border:1px solid rgba(0,0,0,.18); }
+.thematic-legend .tl-sw.tl-none{ background:transparent; border:1.5px dashed #94a3b8; }
+.thematic-legend .tl-total{ margin-top:5px; padding-top:4px; border-top:1px solid #e5e7eb; color:#475569; font-weight:700; }
+:root.theme-dark .thematic-legend{
+  background:rgba(11,19,36,.92); color:#e2e8f0;
+  border:1.5px solid rgba(34,211,238,.6);
+  box-shadow:0 0 14px rgba(34,211,238,.3);
+}
+:root.theme-dark .thematic-legend .tl-sub{ color:#94a3b8; }
+:root.theme-dark .thematic-legend .tl-sw{ border-color:rgba(255,255,255,.25); box-shadow:0 0 6px rgba(34,211,238,.35); }
+:root.theme-dark .thematic-legend .tl-total{ border-top-color:rgba(34,211,238,.3); color:#67e8f9; }
+@media (max-width:576px){
+  .thematic-legend{ font-size:11px; padding:6px 8px; min-width:104px; }
+  .thematic-legend .tl-title{ font-size:12px; }
+}

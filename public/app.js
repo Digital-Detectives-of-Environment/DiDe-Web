@@ -553,7 +553,9 @@ function _restyleGridLayers() {
   // Only restyle the GRID layer (__polygon_env), NOT Existing Data layers
   if (typeof __polygonLayer !== 'undefined' && __polygonLayer) {
     try {
-      __polygonLayer.setStyle({ color: gridColor, fillColor: gridColor });
+      // Tema değişince renk sınıfları yeni temanın paletiyle yeniden kurulur, SONRA boyanır
+      if (thematicEnabled()) { __thematic.classes = _thematicBuildClasses(__thematic.max); _thematicRestyle(); updateThematicLegend(); }
+      else __polygonLayer.setStyle({ color: gridColor, fillColor: gridColor });
       try { reapplyGridHighlight(); } catch {}
     } catch {}
   }
@@ -1090,6 +1092,20 @@ function renderLayerList(mapInstance, layers, listId){
     row.style.cssText = 'display:flex; align-items:center; gap:8px; padding:6px 8px;';
 
     const chk = document.createElement('input');
+    // Aggregation layer: olay türleri RADIO (tek tür seçilir → o türün grid ısı haritası).
+    // Mevcut veri (Existing Data) ve diğer katmanlar checkbox olarak kalır.
+    if (it.__isEventType && thematicEnabled()) {
+      chk.type = 'radio';
+      chk.name = 'dide-thematic-type';
+      chk.checked = String(it.__typeId) === String(__thematic.typeId);
+      chk.onchange = () => { if (chk.checked) setThematicType(it.__typeId); };
+      const lbl0 = document.createElement('div');
+      lbl0.style.cssText = 'flex:1; display:flex; gap:8px; align-items:center; cursor:pointer;';
+      lbl0.innerHTML = '<span style="font-weight:700;">▦</span> <span>' + escapeHtml(it.table) + '</span>';
+      lbl0.onclick = () => { if (!chk.checked) { chk.checked = true; setThematicType(it.__typeId); } };
+      row.appendChild(chk); row.appendChild(lbl0); wrap.appendChild(row); list.appendChild(wrap);
+      return;
+    }
     chk.type='checkbox';
     chk.checked = !!it.visible;
     chk.onchange = ()=>{
@@ -1235,8 +1251,16 @@ async function rebuildEventTypeLayerPanel(mapInstance){
       visible: grp.visible !== false, z: 100
     });
   });
+  // Tematik harita: seçili tür listede yoksa ilk tür seçilir
+  if (thematicEnabled()) {
+    const typeEntries = __geomLayers.filter(x => x.__isEventType);
+    if (!typeEntries.some(x => String(x.__typeId) === String(__thematic.typeId))) {
+      __thematic.typeId = typeEntries.length ? String(typeEntries[0].__typeId) : null;
+    }
+  }
   try { ensureLayerDrawer(mapInstance, 'layer-list'); } catch {}
   try { renderLayerList(mapInstance); } catch {}
+  if (thematicEnabled()) { try { refreshThematic(); scheduleThematicPoints(); } catch {} }
 }
 
 /* ===================== Existing Data geometry: colors + selection + value popup ===================== */
@@ -1516,7 +1540,9 @@ async function loadPolygonLayer() {
     if (!fc.features || fc.features.length === 0) return;
 
     __polygonLayer = L.geoJSON(fc, {
-      style: () => {
+      style: (feature) => {
+        // Aggregation layer: grid bazlı ısı (tematik) haritası stili
+        if (thematicEnabled()) return thematicCellStyle(feature);
         const gridColor = _getGridColor();
         return {
           color: gridColor,
@@ -1552,10 +1578,166 @@ async function loadPolygonLayer() {
 
     ensureLayerDrawer(map);
     renderLayerList(map);
+    // Tematik harita: seçili türün sayıları + yalnızca tampon içindeki noktalar
+    try { refreshThematic(); scheduleThematicPoints(); } catch {}
   } catch (e) {
     console.warn('[VG0] Polygon layer load error:', e);
   }
 }
+
+/* ===================== TEMATİK (ISI) HARİTASI — aggregation layer =====================
+   Aggregation layer tanımlıysa ana haritada olay NOKTALARI gösterilmez (kümeleme de yok):
+     - Gridler, katmanlar panelinde (radio button ile) seçilen TEK olay türündeki aktif olay
+       sayısına göre renklendirilir (grid bazlı ısı haritası; yakınlaştırınca da grid kalır).
+     - Sol altta lejant: tür adı + renk sınıfları.
+     - Tek istisna TAMPONLAR: kullanıcının canlı konum tamponu ve olay ekleme sırasında çizilen
+       tampon. Bunların İÇİNDEKİ olaylar (seçili türden bağımsız, TÜM türler) nokta olarak görünür;
+       katılım (+) bu noktalardan yapılır.
+   Aggregation layer yoksa bu bölüm hiçbir şey yapmaz (mevcut nokta/küme görünümü aynen sürer). */
+const __thematic = { typeId: null, counts: new Map(), max: 0, total: 0, pkFields: [], seq: 0, classes: [] };
+let __bufferPointsLayer = null;
+let __thematicLegend = null;
+
+function thematicEnabled(){ return !!(APP_CONFIG && APP_CONFIG.polygonTable); }
+
+const THEMATIC_PALETTE_LIGHT = ['#ffffb2', '#fecc5c', '#fd8d3c', '#f03b20', '#bd0026'];
+const THEMATIC_PALETTE_DARK  = ['#155e75', '#0891b2', '#22d3ee', '#facc15', '#f43f5e'];
+function _thematicPalette(){ return document.documentElement.classList.contains('theme-dark') ? THEMATIC_PALETTE_DARK : THEMATIC_PALETTE_LIGHT; }
+
+// Sınıflar: en yüksek değer ≤ 5 ise her değer ayrı sınıf; değilse 5 eşit aralık
+function _thematicBuildClasses(max){
+  const out = [];
+  if (!(max > 0)) return out;
+  if (max <= 5) { for (let v = 1; v <= max; v++) out.push({ from: v, to: v }); }
+  else {
+    const step = max / 5; let from = 1;
+    for (let i = 1; i <= 5; i++) { const to = (i === 5) ? max : Math.max(from, Math.round(step * i)); out.push({ from, to }); from = to + 1; }
+  }
+  const pal = _thematicPalette();
+  const k = out.length;
+  out.forEach((c, i) => { c.color = pal[k === 1 ? pal.length - 1 : Math.round(i * (pal.length - 1) / (k - 1))]; });
+  return out;
+}
+function _thematicKeyFromProps(props){
+  return (__thematic.pkFields || []).map(f => String(props ? props[f] : '')).join('\u0001');
+}
+// Grid stili (loadPolygonLayer'ın style fonksiyonu kullanır; resetStyle de buna döner)
+function thematicCellStyle(feature){
+  const gridColor = _getGridColor();
+  const n = __thematic.counts.get(_thematicKeyFromProps(feature && feature.properties)) || 0;
+  if (!n) return { color: gridColor, weight: 1.5, opacity: 0.7, fillColor: gridColor, fillOpacity: 0.04, dashArray: '5,5' };
+  const cls = __thematic.classes.find(c => n >= c.from && n <= c.to) || __thematic.classes[__thematic.classes.length - 1];
+  const dark = document.documentElement.classList.contains('theme-dark');
+  return { color: dark ? cls.color : '#7c2d12', weight: 1.5, opacity: 0.9, fillColor: cls.color, fillOpacity: dark ? 0.6 : 0.68, dashArray: null };
+}
+function _thematicRestyle(){
+  if (!__polygonLayer) return;
+  try { __polygonLayer.eachLayer(l => __polygonLayer.resetStyle(l)); } catch {}
+  try { reapplyGridHighlight(); } catch {}
+}
+function _thematicTypeName(){
+  const it = (__geomLayers || []).find(x => x.__isEventType && String(x.__typeId) === String(__thematic.typeId));
+  return it ? it.table : '';
+}
+function updateThematicLegend(){
+  if (!map) return;
+  if (!thematicEnabled() || !__thematic.typeId || !__polygonLayer) {
+    if (__thematicLegend) { try { map.removeControl(__thematicLegend); } catch {} __thematicLegend = null; }
+    return;
+  }
+  if (!__thematicLegend) {
+    __thematicLegend = L.control({ position: 'bottomleft' });
+    __thematicLegend.onAdd = () => {
+      const d = L.DomUtil.create('div', 'thematic-legend');
+      L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
+      return d;
+    };
+    __thematicLegend.addTo(map);
+  }
+  const box = __thematicLegend.getContainer(); if (!box) return;
+  // Sınıflar tema değişince yeniden renklenir
+  __thematic.classes = _thematicBuildClasses(__thematic.max);
+  const rows = __thematic.classes.map(c =>
+    `<div class="tl-row"><span class="tl-sw" style="background:${c.color}"></span><span>${c.from === c.to ? c.from : (c.from + '–' + c.to)}</span></div>`).join('');
+  box.innerHTML =
+    `<div class="tl-title">${escapeHtml(_thematicTypeName())}</div>` +
+    `<div class="tl-sub">${escapeHtml(t('thematicLegendSub'))}</div>` +
+    (rows || '') +
+    `<div class="tl-row"><span class="tl-sw tl-none"></span><span>${escapeHtml(t('thematicLegendNone'))}</span></div>` +
+    `<div class="tl-total">${escapeHtml(t('thematicLegendTotal', { n: __thematic.total }))}</div>`;
+}
+async function refreshThematic(){
+  if (!thematicEnabled() || !__polygonLayer || !__thematic.typeId) { updateThematicLegend(); return; }
+  const seq = ++__thematic.seq;
+  try {
+    const r = await fetch('/api/grid/stats?event_type=' + encodeURIComponent(__thematic.typeId), { cache: 'no-store' });
+    const d = r.ok ? await r.json() : null;
+    if (seq !== __thematic.seq) return;
+    __thematic.counts = new Map();
+    __thematic.pkFields = (d && d.pk_fields) || [];
+    (d && d.cells || []).forEach(c => { __thematic.counts.set(_thematicKeyFromProps(c.keys), c.count); });
+    __thematic.max = (d && d.max) || 0;
+    __thematic.total = (d && d.total) || 0;
+  } catch (e) {
+    console.warn('[thematic] stats error', e);
+    __thematic.counts = new Map(); __thematic.max = 0; __thematic.total = 0;
+  }
+  __thematic.classes = _thematicBuildClasses(__thematic.max);
+  _thematicRestyle();
+  updateThematicLegend();
+}
+function setThematicType(typeId){
+  __thematic.typeId = typeId == null ? null : String(typeId);
+  refreshThematic();
+}
+
+/* Tamponların içindeki olay noktaları (tüm türler). Diğer her şey yalnızca grid olarak görünür. */
+function _activeBuffers(){
+  const out = [];
+  try {
+    const r = liveBufferRadius();
+    if (r > 0 && __slLastFix) out.push({ lat: __slLastFix.lat, lng: __slLastFix.lng, r });
+  } catch {}
+  try {
+    if (__bufferCircle && __bufferLat != null && __bufferLng != null) out.push({ lat: __bufferLat, lng: __bufferLng, r: bufferRadiusMeters() });
+    else if (__bufferCircle) { const c = __bufferCircle.getLatLng(); out.push({ lat: c.lat, lng: c.lng, r: __bufferCircle.getRadius() }); }
+  } catch {}
+  return out;
+}
+function _distM(a, b){
+  const toRad = Math.PI / 180, R = 6371000;
+  const dLat = (b.lat - a.lat) * toRad, dLng = (b.lng - a.lng) * toRad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * toRad) * Math.cos(b.lat * toRad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+function applyThematicPoints(){
+  if (!thematicEnabled() || !map) return;
+  // Kümeleme / tüm noktalar haritadan kalkar
+  if (markersLayer && map.hasLayer(markersLayer)) { try { map.removeLayer(markersLayer); } catch {} }
+  if (!__bufferPointsLayer) __bufferPointsLayer = L.layerGroup().addTo(map);
+  else if (!map.hasLayer(__bufferPointsLayer)) __bufferPointsLayer.addTo(map);
+  const bufs = _activeBuffers();
+  const want = new Set();
+  if (bufs.length) {
+    __eventTypeGroups.forEach(grp => {
+      (grp.markers || new Set()).forEach(m => {
+        let ll; try { ll = m.getLatLng(); } catch { return; }
+        if (bufs.some(b => _distM(b, ll) <= b.r)) want.add(m);
+      });
+    });
+  }
+  __bufferPointsLayer.eachLayer(m => { if (!want.has(m)) __bufferPointsLayer.removeLayer(m); });
+  want.forEach(m => { if (!__bufferPointsLayer.hasLayer(m)) __bufferPointsLayer.addLayer(m); });
+}
+let __thematicPtsTimer = null;
+function scheduleThematicPoints(){
+  if (!thematicEnabled()) return;
+  clearTimeout(__thematicPtsTimer);
+  __thematicPtsTimer = setTimeout(() => { try { applyThematicPoints(); } catch (e) { console.warn('[thematic] points', e); } }, 60);
+}
+(function wireThematic(){
+  window.addEventListener('languagechange', () => { try { updateThematicLegend(); } catch {} });
+})();
 
 /* ===================== GRİD SORUSU VE GRİD KAYITLARI (aggregation layer) =====================
    Gride tıklanınca (giriş yapmadan da):
@@ -2020,6 +2202,16 @@ function ensureBufferNearbyTitle(){
 /* Kaydın marker'ını bulur, gerekirse kümeyi açıp yakınlaştırır ve pop-up'ını (+ butonuyla) açar */
 function openEventMarkerById(eventId){
   if (!map || !markersLayer) return false;
+  // Tematik harita: yalnızca tampon içindeki noktalar haritada; marker oradan açılır
+  if (thematicEnabled()) {
+    let mk = null;
+    __eventTypeGroups.forEach(grp => (grp.markers || new Set()).forEach(m => { if (String(m._dideEventId) === String(eventId)) mk = m; }));
+    applyThematicPoints();
+    if (!mk || !__bufferPointsLayer || !__bufferPointsLayer.hasLayer(mk)) { toast(t('bufferMarkerHidden'), 'info', 3500); return false; }
+    try { map.setView(mk.getLatLng(), Math.max(map.getZoom(), 17), { animate: true }); } catch {}
+    setTimeout(() => { try { mk.openPopup(); } catch {} setTimeout(() => focusLikeButtonInPopup(mk), 260); }, 250);
+    return true;
+  }
   const layers = (typeof markersLayer.getLayers === 'function') ? markersLayer.getLayers() : [];
   const mk = layers.find(l => l && String(l._dideEventId) === String(eventId));
   if (!mk) { toast(t('bufferMarkerHidden'), 'info', 3500); return false; }
@@ -2240,7 +2432,9 @@ function renderRecordsPages(records) {
       const isBuffer = (__recordsMode === 'buffer' || __recordsMode === 'polygon' || __recordsMode === 'grid');
       // "+ butonuna basın" yardımı yalnızca katılım yapabilen kullanıcıya gösterilir
       const canAgreeHint = !!(currentUser && currentUser.role === 'user');
-      if (isBuffer && rec.event_id != null) {
+      // Tematik haritada grid kayıtlarının noktası gösterilmez → dokun-aç yalnızca tampon kayıtlarında
+      const tapOk = !(__recordsMode === 'grid' && thematicEnabled());
+      if (isBuffer && tapOk && rec.event_id != null) {
         page.classList.add('pr-tappable');
         page.dataset.eventId = String(rec.event_id);
         page.title = t('bufferTapToOpen');
@@ -2251,7 +2445,7 @@ function renderRecordsPages(records) {
           <div class="pr-info-type">${escapeHtml(etName(rec, '-'))}</div>
           <div class="pr-info-date">${dateStr}</div>
           ${rec.description ? '<div class="pr-info-desc">' + rec.description + '</div>' : ''}
-          ${(isBuffer && canAgreeHint) ? bufferAgreeHintHtml() : ''}
+          ${(isBuffer && canAgreeHint && tapOk) ? bufferAgreeHintHtml() : ''}
         </div>
       `;
       track.appendChild(page);
@@ -3138,10 +3332,12 @@ function drawBufferCircle(lat, lng){
   try {
     map.fitBounds(__bufferCircle.getBounds().pad(0.6), { animate: true, maxZoom: 19 });
   } catch {}
+  try { scheduleThematicPoints(); } catch {}
 }
 
 function clearBufferCircle(){
   if (__bufferCircle) { try { map.removeLayer(__bufferCircle); } catch {} __bufferCircle = null; }
+  try { scheduleThematicPoints(); } catch {}
 }
 
 /* Tür süzgeci satırı: kart içinde, kayıt sayfalarının hemen üstünde.
@@ -11361,6 +11557,8 @@ async function loadExistingEvents(opts = {}) {
     }
 
     try { rebuildEventTypeLayerPanel(map); } catch {}
+    // Tematik harita: noktalar yalnızca tamponların içinde
+    try { scheduleThematicPoints(); } catch {}
 
   } catch(err) {
     console.error('loadExistingEvents error:', err);
@@ -12086,6 +12284,7 @@ function _slRender(){
     else __slCircle = L.circle(ll, _accuracyCircleOpts(acc)).addTo(map);
   }
   _slUpdateLiveBuffer(ll);
+  try { scheduleThematicPoints(); } catch {}
   updateLiveLocBtn();
   if (__slCenterPending) {
     __slCenterPending = false;

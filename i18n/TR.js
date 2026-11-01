@@ -720,5 +720,10 @@ window.i18nLangs.tr = {
     gridNoRecords: 'Bu bölgede henüz kayıt yok.',
     gridRecordsQuestionOne: 'Bu bölgede {{count}} kayıt var. Görmek ister misiniz?',
     gridRecordsQuestion: 'Bu bölgede {{count}} kayıt var. Görmek ister misiniz?',
-    gridAddQuestion: 'Bu bölgeye yeni kayıt eklemek ister misiniz?'
+    gridAddQuestion: 'Bu bölgeye yeni kayıt eklemek ister misiniz?',
+
+    // Tematik (ısı) haritası lejantı
+    thematicLegendSub: 'Gridteki olay sayısı',
+    thematicLegendNone: 'Kayıt yok',
+    thematicLegendTotal: 'Toplam: {{n}} olay'
 };

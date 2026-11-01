@@ -18,10 +18,11 @@ deactivated_by_name, deactivated_at, created_at, photo_urls, video_urls,
 num_agrees, last_agreed_date, direction and, if the platform uses an
 aggregation layer, the area codes of your reports; plus your photos
 ("photos/") and videos ("videos/").
-If the platform uses an aggregation layer (a grid of areas), the exact
-location is NOT included: latitude/longitude are replaced by the code(s) of
-the grid cell that contains each report, and each point is a representative
-point of that cell (shared by all reports in the cell), not the real position.
+If the platform uses an aggregation layer (a grid of areas), you do NOT get
+individual reports: "grid_events.geojson" lists the grid cells that contain
+your reports (cell polygon + key column(s)) with event_count, active_count,
+closed_count and counts_by_type. No coordinates, descriptions, photos or
+videos are included in that case.
 
 ------------------------------------------------------------------------------
 2. YOUR OWN CONTENT

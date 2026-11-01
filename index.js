@@ -1520,6 +1520,47 @@ app.post('/api/polygon/find', async (req, res) => {
   }
 });
 
+/* GET /api/grid/stats?event_type=<id>  —  Grid bazlı ısı (tematik) haritası verisi
+   Aggregation layer aktifken haritada noktalar yerine gridler, seçilen olay türündeki AKTİF
+   olay sayısına göre renklendirilir. Her grid için PK değerleri + sayı döner.
+   Görünürlük: giriş yapmamış ziyaretçi yalnızca herkese açık (public) türleri görür (ziyaretçi
+   haritasıyla aynı kural); kesişim modunda yalnızca boundary içindeki olaylar sayılır. */
+app.get('/api/grid/stats', async (req, res) => {
+  if (!POLYGON_TABLE || POLYGON_PKS.length === 0) return res.json({ ok: true, enabled: false, cells: [] });
+  try {
+    const typeId = parseInt(String(req.query.event_type || ''), 10);
+    if (!Number.isInteger(typeId)) return res.status(400).json({ error: 'gecersiz_istek', message: getErrorMessage(req, 'gecersiz_istek') });
+    let viewer = null;
+    try { const tk = getTokenFrom(req); if (tk) viewer = jwt.verify(tk, JWT_SECRET); } catch { viewer = null; }
+    const table = assertSafeIdent(POLYGON_TABLE, 'table');
+    const pkCols = POLYGON_PKS.map(p => p.safeName);
+    const sel = pkCols.map(c => `p."${c}"`).join(', ');
+    const q = `
+      SELECT ${sel}, COUNT(ev.event_id)::int AS n
+        FROM event ev
+        JOIN event_type o ON o.event_type_id = ev.event_type
+        JOIN public.${table} p ON ST_Contains(p.geom, ev.geom)
+       WHERE ev.event_type = $1
+         AND COALESCE(ev.active, true) = true
+         AND COALESCE(o.active, true) = true
+         AND ev.geom IS NOT NULL
+         ${BOUNDARY_MODE === 'intersection' ? `AND ST_Contains(${BOUNDARY_UNION_SQL}, ev.geom)` : ''}
+         ${viewer ? '' : `AND (${publicGoodBadWhere()})`}
+       GROUP BY ${sel}`;
+    const { rows } = await pool.query(q, [typeId]);
+    const cells = rows.map(r => {
+      const keys = {}; pkCols.forEach(c => { keys[c] = r[c]; });
+      return { keys, count: r.n };
+    });
+    const max = cells.reduce((m, c) => Math.max(m, c.count), 0);
+    const total = cells.reduce((s2, c) => s2 + c.count, 0);
+    return res.json({ ok: true, enabled: true, pk_fields: pkCols, cells, max, total });
+  } catch (e) {
+    console.error('[grid/stats] error:', e.message);
+    return res.status(500).json({ error: 'sunucu_hatasi', message: getErrorMessage(req, 'sunucu_hatasi') });
+  }
+});
+
 // POST /api/polygon/records  –  Get existing event records within a polygon (spatial query)
 app.post('/api/polygon/records', async (req, res) => {
   if (!POLYGON_TABLE) {
@@ -4588,12 +4629,25 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
     // Aggregation layer tanımlıysa, olay tablosuna eklenen birincil anahtar (PK) sütunları da
     // dışa aktarılır (ör. bölge/ızgara kimliği). Tanımlı değilse hiçbir ek sütun gelmez.
     const pkCols = (POLYGON_TABLE && Array.isArray(POLYGON_PKS)) ? POLYGON_PKS : [];
-    // Konum gizliliği: aggregation layer varsa expert (opener/solver) indirmesinde tam konum yerine
-    // grid PK'leri + grid poligonu verilir. Supervisor bu ucu kullanırsa tam konum korunur.
-    const priv = aggPrivacyEnabled() && licenseRoleForUser(req.user) === 'expert';
-    const pkSelect = priv
-      ? aggCellSql('o').select
-      : pkCols.map((p, i) => `,\n              o."${p.safeName}" AS "__pk_${i}"`).join('');
+    // Konum gizliliği: aggregation layer varsa expert (opener/solver) indirmesi, kendi olaylarının
+    // GRİD ÖZETİDİR (tek tek olay / enlem-boylam / fotoğraf yok). Supervisor bu ucu kullanırsa
+    // tam konumlu (nokta) indirme korunur.
+    if (aggPrivacyEnabled() && licenseRoleForUser(req.user) === 'expert') {
+      const features = await buildGridSummaryGeoJSON({
+        where: `ev.created_by_id = $1`, params: [req.user.id], includeEmpty: false, withStatus: true
+      });
+      if (!features.length) return res.status(404).json({ error: 'olay_yok', message: getErrorMessage(req, 'olay_yok') });
+      const geojson = { type: 'FeatureCollection', features, metadata: {
+        username: req.user.username,
+        dataset: 'DiDe — my reports summarised by grid cell (aggregation layer)',
+        aggregation_layer: POLYGON_TABLE, grid_cells: features.length,
+        total_events: features.reduce((n, f) => n + f.properties.event_count, 0),
+        location_precision: 'aggregation_cell', export_date: new Date().toISOString(),
+        license: dataLicenseName('expert') } };
+      const safeUserZ = String(req.user.username || 'user').replace(/[^a-zA-Z0-9_-]/g, '_');
+      return sendGridSummaryZip(res, geojson, 'expert', `dide_${safeUserZ}_${new Date().toISOString().slice(0, 10)}.zip`);
+    }
+    const pkSelect = pkCols.map((p, i) => `,\n              o."${p.safeName}" AS "__pk_${i}"`).join('');
 
     const { rows } = await pool.query(
       `SELECT o.event_id,
@@ -4613,7 +4667,6 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
               o.direction                    AS direction${pkSelect}
          FROM event o
          LEFT JOIN event_type l ON l.event_type_id = o.event_type
-         ${priv ? aggCellSql('o').join : ''}
         WHERE o.created_by_id = $1
         ORDER BY o.event_id`,
       [req.user.id]
@@ -4645,19 +4698,12 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
       const photos = collect(r.photo_urls, photoFiles);
       const videos = collect(r.video_urls, videoFiles);
       let geometry = null;
-      if (priv) {
-        geometry = aggCellGeometry(r);                       // gridin temsilî noktası (tam konum değil)
-      } else {
-        try { geometry = r.geom_json ? JSON.parse(r.geom_json) : null; } catch { geometry = null; }
-        if (!geometry && Number.isFinite(parseFloat(r.longitude)) && Number.isFinite(parseFloat(r.latitude))) {
-          geometry = { type: 'Point', coordinates: [parseFloat(r.longitude), parseFloat(r.latitude)] };
-        }
+      try { geometry = r.geom_json ? JSON.parse(r.geom_json) : null; } catch { geometry = null; }
+      if (!geometry && Number.isFinite(parseFloat(r.longitude)) && Number.isFinite(parseFloat(r.latitude))) {
+        geometry = { type: 'Point', coordinates: [parseFloat(r.longitude), parseFloat(r.latitude)] };
       }
-      // Konum alanları: gizlilik açıksa enlem/boylam yerine grid PK'leri (sütunların yerinde)
-      const locProps = priv
-        ? aggCellProps(r)
-        : { latitude: r.latitude != null ? parseFloat(r.latitude) : null,
-            longitude: r.longitude != null ? parseFloat(r.longitude) : null };
+      const locProps = { latitude: r.latitude != null ? parseFloat(r.latitude) : null,
+                         longitude: r.longitude != null ? parseFloat(r.longitude) : null };
       return {
         type: 'Feature',
         geometry,
@@ -4676,7 +4722,7 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
           last_agreed_date: r.last_agreed_date ?? null,                     // son katılım tarihi
           direction: r.direction != null ? Number(r.direction) : null,   // derece, kuzeyden saat yönünde
           // Aggregation layer PK sütunları (gizlilik kapalıyken sonda; açıkken konum alanlarının yerinde)
-          ...(priv ? {} : Object.fromEntries(pkCols.map((p, i) => [p.name, r[`__pk_${i}`] ?? null])))
+          ...Object.fromEntries(pkCols.map((p, i) => [p.name, r[`__pk_${i}`] ?? null]))
         }
       };
     });
@@ -4688,7 +4734,7 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
         username: req.user.username,
         total_events: features.length,
         export_date: new Date().toISOString(),
-        location_precision: priv ? 'aggregation_cell' : 'point',
+        location_precision: 'point',
         license: dataLicenseName(licenseRoleForUser(req.user))
       }
     };
@@ -4722,38 +4768,78 @@ app.get('/api/me/export', requireAuth, async (req, res) => {
 });
 
 /* =============== İNDİRMELERDE KONUM GİZLİLİĞİ (aggregation layer) ===============
-   Aggregation layer tanımlıysa vatandaş (açık veri) ve expert ("Verilerimi indir") indirmelerinde
-   olayın TAM konumu verilmez:
-     - latitude / longitude sütunları YOK,
-     - yerine olayın düştüğü gridin birincil anahtar (PK) sütunları,
-     - GeoJSON geometrisi bir NOKTADIR ama olayın tam yeri değil, gridin TEMSİLİ NOKTASIDIR
-       (ST_PointOnSurface: her zaman gridin içinde kalır; kesişim modunda boundary ile kırpılmış
-       gridin içinde). Aynı griddeki tüm olaylar aynı noktayı paylaşır → nokta verisi gibi
-       kullanılır, gerçek konum ortaya çıkmaz.
-   Supervisor indirmesi değişmez (enlem/boylam + PK birlikte). */
+   Aggregation layer tanımlıysa vatandaş (açık veri) ve expert ("Verilerimi indir") indirmeleri
+   TEK TEK OLAYLARI (nokta) içermez; GRİD ÖZETİDİR:
+     grid_events.geojson — her özellik bir GRİD (geometri: grid poligonu; kesişim modunda boundary
+       ile kırpılmış), özellikler: gridin PK sütunları, event_count, tür bazında sayılar
+       (counts_by_type); expert'te ayrıca active_count / closed_count.
+     Enlem/boylam, olay açıklaması, fotoğraf ve video YOKTUR (konum anonimdir).
+   Supervisor indirmesi değişmez (tam konum + grid PK'leri, tek tek olaylar). */
 function aggPrivacyEnabled() {
   return !!(POLYGON_TABLE && Array.isArray(POLYGON_PKS) && POLYGON_PKS.length > 0);
 }
-// Olay tablosu takma adı (alias) için ek SELECT ve JOIN parçaları
-function aggCellSql(alias) {
+// opts: { where: SQL (ev = event, o = event_type), params: [], includeEmpty: bool, withStatus: bool }
+async function buildGridSummaryGeoJSON(opts) {
   const t = assertSafeIdent(POLYGON_TABLE, 'table');
-  const on = POLYGON_PKS.map(p => `pg."${p.safeName}" = ${alias}."${p.safeName}"`).join(' AND ');
-  const g = (BOUNDARY_MODE === 'intersection')
-    ? `ST_CollectionExtract(ST_Intersection(ST_MakeValid(pg.geom), ${BOUNDARY_UNION_SQL}), 3)`
-    : 'pg.geom';
-  return {
-    select: POLYGON_PKS.map((p, i) => `,\n              ${alias}."${p.safeName}" AS "__pk_${i}"`).join('') +
-            `,\n              ST_AsGeoJSON(ST_PointOnSurface(${g}), 7) AS __cell_gj`,
-    join: `LEFT JOIN public.${t} pg ON ${on}`
-  };
+  const pkSel = POLYGON_PKS.map(p => `p."${p.safeName}"`).join(', ');
+  const clip = BOUNDARY_MODE === 'intersection';
+  // 1) Gridler ve geometrileri
+  const cellsQ = clip
+    ? `WITH b AS (SELECT ${BOUNDARY_UNION_SQL} AS u)
+       SELECT ${pkSel}, ST_AsGeoJSON(ST_CollectionExtract(ST_Intersection(ST_MakeValid(p.geom), b.u), 3), 7) AS gj
+         FROM public.${t} p, b
+        WHERE p.geom IS NOT NULL AND ST_Intersects(p.geom, b.u)
+          AND ST_Area(ST_Intersection(ST_MakeValid(p.geom), b.u)) > 0`
+    : `SELECT ${pkSel}, ST_AsGeoJSON(p.geom, 7) AS gj FROM public.${t} p WHERE p.geom IS NOT NULL`;
+  // 2) Grid × olay türü sayıları
+  const countsQ = `
+    SELECT ${pkSel}, o.event_type_name AS type_name,
+           COUNT(*)::int AS n,
+           SUM(CASE WHEN COALESCE(ev.active, true) THEN 1 ELSE 0 END)::int AS n_active
+      FROM public.event ev
+      JOIN public.event_type o ON o.event_type_id = ev.event_type
+      JOIN public.${t} p ON ST_Contains(p.geom, ev.geom)
+     WHERE ev.geom IS NOT NULL
+       ${clip ? `AND ST_Contains(${BOUNDARY_UNION_SQL}, ev.geom)` : ''}
+       AND (${opts.where})
+     GROUP BY ${pkSel}, o.event_type_name`;
+  const [cells, counts] = await Promise.all([pool.query(cellsQ), pool.query(countsQ, opts.params || [])]);
+  const keyOf = (r) => POLYGON_PKS.map(p => String(r[p.safeName])).join('\u0001');
+  const agg = new Map();
+  for (const r of counts.rows) {
+    const k = keyOf(r);
+    const a = agg.get(k) || { total: 0, active: 0, byType: {} };
+    a.total += r.n; a.active += r.n_active;
+    const nm = r.type_name || '—';
+    a.byType[nm] = (a.byType[nm] || 0) + r.n;
+    agg.set(k, a);
+  }
+  const features = [];
+  for (const r of cells.rows) {
+    const a = agg.get(keyOf(r));
+    if (!a && !opts.includeEmpty) continue;
+    let geometry = null; try { geometry = r.gj ? JSON.parse(r.gj) : null; } catch {}
+    const props = {};
+    POLYGON_PKS.forEach(p => { props[p.name] = r[p.safeName] ?? null; });
+    props.event_count = a ? a.total : 0;
+    if (opts.withStatus) { props.active_count = a ? a.active : 0; props.closed_count = a ? a.total - a.active : 0; }
+    props.counts_by_type = a ? a.byType : {};
+    features.push({ type: 'Feature', geometry, properties: props });
+  }
+  features.sort((x, y) => (y.properties.event_count - x.properties.event_count));
+  return features;
 }
-function aggCellProps(r) {
-  const o = {};
-  POLYGON_PKS.forEach((p, i) => { o[p.name] = r[`__pk_${i}`] ?? null; });
-  return o;
-}
-function aggCellGeometry(r) {
-  try { return r.__cell_gj ? JSON.parse(r.__cell_gj) : null; } catch { return null; }
+// Grid özeti ZIP'i: grid_events.geojson + rolün lisansı (fotoğraf / video YOK)
+function sendGridSummaryZip(res, geojson, licenseRole, filename) {
+  const entries = [{ name: 'grid_events.geojson', data: Buffer.from(JSON.stringify(geojson, null, 2), 'utf8') }];
+  const lic = dataLicenseZipEntry(licenseRole);
+  if (lic) entries.push(lic);
+  const zip = buildZipBuffer(entries);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Length', String(zip.length));
+  return res.end(zip);
 }
 
 /* =============== AÇIK VERİ (OPEN_DATA) — giriş gerektirmez =============== */
@@ -4785,9 +4871,21 @@ app.get('/api/open-data/export', async (req, res) => {
       return res.status(429).json({ error: 'open_data_rate_limited', message: getErrorMessage(req, 'open_data_rate_limited') });
     }
 
-    // Aggregation layer varsa tam konum yerine grid PK'leri + grid poligonu (konum gizliliği)
-    const priv = aggPrivacyEnabled();
-    const agg = priv ? aggCellSql('e') : { select: '', join: '' };
+    // Aggregation layer varsa: tek tek olaylar yerine GRİD ÖZETİ (konum gizliliği)
+    if (aggPrivacyEnabled()) {
+      const features = await buildGridSummaryGeoJSON({
+        where: `COALESCE(ev.active, true) = true AND COALESCE(o.active, true) = true AND (${publicGoodBadWhere()})`,
+        includeEmpty: true
+      });
+      const total = features.reduce((n, f) => n + f.properties.event_count, 0);
+      if (!total) return res.status(404).json({ error: 'open_data_empty', message: getErrorMessage(req, 'open_data_empty') });
+      const geojson = { type: 'FeatureCollection', features, metadata: {
+        dataset: 'DiDe open data — public events summarised by grid cell (aggregation layer)',
+        aggregation_layer: POLYGON_TABLE, grid_cells: features.length, total_events: total,
+        location_precision: 'aggregation_cell', export_date: new Date().toISOString(),
+        license: dataLicenseName('citizen') } };
+      return sendGridSummaryZip(res, geojson, 'citizen', `dide_open_data_${new Date().toISOString().slice(0, 10)}.zip`);
+    }
     // Ziyaretçi haritasıyla aynı kural: aktif olay + aktif olay türü + public_ (publicGoodBadWhere)
     const { rows } = await pool.query(
       `SELECT e.event_id,
@@ -4798,10 +4896,9 @@ app.get('/api/open-data/export', async (req, res) => {
               e.created_at,
               e.photo_urls,
               COALESCE(e.num_agrees, 0)   AS num_agrees,
-              e.direction                 AS direction${agg.select}
+              e.direction                 AS direction
          FROM public.event e
          JOIN public.event_type o ON o.event_type_id = e.event_type
-         ${agg.join}
         WHERE COALESCE(e.active, true) = true
           AND COALESCE(o.active, true) = true
           AND (${publicGoodBadWhere()})
@@ -4837,14 +4934,6 @@ app.get('/api/open-data/export', async (req, res) => {
         num_agrees: r.num_agrees,
         direction: r.direction != null ? Number(r.direction) : null   // derece, kuzeyden saat yönünde
       };
-      if (priv) {
-        // Konum gizliliği: enlem/boylam YOK; grid PK'leri + geometri = gridin temsilî noktası
-        return {
-          type: 'Feature',
-          geometry: aggCellGeometry(r),
-          properties: { event_id: r.event_id, ...aggCellProps(r), ...common }
-        };
-      }
       return {
         type: 'Feature',
         geometry: (Number.isFinite(lat) && Number.isFinite(lng)) ? { type: 'Point', coordinates: [lng, lat] } : null,
@@ -4858,7 +4947,7 @@ app.get('/api/open-data/export', async (req, res) => {
       metadata: {
         dataset: 'DiDe open data — public events',
         total_events: features.length,
-        location_precision: priv ? 'aggregation_cell' : 'point',
+        location_precision: 'point',
         export_date: new Date().toISOString(),
         license: dataLicenseName('citizen')
       }

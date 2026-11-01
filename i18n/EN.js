@@ -720,5 +720,10 @@ window.i18nLangs.en = {
     gridNoRecords: 'There are no records in this area yet.',
     gridRecordsQuestionOne: 'There is {{count}} record in this area. Would you like to see it?',
     gridRecordsQuestion: 'There are {{count}} records in this area. Would you like to see them?',
-    gridAddQuestion: 'Would you like to add a new record in this area?'
+    gridAddQuestion: 'Would you like to add a new record in this area?',
+
+    // Tematik (ısı) haritası lejantı
+    thematicLegendSub: 'Events per grid cell',
+    thematicLegendNone: 'No records',
+    thematicLegendTotal: 'Total: {{n}} events'
 };
