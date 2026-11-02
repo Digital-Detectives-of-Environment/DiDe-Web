@@ -188,6 +188,7 @@ async function loadAppConfig() {
       // başlar; olaylar / katmanlar yüklenirken hazır olur (bir kez indirilir, giriş-çıkışta
       // yeniden kullanılır).
       try { fetchPolygonFc(); } catch {}
+      try { fetchThematicAll(60000); } catch {}
       // Açık veri butonu: giriş yapılmadan ve .env OPEN_DATA=true iken görünür
       try { updateOpenDataButton(); } catch {}
       try { updateContactButton(); } catch {}
@@ -1264,7 +1265,7 @@ async function rebuildEventTypeLayerPanel(mapInstance){
   }
   try { ensureLayerDrawer(mapInstance, 'layer-list'); } catch {}
   try { renderLayerList(mapInstance); } catch {}
-  if (thematicEnabled()) { try { refreshThematic(); scheduleThematicPoints(); } catch {} }
+  if (thematicEnabled()) { try { refreshThematic(true); scheduleThematicPoints(); } catch {} }
 }
 
 /* ===================== Existing Data geometry: colors + selection + value popup ===================== */
@@ -1404,15 +1405,19 @@ function _attachGeomInteractivity(geoLayer, table, maps){
 async function loadGeomLayersForMap(isPublic){
   if(!map) return;
 
+  // ÖNEMLİ (hız / "gridler gelmiyor" hatası): aggregation layer gridleri (__polygon_env)
+  // burada KALDIRILMAZ. Eskiden bu fonksiyon gridleri haritadan siliyordu; gridler bu yüzden
+  // ancak her şey yüklendikten sonra (ya da katmanlar panelinde tür seçince) görünüyordu.
+  const _keep = (x) => x.geomType === 'point' || x.table === 'Events' || x.geomType === 'raster' || x.table === '__polygon_env';
   __geomLayers
-    .filter(x => x.geomType !== 'point' && x.table !== 'Events' && x.geomType !== 'raster')
+    .filter(x => !_keep(x))
     .forEach(x => {
       try { map.removeLayer(x.layer); } catch {}
     });
 
   for (let i = __geomLayers.length - 1; i >= 0; i--){
     const x = __geomLayers[i];
-    if (!(x.geomType === 'point' || x.table === 'Events' || x.geomType === 'raster')) __geomLayers.splice(i, 1);
+    if (!_keep(x)) __geomLayers.splice(i, 1);
   }
 
   const isSupervisor = currentUser && (currentUser.role === 'supervisor' || currentUser.role === 'admin');
@@ -1538,10 +1543,35 @@ function fetchPolygonFc(force){
   }
   return __polygonFcPromise;
 }
+/* Gridler kendi panelinde (z=410) çizilir: yükleme sırası ne olursa olsun mevcut veri
+   (existing data) katmanlarının ÜSTÜNDE ve tıklanabilir kalırlar. Tampon / konum çemberleri
+   bir üst panelde (z=415) çizilir, gridlerin altında kaybolmaz. */
+const GRID_PANE = 'dideGridPane';
+const OVER_GRID_PANE = 'dideOverGridPane';
+function _ensureGridPanes(m){
+  m = m || map;
+  if (!m) return;
+  try {
+    if (!m.getPane(GRID_PANE)) { const pn = m.createPane(GRID_PANE); pn.style.zIndex = 410; }
+    if (!m.getPane(OVER_GRID_PANE)) { const po = m.createPane(OVER_GRID_PANE); po.style.zIndex = 415; po.style.pointerEvents = 'none'; }
+  } catch {}
+}
+// Tampon / konum çemberleri için pane (aggregation layer yoksa varsayılan overlayPane)
+function _overGridPane(){
+  if (!map || !thematicEnabled()) return 'overlayPane';
+  _ensureGridPanes(map);
+  return map.getPane(OVER_GRID_PANE) ? OVER_GRID_PANE : 'overlayPane';
+}
+let __polygonSvgRenderer = null;
 function _polygonRendererFor(nFeatures){
-  if (!(nFeatures > 600) || typeof L === 'undefined' || !L.canvas) return undefined;
-  if (!__polygonCanvasRenderer) __polygonCanvasRenderer = L.canvas({ padding: 0.5, tolerance: 2 });
-  return __polygonCanvasRenderer;
+  if (typeof L === 'undefined') return undefined;
+  _ensureGridPanes(map);
+  if (nFeatures > 600 && L.canvas) {
+    if (!__polygonCanvasRenderer) __polygonCanvasRenderer = L.canvas({ padding: 0.5, tolerance: 2, pane: GRID_PANE });
+    return __polygonCanvasRenderer;
+  }
+  if (!__polygonSvgRenderer && L.svg) __polygonSvgRenderer = L.svg({ pane: GRID_PANE });
+  return __polygonSvgRenderer || undefined;
 }
 
 async function loadPolygonLayer() {
@@ -1558,13 +1588,34 @@ async function loadPolygonLayer() {
     // Bu arada başka bir loadPolygonLayer çağrısı başladıysa (giriş/çıkış/init çakışması)
     // eski çağrı katman EKLEMEZ → haritada çift / sahipsiz grid katmanı kalmaz.
     if (seq !== __polygonLoadSeq) return;
+    if (!fc || !fc.features || fc.features.length === 0) {
+      if (__polygonLayer) { try { map.removeLayer(__polygonLayer); } catch {} __polygonLayer = null; }
+      return;
+    }
+    // Aynı grid verisiyle katman zaten kuruluysa yeniden ÇİZİLMEZ (giriş / init çağrıları
+    // tekrar ederse anında döner); yalnızca haritada ve katman listesinde olduğu garanti edilir.
+    if (__polygonLayer && __polygonLayer.__dideFc === fc) {
+      const reg0 = __geomLayers.find(x => x.table === '__polygon_env');
+      if (!reg0) __geomLayers.push({ table: '__polygon_env', geomType: 'polygon', layer: __polygonLayer, visible: true, z: -10 });
+      if ((!reg0 || reg0.visible !== false) && !map.hasLayer(__polygonLayer)) { try { __polygonLayer.addTo(map); } catch {} }
+      try { ensureLayerDrawer(map); renderLayerList(map); } catch {}
+      try { refreshThematic(false); scheduleThematicPoints(); } catch {}
+      return;
+    }
     if (__polygonLayer) {
       try { map.removeLayer(__polygonLayer); } catch {}
       __polygonLayer = null;
     }
-    if (!fc || !fc.features || fc.features.length === 0) return;
+    // HIZ: ısı haritası sayıları (tüm türler, tek istek) gridlerle PARALEL indirilmişti →
+    // katman ilk çizimde doğrudan varsayılan türün renkleriyle boyanır (önce gri, sonra renk değil).
+    try {
+      const all = await Promise.race([fetchThematicAll(60000), new Promise(r => setTimeout(() => r(null), 1500))]);
+      if (seq !== __polygonLoadSeq) return;
+      if (all) { _thematicApplyFrom(all); __thematic.classes = _thematicBuildClasses(__thematic.max); }
+    } catch {}
 
     __polygonLayer = L.geoJSON(fc, {
+      pane: GRID_PANE,
       renderer: _polygonRendererFor(fc.features.length),
       style: (feature) => {
         // Aggregation layer: grid bazlı ısı (tematik) haritası stili
@@ -1587,6 +1638,7 @@ async function loadPolygonLayer() {
         });
       }
     });
+    __polygonLayer.__dideFc = fc;
     __polygonLayer.addTo(map);
 
     // Register in geom layers for layer drawer (eski kayıt varsa yeni katmana bağlanır)
@@ -1605,7 +1657,7 @@ async function loadPolygonLayer() {
     ensureLayerDrawer(map);
     renderLayerList(map);
     // Tematik harita: seçili türün sayıları + yalnızca tampon içindeki noktalar
-    try { refreshThematic(); scheduleThematicPoints(); } catch {}
+    try { refreshThematic(false); scheduleThematicPoints(); } catch {}
   } catch (e) {
     console.warn('[VG0] Polygon layer load error:', e);
   }
@@ -1716,29 +1768,65 @@ function updateThematicLegend(){
     (empty > 0 ? `<div class="tl-row"><span class="tl-sw tl-none"></span><span>${escapeHtml(t('thematicLegendNone'))}</span></div>` : '') +
     `<div class="tl-total">${escapeHtml(t('thematicLegendTotal', { n: __thematic.total }))}</div>`;
 }
-async function refreshThematic(){
-  if (!thematicEnabled() || !__polygonLayer || !__thematic.typeId) { updateThematicLegend(); return; }
-  const seq = ++__thematic.seq;
-  try {
-    const r = await fetch('/api/grid/stats?event_type=' + encodeURIComponent(__thematic.typeId), { cache: 'no-store' });
-    const d = r.ok ? await r.json() : null;
-    if (seq !== __thematic.seq) return;
-    __thematic.counts = new Map();
-    __thematic.pkFields = (d && d.pk_fields) || [];
-    (d && d.cells || []).forEach(c => { __thematic.counts.set(_thematicKeyFromProps(c.keys), c.count); });
-    __thematic.max = (d && d.max) || 0;
-    __thematic.total = (d && d.total) || 0;
-  } catch (e) {
-    console.warn('[thematic] stats error', e);
-    __thematic.counts = new Map(); __thematic.max = 0; __thematic.total = 0;
+/* HIZ: tüm olay türlerinin grid sayıları TEK istekte (/api/grid/stats-all) alınır ve bellekte
+   tutulur. Açılışta gridlerle paralel indirilir; katmanlar panelinde tür değiştirmek sunucuya
+   gitmeden anında olur. Veri değişince (olay ekleme / silme sonrası olaylar yeniden yüklenince)
+   refreshThematic(true) ile tazelenir. Önbellek, oturum değişince (giriş / çıkış) geçersizdir. */
+const __thematicAll = { data: null, at: 0, key: null, promise: null, promiseKey: null };
+function _thematicViewerKey(){
+  try { return (typeof authToken !== 'undefined' && authToken) ? ('u:' + String(authToken).slice(-16)) : 'g'; } catch { return 'g'; }
+}
+function fetchThematicAll(maxAgeMs){
+  if (!thematicEnabled()) return Promise.resolve(null);
+  const key = _thematicViewerKey();
+  if (__thematicAll.data && __thematicAll.key === key && (Date.now() - __thematicAll.at) <= (maxAgeMs || 0)) {
+    return Promise.resolve(__thematicAll.data);
   }
+  if (__thematicAll.promise && __thematicAll.promiseKey === key) return __thematicAll.promise;
+  const p = fetch('/api/grid/stats-all', { cache: 'no-store' })
+    .then(r => r.ok ? r.json() : null)
+    .then(d => {
+      if (__thematicAll.promise === p) __thematicAll.promise = null;
+      if (d && d.ok) { __thematicAll.data = d; __thematicAll.at = Date.now(); __thematicAll.key = key; }
+      return d;
+    })
+    .catch(e => { if (__thematicAll.promise === p) __thematicAll.promise = null; console.warn('[thematic] stats-all', e); return null; });
+  __thematicAll.promise = p; __thematicAll.promiseKey = key;
+  return p;
+}
+// Önbellekteki tüm-tür verisinden SEÇİLİ türün sayılarını uygular. Henüz tür seçilmemişse
+// (ilk açılış) sunucunun önerdiği varsayılan tür (en son eklenen olayın türü — katmanlar
+// panelindeki ilk türle aynı kural) seçilir.
+function _thematicApplyFrom(d){
+  if (!d || !d.ok) return;
+  if (!__thematic.typeId && d.default_type != null) __thematic.typeId = String(d.default_type);
+  __thematic.pkFields = d.pk_fields || __thematic.pkFields || [];
+  const tt = (__thematic.typeId && d.types) ? d.types[String(__thematic.typeId)] : null;
+  __thematic.counts = new Map();
+  (tt && tt.cells || []).forEach(c => { __thematic.counts.set(_thematicKeyFromProps(c.keys), c.count); });
+  __thematic.max = (tt && tt.max) || 0;
+  __thematic.total = (tt && tt.total) || 0;
+}
+// force=true: veri değişmiş olabilir → taze istek (aynı anda gelen çağrılar tek isteği paylaşır)
+async function refreshThematic(force){
+  if (!thematicEnabled() || !__polygonLayer) { updateThematicLegend(); return; }
+  const seq = ++__thematic.seq;
+  const hadType = !!__thematic.typeId;
+  let d = null;
+  try { d = await fetchThematicAll(force ? 1500 : 60000); } catch { d = null; }
+  if (seq !== __thematic.seq) return;
+  if (d) _thematicApplyFrom(d);
+  else { __thematic.counts = new Map(); __thematic.max = 0; __thematic.total = 0; }
   __thematic.classes = _thematicBuildClasses(__thematic.max);
   _thematicRestyle();
   updateThematicLegend();
+  // Varsayılan tür sunucudan geldiyse katmanlar panelindeki radio da işaretlensin
+  if (!hadType && __thematic.typeId) { try { renderLayerList(map); } catch {} }
 }
 function setThematicType(typeId){
   __thematic.typeId = typeId == null ? null : String(typeId);
-  refreshThematic();
+  // Önbellekte varsa ANINDA boyanır (sunucuya gidilmez)
+  refreshThematic(false);
 }
 
 /* Tamponların içindeki olay noktaları (tüm türler). Diğer her şey yalnızca grid olarak görünür. */
@@ -3455,7 +3543,8 @@ function drawBufferCircle(lat, lng){
       dashArray: '6 4',
       fillColor: '#3b82f6',
       fillOpacity: 0.12,
-      interactive: false
+      interactive: false,
+      pane: _overGridPane()
     }).addTo(map);
   }
   // Tampon tam görünsün diye görünümü çembere sığdır
@@ -10747,7 +10836,7 @@ async function ensureBoundaryThenClip(attempt){
   attempt = attempt || 0;
   try {
     if (!__boundary.enabled || !__boundary.geojson){
-      const r = await fetch('/api/boundary');
+      const r = await fetchBoundaryResponse();
       if (r.ok){
         const d = await r.json().catch(() => ({}));
         if (d && d.enabled && d.geojson){
@@ -11018,6 +11107,20 @@ function _applyBoundaryConstraints(){
   __boundaryConstraintsApplied = true;
 }
 
+/* HIZ: sınır (boundary) verisi oturum boyunca değişmez; açılışta 3-4 farklı yerden
+   isteniyordu. Artık TEK istek yapılır, her çağıran yanıtın bir kopyasını (clone) alır.
+   Başarısız yanıt önbellekte tutulmaz (sonraki çağrı yeniden dener). */
+let __boundaryRespPromise = null;
+function fetchBoundaryResponse(){
+  if (!__boundaryRespPromise) {
+    __boundaryRespPromise = fetch('/api/boundary').then(r => {
+      if (!r.ok) __boundaryRespPromise = null;
+      return r;
+    }).catch(e => { __boundaryRespPromise = null; throw e; });
+  }
+  return __boundaryRespPromise.then(r => r.clone());
+}
+
 // Harita oluşturulmadan ÖNCE çağrılır: config bayrağı + sınır geometrisini çekip
 // kilit merkezini hazırlar (böylece başlangıç görünümü sınır olur, başka yer yüklenmez).
 async function _prefetchBoundaryLock(){
@@ -11032,7 +11135,7 @@ async function _prefetchBoundaryLock(){
     // Clipping istenmiyorsa: tile blokajını kaldır (normal harita).
     if (!(flag === 'yes' || flag === 'true' || flag === '1')) { window.__boundaryClipPending = false; return; }
 
-    const br = await fetch('/api/boundary');
+    const br = await fetchBoundaryResponse();
     if (!br.ok) { window.__boundaryClipPending = false; return; }
     const data = await br.json().catch(() => ({}));
     if (data && data.enabled && data.geojson){
@@ -11065,7 +11168,7 @@ async function _prefetchBoundaryLock(){
 async function initBoundaryConstraints(){
   if (__boundaryConstraintsApplied) return;
   try {
-    const r = await fetch('/api/boundary');
+    const r = await fetchBoundaryResponse();
     if (!r.ok) return;
     const data = await r.json().catch(() => ({}));
     if (data && data.enabled && data.geojson){
@@ -11080,7 +11183,7 @@ async function loadBoundary(){
   removeBoundaryLayer();
   try {
     if (!__boundary.enabled || !__boundary.geojson){
-      const r = await fetch('/api/boundary');
+      const r = await fetchBoundaryResponse();
       if (r.ok){
         const data = await r.json().catch(() => ({}));
         if (data && data.enabled && data.geojson){
@@ -12454,7 +12557,8 @@ function _slUpdateLiveBuffer(ll){
       className: 'live-buffer-circle',
       color: '#0d9488', weight: 2, opacity: 0.9,
       fillColor: '#14b8a6', fillOpacity: 0.14,
-      interactive: false
+      interactive: false,
+      pane: _overGridPane()
     }).addTo(map);
     try { __slBufferCircle.bringToBack(); } catch {}
   }
@@ -14818,6 +14922,10 @@ function importWizardBack() {
   try { await _prefetchBoundaryLock(); } catch (e) { console.warn('_prefetchBoundaryLock', e); }
 
   await loadAppConfig(); 
+  // HIZ: gridler (ve tüm türlerin ısı haritası sayıları) config gelir gelmez, olaylar / mevcut
+  // veri katmanları / raster beklenmeden çizilir. Sonraki loadPolygonLayer çağrıları aynı
+  // katmanı yeniden kullanır (yeniden çizmez).
+  if (APP_CONFIG.polygonTable) { try { loadPolygonLayer(); } catch (e) { console.warn('[INIT] early grid load', e); } }
   await loadPageSizeSettings();
   try {
     const __v = getInitialMapView();

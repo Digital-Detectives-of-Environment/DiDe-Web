@@ -660,7 +660,10 @@ ensureDbConnectionWithRetry()
     // Rotalama: eski önbellek tablosu artık kullanılmıyor → kaldır
     try { await pool.query(`DROP TABLE IF EXISTS public.dide_route_area`); } catch (e) {}
     // Rotalama: sınırı (dide_boundary / aggregation) OSRM'in yol ağını kesmesi için dışa aktar
-    try { await exportRoutingBoundary(); } catch (e) { console.warn('[ROUTE] boundary export error:', e.message); }
+    // HIZ: rotalama sınırı arka planda yazılır (grid önbelleği hazırlandıktan sonra);
+    // site açılışını / ilk grid isteğini bekletmez.
+    getGridCacheSafe().then(() => exportRoutingBoundary())
+      .catch((e) => console.warn('[ROUTE] boundary export error:', e.message));
     // Şirket kullanıcıları: kullanıcı adı benzersizliği şirket bazında
     try { await ensureCompanyUsernameScope(); } catch (e) { console.warn('[USERS] username scope error:', e.message); }
     // Şirket tablosu / yeni kolonlar (instagram_link, deactivated_* ...) açılışta hazırlanır
@@ -1458,30 +1461,133 @@ app.get(/^\/raster\/(.+)$/, (req, res) => {
      - grid özeti indirmeleri → yalnızca olay sayıları sorgulanır, geometriler önbellekten */
 const __gridCache = { data: null, promise: null };
 
-function _gridKeyFromTextCols(r) {
-  return POLYGON_PKS.map((p, i) => (r[`__k${i}`] == null ? '' : String(r[`__k${i}`]))).join('\u0001');
+/* ---- Disk önbelleği (.dide_cache) ----
+   Grid GeoJSON'u, aggregation birleşik sınırı ve kesişim geometrisi SUNUCU YENİDEN
+   BAŞLADIĞINDA da yeniden hesaplanmasın diye proje klasöründeki .dide_cache/ altına gzip'li
+   yazılır. Her kayıt, grid tablosunun İMZASI (getGridSignature) ile saklanır; grid tablosu,
+   PK / Display_Attribute ayarları ya da boundary dosyası değişirse imza değişir ve önbellek
+   kendiliğinden yenilenir. Klasörü silmek her zaman güvenlidir (yeniden üretilir). */
+const DIDE_CACHE_DIR = path.join(__dirname, '.dide_cache');
+const GRID_CACHE_VERSION = 4;
+function _diskCacheRead(name) {
+  try {
+    const buf = fs.readFileSync(path.join(DIDE_CACHE_DIR, name));
+    return JSON.parse(zlib.gunzipSync(buf).toString('utf8'));
+  } catch { return null; }
+}
+function _diskCacheWrite(name, obj) {
+  // Asenkron: büyük önbellek dosyaları olay döngüsünü (istekleri) bekletmez
+  try {
+    fs.mkdirSync(DIDE_CACHE_DIR, { recursive: true });
+    const final = path.join(DIDE_CACHE_DIR, name);
+    const tmp = final + '.' + process.pid + '.tmp';
+    zlib.gzip(Buffer.from(JSON.stringify(obj), 'utf8'), { level: 6 }, (err, gz) => {
+      if (err) return console.warn('[CACHE] gzip error:', err.message);
+      fs.writeFile(tmp, gz, (e2) => {
+        if (e2) return console.warn('[CACHE] write error:', e2.message);
+        fs.rename(tmp, final, (e3) => { if (e3) console.warn('[CACHE] rename error:', e3.message); });
+      });
+    });
+  } catch (e) { console.warn('[CACHE] write error:', e.message); }
 }
 
-async function _buildGridCache() {
-  await __bootDone;
-  const t0 = Date.now();
-  const table = assertSafeIdent(POLYGON_TABLE, 'table');
+// Grid tablosunun içerik imzası: satır sayısı + her gridin özellikleri, nokta sayısı, alanı
+// ve konumu (PK sırasıyla). Tek bir tarama; on binlerce gridde bile ~1 sn'nin altında.
+let __gridSigPromise = null;
+function getGridSignature() {
+  if (!__gridSigPromise) {
+    __gridSigPromise = (async () => {
+      const table = assertSafeIdent(POLYGON_TABLE, 'table');
+      const cols = _gridPropCols();
+      const propObj = cols.length > 0 ? `jsonb_build_object(${cols.map(c => `'${c}', t.${c}`).join(', ')})` : `'{}'::jsonb`;
+      const ord = POLYGON_PKS.map(p => `t."${p.safeName}"`).join(', ') || '1';
+      const { rows } = await pool.query(
+        `SELECT count(*)::text AS n,
+                md5(COALESCE(string_agg(md5(${propObj}::text || '|' || ST_NPoints(t.geom)::text || '|' ||
+                    ST_Area(t.geom)::text || '|' || ST_XMin(t.geom)::text || '|' || ST_YMin(t.geom)::text), '' ORDER BY ${ord}), '')) AS h
+           FROM public.${table} t WHERE t.geom IS NOT NULL`
+      );
+      let bstat = 'none';
+      try { const f = _findBoundaryFile(); if (f) { const st = fs.statSync(f); bstat = `${path.basename(f)}:${st.size}:${Math.floor(st.mtimeMs)}`; } } catch {}
+      const raw = [GRID_CACHE_VERSION, table, POLYGON_PKS.map(p => p.safeName).join(','), cols.join(','),
+                   rows[0].n, rows[0].h, bstat].join('|');
+      return crypto.createHash('sha1').update(raw).digest('hex');
+    })().catch((e) => { __gridSigPromise = null; throw e; });
+  }
+  return __gridSigPromise;
+}
+
+function _gridPropCols() {
   const cols = POLYGON_PKS.map(p => p.safeName);
   for (const attr of DISPLAY_ATTRS) {
     const safe = assertSafeIdent(attr, 'column');
     if (!cols.includes(safe)) cols.push(safe);
   }
+  return cols;
+}
+
+function _gridKeyFromTextCols(r) {
+  return POLYGON_PKS.map((p, i) => (r[`__k${i}`] == null ? '' : String(r[`__k${i}`]))).join('\u0001');
+}
+
+// Önbellek nesnesini (bellekte kullanılan biçim) hücre listesinden kurar
+// fcGzIn: diskten okunan hazır gzip'li GeoJSON (varsa yeniden serileştirme / sıkıştırma yapılmaz)
+function _gridCacheFromCells(cellsIn, sig, fcGzIn) {
+  const cells = [];
+  const byKey = new Map();
+  for (const c of cellsIn) {
+    if (!c || !c.geometry) continue;
+    cells.push(c);
+    if (!byKey.has(c.key)) byKey.set(c.key, c);
+  }
+  let fcJson = null, fcGz = fcGzIn || null;
+  if (!fcGz) {
+    fcJson = JSON.stringify({
+      type: 'FeatureCollection',
+      features: cells.map(c => ({ type: 'Feature', geometry: c.geometry, properties: c.props }))
+    });
+    fcGz = zlib.gzipSync(fcJson, { level: 6 });
+  }
+  const etag = `"grid-${String(sig || '').slice(0, 24)}"`;
+  return {
+    cells, byKey, fcGz, etag, sig,
+    // Sıkıştırılmamış hali yalnızca gzip desteklemeyen istemci için, gerektiğinde üretilir
+    get fcJson() { if (fcJson == null) fcJson = zlib.gunzipSync(fcGz).toString('utf8'); return fcJson; }
+  };
+}
+
+async function _buildGridCache() {
+  await __bootDone;
+  const t0 = Date.now();
+  const sig = await getGridSignature();
+
+  // 1) Disk önbelleği (sunucu yeniden başlatıldığında anında hazır)
+  const disk = _diskCacheRead('grid.json.gz');
+  if (disk && disk.sig === sig && Array.isArray(disk.cells)) {
+    let fcGz = null;
+    try { fcGz = fs.readFileSync(path.join(DIDE_CACHE_DIR, 'grid_fc.' + sig.slice(0, 16) + '.geojson.gz')); } catch {}
+    const d = _gridCacheFromCells(disk.cells, sig, fcGz);
+    console.log(`[GRID] Cache loaded from disk: ${d.cells.length} cells in ${Date.now() - t0} ms.`);
+    return d;
+  }
+
+  // 2) Veritabanından hesapla (yalnızca ilk kez ya da grid tablosu değişince)
+  const table = assertSafeIdent(POLYGON_TABLE, 'table');
+  const cols = _gridPropCols();
   // Özellik anahtarları eskisiyle AYNI (jsonb_build_object('<sütun>', t.<sütun>))
   const propObj = cols.length > 0 ? `jsonb_build_object(${cols.map(c => `'${c}', t.${c}`).join(', ')})` : `'{}'::jsonb`;
   const kSel = POLYGON_PKS.map((p, i) => `t."${p.safeName}"::text AS "__k${i}"`).join(', ');
   const kOut = POLYGON_PKS.map((p, i) => `"__k${i}"`).join(', ');
   const ordCol = POLYGON_PKS.length ? `t."${POLYGON_PKS[0].safeName}"` : 'NULL';
   const clip = BOUNDARY_MODE === 'intersection';
+  // Kesişim modunda: sınırın TAMAMEN içindeki gridler olduğu gibi alınır (pahalı
+  // ST_Intersection yalnızca sınır çizgisini kesen gridler için hesaplanır).
   const q = clip ? `
     WITH b AS (SELECT ${BOUNDARY_UNION_SQL} AS u),
     src AS (
       SELECT ${propObj} AS props, ${kSel}${kSel ? ',' : ''} ${ordCol} AS __ord,
-             ST_CollectionExtract(ST_Intersection(ST_MakeValid(t.geom), b.u), 3) AS g
+             CASE WHEN ST_CoveredBy(t.geom, b.u) THEN t.geom
+                  ELSE ST_CollectionExtract(ST_Intersection(ST_MakeValid(t.geom), b.u), 3) END AS g
         FROM public.${table} t, b
        WHERE t.geom IS NOT NULL AND ST_Intersects(t.geom, b.u)
     )
@@ -1496,26 +1602,24 @@ async function _buildGridCache() {
      WHERE t.geom IS NOT NULL
      ORDER BY ${ordCol} ASC`;
   const { rows } = await pool.query(q);
-  const cells = [];
-  const byKey = new Map();
+  const cellsIn = [];
   for (const r of rows) {
     let geometry = null, centroid = null;
     try { geometry = r.gj ? JSON.parse(r.gj) : null; } catch {}
     try { centroid = r.cj ? JSON.parse(r.cj) : null; } catch {}
     if (!geometry) continue;
-    const cell = { key: _gridKeyFromTextCols(r), props: r.props || {}, geometry, centroid };
-    cells.push(cell);
-    if (!byKey.has(cell.key)) byKey.set(cell.key, cell);
+    cellsIn.push({ key: _gridKeyFromTextCols(r), props: r.props || {}, geometry, centroid });
   }
-  const fc = {
-    type: 'FeatureCollection',
-    features: cells.map(c => ({ type: 'Feature', geometry: c.geometry, properties: c.props }))
-  };
-  const fcJson = JSON.stringify(fc);
-  const fcGz = zlib.gzipSync(fcJson, { level: 6 });
-  const etag = `"grid-${crypto.createHash('sha1').update(fcJson).digest('hex').slice(0, 20)}"`;
-  console.log(`[GRID] Cache ready: ${cells.length} cells, ${(fcJson.length / 1024).toFixed(0)} KB (gzip ${(fcGz.length / 1024).toFixed(0)} KB) in ${Date.now() - t0} ms.`);
-  return { cells, byKey, fcJson, fcGz, etag };
+  const d = _gridCacheFromCells(cellsIn, sig);
+  _diskCacheWrite('grid.json.gz', { sig, cells: d.cells });
+  // Tarayıcıya giden hazır gzip'li GeoJSON da olduğu gibi saklanır (eski sürümler silinir)
+  try {
+    fs.mkdirSync(DIDE_CACHE_DIR, { recursive: true });
+    for (const f of fs.readdirSync(DIDE_CACHE_DIR)) if (/^grid_fc\..*\.geojson\.gz$/.test(f)) { try { fs.unlinkSync(path.join(DIDE_CACHE_DIR, f)); } catch {} }
+    fs.writeFile(path.join(DIDE_CACHE_DIR, 'grid_fc.' + sig.slice(0, 16) + '.geojson.gz'), d.fcGz, () => {});
+  } catch {}
+  console.log(`[GRID] Cache built: ${d.cells.length} cells (gzip ${(d.fcGz.length / 1024).toFixed(0)} KB) in ${Date.now() - t0} ms.`);
+  return d;
 }
 
 async function getGridCache() {
@@ -1527,10 +1631,83 @@ async function getGridCache() {
   }
   return __gridCache.promise;
 }
+/* En hızlı yol: grid önbelleği (hücre listesi) henüz belleğe alınmadıysa, tarayıcıya
+   gidecek hazır gzip'li GeoJSON doğrudan diskten okunur (JSON ayrıştırma yok) → sunucu
+   yeni başlamış olsa bile /api/polygon-layer milisaniyeler içinde yanıt verir. */
+let __gridFcFastPromise = null;
+function getGridFcFast() {
+  if (__gridCache.data) return Promise.resolve({ fcGz: __gridCache.data.fcGz, etag: __gridCache.data.etag, full: __gridCache.data });
+  if (!__gridFcFastPromise) {
+    __gridFcFastPromise = (async () => {
+      await __bootDone;
+      const sig = await getGridSignature();
+      try {
+        const fcGz = await fs.promises.readFile(path.join(DIDE_CACHE_DIR, 'grid_fc.' + sig.slice(0, 16) + '.geojson.gz'));
+        if (fcGz && fcGz.length) return { fcGz, etag: `"grid-${sig.slice(0, 24)}"`, full: null };
+      } catch {}
+      const d = await getGridCache();
+      return { fcGz: d.fcGz, etag: d.etag, full: d };
+    })().catch((e) => { __gridFcFastPromise = null; throw e; });
+  }
+  return __gridFcFastPromise;
+}
+
+function getGridCacheSafe() {
+  if (!POLYGON_TABLE || !POLYGON_PKS.length) return Promise.resolve(null);
+  return getGridCache().catch(() => null);
+}
 
 function warmGridCache() {
   if (!POLYGON_TABLE || !POLYGON_PKS.length) return;
-  getGridCache().catch((e) => console.warn('[GRID] cache warm-up failed:', e.message));
+  getGridCache()
+    .then(() => getAggBoundaryGeoJSON())
+    .catch((e) => console.warn('[GRID] cache warm-up failed:', e.message));
+}
+
+/* Aggregation modunda birleşik (dissolve) sınır — bir kez hesaplanır (bellek + disk). */
+const __aggBoundary = { gj: null, promise: null };
+function getAggBoundaryGeoJSON() {
+  if (BOUNDARY_MODE !== 'aggregation' || !POLYGON_TABLE) return Promise.resolve(null);
+  if (__aggBoundary.gj) return Promise.resolve(__aggBoundary.gj);
+  if (!__aggBoundary.promise) {
+    __aggBoundary.promise = (async () => {
+      const t0 = Date.now();
+      const sig = await getGridSignature();
+      const disk = _diskCacheRead('agg_boundary.json.gz');
+      if (disk && disk.sig === sig && disk.gj) { __aggBoundary.gj = disk.gj; return disk.gj; }
+      const polyTable = assertSafeIdent(POLYGON_TABLE, 'table');
+      const r = await pool.query(`SELECT ST_AsGeoJSON(ST_Union(geom)) AS gj FROM public.${polyTable}`);
+      const gj = (r.rows[0] && r.rows[0].gj) || null;
+      if (gj) { __aggBoundary.gj = gj; _diskCacheWrite('agg_boundary.json.gz', { sig, gj }); }
+      console.log(`[BOUNDARY] Aggregation boundary computed in ${Date.now() - t0} ms (cached).`);
+      return gj;
+    })().catch((e) => { __aggBoundary.promise = null; throw e; });
+  }
+  return __aggBoundary.promise;
+}
+
+/* Değişmeyen JSON yanıtları için: bir kez serileştir + gzip'le, ETag ile 304 döndür. */
+const __jsonResCache = new Map();
+function _sendCachedJson(req, res, key, build) {
+  let ent = __jsonResCache.get(key);
+  if (!ent) {
+    const json = JSON.stringify(build());
+    ent = { json, gz: zlib.gzipSync(json, { level: 6 }),
+            etag: `"j-${crypto.createHash('sha1').update(json).digest('hex').slice(0, 20)}"` };
+    __jsonResCache.set(key, ent);
+  }
+  res.set('ETag', ent.etag);
+  res.set('Cache-Control', 'public, max-age=0, must-revalidate');
+  res.set('Vary', 'Accept-Encoding');
+  if (req.headers['if-none-match'] === ent.etag) return res.status(304).end();
+  res.set('Content-Type', 'application/json; charset=utf-8');
+  if (_acceptsGzip(req)) {
+    res.set('Content-Encoding', 'gzip');
+    res.set('Content-Length', String(ent.gz.length));
+    return res.end(ent.gz);
+  }
+  res.set('Content-Length', String(Buffer.byteLength(ent.json)));
+  return res.end(ent.json);
 }
 
 // GIST indeksleri: olay noktası ↔ grid (ST_Contains) eşleşmeleri ve sınır kontrolleri
@@ -1571,7 +1748,7 @@ app.get('/api/polygon-layer', async (req, res) => {
     return res.json({ type: 'FeatureCollection', features: [] });
   }
   try {
-    const c = await getGridCache();
+    const c = await getGridFcFast();
     res.set('ETag', c.etag);
     res.set('Cache-Control', 'public, max-age=0, must-revalidate');
     res.set('Vary', 'Accept-Encoding');
@@ -1582,8 +1759,9 @@ app.get('/api/polygon-layer', async (req, res) => {
       res.set('Content-Length', String(c.fcGz.length));
       return res.end(c.fcGz);
     }
-    res.set('Content-Length', String(Buffer.byteLength(c.fcJson)));
-    return res.end(c.fcJson);
+    const json = c.full ? c.full.fcJson : zlib.gunzipSync(c.fcGz).toString('utf8');
+    res.set('Content-Length', String(Buffer.byteLength(json)));
+    return res.end(json);
   } catch (e) {
     console.error('[polygon-layer] error:', e.message);
     return res.status(500).json({ error: 'sunucu_hatasi' });
@@ -1644,9 +1822,13 @@ app.post('/api/polygon/find', async (req, res) => {
     const selectCols = allCols.length > 0 ? allCols.map(c => `t.${c}`).join(', ') + ',' : '';
 
     // Kesişim modunda nokta boundary içinde olmalı; dönen grid geometrisi boundary ile kırpılır
+    // HIZ: kesişim modunda kırpılmış geometri önbellekte hazır → yalnızca sınır kontrolü
+    // yapılır, pahalı ST_Intersection önbellekte yoksa hesaplanır.
+    const gcache = __gridCache.data;
+    const kTxt = POLYGON_PKS.map((p, i) => `, t."${p.safeName}"::text AS "__k${i}"`).join('');
     const q = (BOUNDARY_MODE === 'intersection') ? `
       WITH b AS (SELECT ${BOUNDARY_UNION_SQL} AS u)
-      SELECT ${selectCols} ST_AsGeoJSON(ST_CollectionExtract(ST_Intersection(ST_MakeValid(t.geom), b.u), 3))::jsonb AS geojson
+      SELECT ${selectCols} ${gcache ? 'NULL::jsonb' : 'ST_AsGeoJSON(ST_CollectionExtract(ST_Intersection(ST_MakeValid(t.geom), b.u), 3))::jsonb'} AS geojson${kTxt}
       FROM public.${table} t, b
       WHERE ST_Contains(t.geom, ST_SetSRID(ST_MakePoint($1, $2), 4326))
         AND ST_Contains(b.u, ST_SetSRID(ST_MakePoint($1, $2), 4326))
@@ -1674,12 +1856,18 @@ app.post('/api/polygon/find', async (req, res) => {
       displayValues[attr] = row[safe];
     }
 
+    let geometry = row.geojson;
+    if (!geometry && gcache) {
+      const cell = gcache.byKey.get(_gridKeyFromTextCols(row));
+      geometry = cell ? cell.geometry : null;
+    }
+
     return res.json({
       ok: true,
       found: true,
       pk_values: pkValues,
       display_values: displayValues,
-      geometry: row.geojson
+      geometry
     });
   } catch (e) {
     console.error('[polygon/find] error:', e.message);
@@ -1724,6 +1912,51 @@ app.get('/api/grid/stats', async (req, res) => {
     return res.json({ ok: true, enabled: true, pk_fields: pkCols, cells, max, total });
   } catch (e) {
     console.error('[grid/stats] error:', e.message);
+    return res.status(500).json({ error: 'sunucu_hatasi', message: getErrorMessage(req, 'sunucu_hatasi') });
+  }
+});
+
+/* GET /api/grid/stats-all  —  TÜM olay türlerinin grid sayıları TEK istekte.
+   HIZ: açılışta ısı haritası için ayrı ayrı istek beklenmez; katmanlar panelinde tür
+   değiştirmek de sunucuya gitmeden anında olur. Yalnızca olayı OLAN gridler döner (küçük).
+   default_type: en son eklenen (aktif, görüntüleyenin görebildiği) olayın türü — açılışta
+   varsayılan seçili tür olarak kullanılır (katmanlar panelindeki ilk türle aynı kural). */
+app.get('/api/grid/stats-all', async (req, res) => {
+  if (!POLYGON_TABLE || POLYGON_PKS.length === 0) return res.json({ ok: true, enabled: false, types: {} });
+  try {
+    let viewer = null;
+    try { const tk = getTokenFrom(req); if (tk) viewer = jwt.verify(tk, JWT_SECRET); } catch { viewer = null; }
+    const table = assertSafeIdent(POLYGON_TABLE, 'table');
+    const pkCols = POLYGON_PKS.map(p => p.safeName);
+    const sel = pkCols.map(c => `p."${c}"`).join(', ');
+    const q = `
+      SELECT ev.event_type AS type_id, ${sel}, COUNT(ev.event_id)::int AS n, MAX(ev.event_id) AS last_id
+        FROM event ev
+        JOIN event_type o ON o.event_type_id = ev.event_type
+        JOIN public.${table} p ON ST_Contains(p.geom, ev.geom)
+       WHERE COALESCE(ev.active, true) = true
+         AND COALESCE(o.active, true) = true
+         AND ev.geom IS NOT NULL
+         ${BOUNDARY_MODE === 'intersection' ? `AND ST_Contains(${BOUNDARY_UNION_SQL}, ev.geom)` : ''}
+         ${viewer ? '' : `AND (${publicGoodBadWhere()})`}
+       GROUP BY ev.event_type, ${sel}`;
+    const { rows } = await pool.query(q);
+    const types = {};
+    let bestType = null, bestId = -1;
+    for (const r of rows) {
+      const tid = String(r.type_id);
+      const tt = types[tid] || (types[tid] = { cells: [], max: 0, total: 0 });
+      const keys = {}; pkCols.forEach(c => { keys[c] = r[c]; });
+      tt.cells.push({ keys, count: r.n });
+      if (r.n > tt.max) tt.max = r.n;
+      tt.total += r.n;
+      const lid = Number(r.last_id) || 0;
+      if (lid > bestId) { bestId = lid; bestType = tid; }
+    }
+    res.set('Cache-Control', 'no-store');
+    return res.json({ ok: true, enabled: true, pk_fields: pkCols, default_type: bestType, types });
+  } catch (e) {
+    console.error('[grid/stats-all] error:', e.message);
     return res.status(500).json({ error: 'sunucu_hatasi', message: getErrorMessage(req, 'sunucu_hatasi') });
   }
 });
@@ -2649,14 +2882,28 @@ async function initBoundary() {
         return;
       }
       const polyTable = assertSafeIdent(POLYGON_TABLE, 'table');
-      const ov = await pool.query(
-        `SELECT ST_AsGeoJSON(ST_Intersection(a.u, b.u), 7) AS gj,
-                ST_Area(ST_Intersection(a.u, b.u)::geography) AS m2
-           FROM (SELECT ST_Union(ST_MakeValid(geom)) AS u FROM public.${polyTable} WHERE geom IS NOT NULL) a,
-                (SELECT ST_Union(ST_MakeValid(geom)) AS u FROM public.${BOUNDARY_DB_TABLE} WHERE geom IS NOT NULL) b`
-      );
-      const m2 = Number(ov.rows[0] && ov.rows[0].m2) || 0;
-      const gj = ov.rows[0] && ov.rows[0].gj;
+      // HIZ: önce birleşik sınır tablosu (birkaç geometri → hızlı), sonra yalnızca sınırla
+      // KESİŞEN gridler birleştirilir. Sonuç diske önbelleğe yazılır; grid tablosu ve
+      // boundary dosyası değişmedikçe sonraki açılışlarda HİÇ hesaplanmaz.
+      await _precomputeBoundaryUnion();
+      const sig = await getGridSignature();
+      let m2 = 0, gj = null;
+      const cached = _diskCacheRead('intersection.json.gz');
+      if (cached && cached.sig === sig && cached.gj && cached.m2 > 0) {
+        m2 = cached.m2; gj = cached.gj;
+        console.log('[BOUNDARY] Intersection loaded from cache (.dide_cache).');
+      } else {
+        const ov = await pool.query(
+          `WITH b AS (SELECT ${BOUNDARY_UNION_SQL} AS u),
+                a AS (SELECT ST_Union(ST_MakeValid(p.geom)) AS u FROM public.${polyTable} p, b
+                       WHERE p.geom IS NOT NULL AND ST_Intersects(p.geom, b.u)),
+                i AS (SELECT ST_Intersection(a.u, b.u) AS g FROM a, b)
+           SELECT ST_AsGeoJSON(i.g, 7) AS gj, ST_Area(i.g::geography) AS m2 FROM i`
+        );
+        m2 = Number(ov.rows[0] && ov.rows[0].m2) || 0;
+        gj = ov.rows[0] && ov.rows[0].gj;
+        if (m2 > 0 && gj) _diskCacheWrite('intersection.json.gz', { sig, m2, gj });
+      }
       if (!(m2 > 0) || !gj) {
         console.error('\n[FATAL] The aggregation layer and the boundary file do not overlap.');
         console.error(`        Aggregation layer : "${POLYGON_TABLE}" (AGGREGATION_LAYER in .env)`);
@@ -2671,7 +2918,6 @@ async function initBoundary() {
       }
       BOUNDARY_MODE = 'intersection';
       BOUNDARY_GEOJSON = geojson;
-      await _precomputeBoundaryUnion();
       BOUNDARY_INTERSECTION_GEOJSON = { type: 'Feature', properties: {}, geometry: JSON.parse(gj) };
       const km2 = (m2 / 1e6).toFixed(m2 < 1e6 ? 4 : 2);
       console.log(`[BOUNDARY] Source: aggregation layer ("${POLYGON_TABLE}") ∩ boundary file ("${path.basename(file)}", ${n} geometries).`);
@@ -5125,7 +5371,8 @@ app.get('/api/open-data/export', async (req, res) => {
     if (aggPrivacyEnabled()) {
       const { features, typeRows } = await buildGridSummary({
         where: `COALESCE(ev.active, true) = true AND COALESCE(o.active, true) = true AND (${publicGoodBadWhere()})`,
-        includeEmpty: true
+        // Yalnızca içinde AKTİF (herkese açık) kayıt bulunan gridler indirilir
+        includeEmpty: false
       });
       const total = features.reduce((n, f) => n + f.properties.event_count, 0);
       if (!total) return res.status(404).json({ error: 'open_data_empty', message: getErrorMessage(req, 'open_data_empty') });
@@ -5238,19 +5485,17 @@ app.get('/api/boundary', async (req, res) => {
     }
     // Kesişim: aggregation layer ∩ boundary (açılışta hesaplandı)
     if (BOUNDARY_MODE === 'intersection' && BOUNDARY_INTERSECTION_GEOJSON) {
-      return res.json({ enabled: true, source: 'intersection', geojson: BOUNDARY_INTERSECTION_GEOJSON });
+      return _sendCachedJson(req, res, 'boundary:intersection',
+        () => ({ enabled: true, source: 'intersection', geojson: BOUNDARY_INTERSECTION_GEOJSON }));
     }
 
-    // aggregation: birleşik (dissolve) sınırı GeoJSON olarak döndür
-    const polyTable = assertSafeIdent(POLYGON_TABLE, 'table');
-    const r = await pool.query(`SELECT ST_AsGeoJSON(ST_Union(geom)) AS gj FROM public.${polyTable}`);
-    const gjStr = r.rows[0] && r.rows[0].gj;
+    // aggregation: birleşik (dissolve) sınır. HIZ: eskiden HER istekte (açılışta 3-4 kez)
+    // tüm gridler ST_Union ile birleştiriliyordu; artık bir kez hesaplanıp bellekte ve
+    // diskte (.dide_cache) tutulur.
+    const gjStr = await getAggBoundaryGeoJSON();
     if (!gjStr) return res.json({ enabled: false });
-    return res.json({
-      enabled: true,
-      source: 'aggregation',
-      geojson: { type: 'Feature', properties: {}, geometry: JSON.parse(gjStr) }
-    });
+    return _sendCachedJson(req, res, 'boundary:aggregation',
+      () => ({ enabled: true, source: 'aggregation', geojson: { type: 'Feature', properties: {}, geometry: JSON.parse(gjStr) } }));
   } catch (e) {
     console.error('GET /api/boundary error:', e);
     res.status(500).json({ error: 'sunucu_hatasi', message: getErrorMessage(req, 'sunucu_hatasi') });
@@ -5412,25 +5657,26 @@ async function exportRoutingBoundary() {
   // Aggregation layer modunda sınır yalnızca veritabanındadır; osmium'un kesebilmesi için
   // poligonlar bir GeoJSON dosyasına yazılır (rotalamanın sınırını da gösterir).
   // Kesişim modunda kaynak, aggregation layer ∩ boundary geometrisidir
-  const srcFrom = (BOUNDARY_MODE === 'aggregation')
-    ? `public.${assertSafeIdent(POLYGON_TABLE, 'table')}`
-    : (BOUNDARY_MODE === 'intersection')
-      ? `(SELECT ST_Intersection(
-            (SELECT ST_Union(ST_MakeValid(geom)) FROM public.${assertSafeIdent(POLYGON_TABLE, 'table')} WHERE geom IS NOT NULL),
-            ${BOUNDARY_UNION_SQL}) AS geom) AS s`
-      : `public.${BOUNDARY_DB_TABLE}`;
+  // HIZ: kaynak geometri, önbellekteki hazır birleşik sınırdır (aggregation: grid birleşimi,
+  // intersection: grid ∩ boundary). Grid tablosu / boundary / tolerans değişmediyse ve dosya
+  // zaten yazılmışsa hiç hesaplanmaz.
+  let srcGj = null;
+  if (BOUNDARY_MODE === 'aggregation') srcGj = await getAggBoundaryGeoJSON();
+  else if (BOUNDARY_MODE === 'intersection' && BOUNDARY_INTERSECTION_GEOJSON) srcGj = JSON.stringify(BOUNDARY_INTERSECTION_GEOJSON.geometry);
+  if (!srcGj) { console.warn('[ROUTE] Boundary geometry is empty → routing uses the full road network.'); return; }
+  const rsig = crypto.createHash('sha1').update(`${await getGridSignature()}|${BOUNDARY_MODE}|${ROUTE_BOUNDARY_TOLERANCE}`).digest('hex');
+  const rmeta = _diskCacheRead('routing.json.gz');
+  if (rmeta && rmeta.sig === rsig && _fileExists(file)) { console.log('[ROUTE] Routing boundary unchanged (cache).'); return; }
   // Sınır, küçük bir toleransla genişletilir (sınıra teğet yollar kesilmesin) ve
   // osmium'un hızlı çalışması için sadeleştirilir.
   const r = await pool.query(
     `SELECT ST_AsGeoJSON(
               ST_SimplifyPreserveTopology(
-                ST_Buffer(ST_Union(ST_MakeValid(geom))::geography, $1)::geometry,
+                ST_Buffer(ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON($2), 4326))::geography, $1)::geometry,
                 0.00005
               ), 7
-            ) AS g
-       FROM ${srcFrom}
-      WHERE geom IS NOT NULL`,
-    [ROUTE_BOUNDARY_TOLERANCE]
+            ) AS g`,
+    [ROUTE_BOUNDARY_TOLERANCE, srcGj]
   );
   const g = r.rows[0] && r.rows[0].g;
   if (!g) { console.warn('[ROUTE] Boundary geometry is empty → routing uses the full road network.'); return; }
@@ -5440,6 +5686,7 @@ async function exportRoutingBoundary() {
   });
   let old = null;
   try { old = fs.readFileSync(file, 'utf8'); } catch {}
+  _diskCacheWrite('routing.json.gz', { sig: rsig });
   if (old !== content) {
     fs.writeFileSync(file, content, 'utf8');
     console.log(`[ROUTE] Routing boundary written (${BOUNDARY_MODE}): ${file}`);

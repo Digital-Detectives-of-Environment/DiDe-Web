@@ -6145,3 +6145,21 @@ path.grid-selected{ filter:drop-shadow(0 0 4px rgba(245,158,11,.75)); }
   .profile-posts-table.is-grid-table thead th{ font-size:11px; padding:8px 3px; }
   .profile-posts-table.is-grid-table tbody td{ font-size:12.5px; padding:9px 3px; }
 }
+/* Profil grid tablosu — uzun metin (ör. uzun olay türü adı) hücreden YANA TAŞMAZ, alt satıra
+   iner. Sütun genişlikleri değişmez (ekrana oranla dinamik, yatay/dikey kaydırma yok);
+   yalnızca satır yüksekliği içeriğe göre artar. Genel kuraldaki "2. ve 3. sütun tek satır
+   (tarih)" ayarı grid tablosunda geçersizdir. */
+.profile-posts-table.is-grid-table th,
+.profile-posts-table.is-grid-table td,
+.profile-posts-table.is-grid-table td:nth-child(2),
+.profile-posts-table.is-grid-table td:nth-child(3){
+  white-space:normal !important;
+  word-break:break-word !important;
+  overflow-wrap:anywhere !important;
+  hyphens:auto;
+  min-width:0;
+  max-width:0;           /* table-layout:fixed ile birlikte: içerik genişliği sütunu büyütemez */
+  overflow:hidden;
+  text-overflow:clip;
+  vertical-align:middle;
+}
