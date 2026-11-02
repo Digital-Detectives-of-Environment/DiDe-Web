@@ -718,12 +718,20 @@ window.i18nLangs.en = {
     gridClose: 'Close',
     gridLoading: 'Loading records…',
     gridNoRecords: 'There are no records in this area yet.',
-    gridRecordsQuestionOne: 'There is {{count}} record in this area. Would you like to see it?',
-    gridRecordsQuestion: 'There are {{count}} records in this area. Would you like to see them?',
+    gridRecordsQuestionOne: 'There is {{count}} record in the selected area. Would you like to review it?',
+    gridRecordsQuestion: 'There are {{count}} records in the selected area. Would you like to review them?',
     gridAddQuestion: 'Would you like to add a new record in this area?',
 
     // Tematik (ısı) haritası lejantı
     thematicLegendSub: 'Events per grid cell',
     thematicLegendNone: 'No records',
-    thematicLegendTotal: 'Total: {{n}} events'
+    thematicLegendTotal: 'Total: {{n}} events',
+    // Grid records + profile grid view (aggregation layer)
+    gridRecordCount: '{{count}} records',
+    pfGridSelected: 'Selected grid cell',
+    pfGridPoints: 'Number of points inside: {{n}}',
+    pfColTypeCount: 'Events of type',
+    pfColEventCount: 'Total events',
+    pfColActiveCount: 'Active',
+    pfColClosedCount: 'Closed'
 };

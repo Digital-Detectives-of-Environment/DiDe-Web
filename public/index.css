@@ -6071,3 +6071,77 @@ path.grid-selected{ filter:drop-shadow(0 0 4px rgba(245,158,11,.75)); }
   .thematic-legend{ font-size:11px; padding:6px 8px; min-width:104px; }
   .thematic-legend .tl-title{ font-size:12px; }
 }
+/* =====================================================================================
+   GRİD SORUSU — Evet / Hayır butonları (aggregation layer). Dil desteğine uygun metin
+   butonları; dikkat çekici, açık temada dolgu renkli, koyu temada neon kenarlı + parlama.
+   ===================================================================================== */
+.grid-prompt-title{ color:var(--text, #0f172a); }
+.grid-yn{ display:flex; justify-content:center; gap:14px; flex-wrap:wrap; margin-top:2px; }
+.grid-yn-btn{
+  min-width:118px; min-height:46px; padding:10px 22px;
+  border-radius:999px; border:2px solid transparent;
+  font-size:clamp(15px, 4vw, 17px); font-weight:800; letter-spacing:.2px; line-height:1.1;
+  cursor:pointer; -webkit-tap-highlight-color:transparent;
+  transition:transform .12s ease, box-shadow .18s ease, background-color .18s ease, opacity .18s ease;
+}
+.grid-yn-btn:active{ transform:scale(.96); }
+.grid-yn-btn:focus-visible{ outline:3px solid rgba(37,99,235,.45); outline-offset:2px; }
+.grid-yn-btn:disabled{ opacity:.4; cursor:not-allowed; transform:none; box-shadow:none; }
+.grid-yn-yes{
+  background:linear-gradient(135deg, #16a34a, #22c55e); color:#fff;
+  box-shadow:0 6px 16px rgba(22,163,74,.35);
+}
+.grid-yn-yes:hover:not(:disabled){ box-shadow:0 8px 22px rgba(22,163,74,.48); }
+.grid-yn-no{
+  background:#fff; color:#b91c1c; border-color:#ef4444;
+  box-shadow:0 4px 12px rgba(239,68,68,.18);
+}
+.grid-yn-no:hover:not(:disabled){ background:#fef2f2; }
+:root.theme-dark .grid-prompt-title{ color:#67e8f9; }
+:root.theme-dark .grid-yn-yes{
+  background:#052e1b !important; color:#4ade80 !important; border-color:#22c55e !important;
+  box-shadow:0 0 12px rgba(34,197,94,.55), inset 0 0 8px rgba(34,197,94,.18) !important;
+}
+:root.theme-dark .grid-yn-no{
+  background:#2a0a12 !important; color:#fb7185 !important; border-color:#f43f5e !important;
+  box-shadow:0 0 12px rgba(244,63,94,.5), inset 0 0 8px rgba(244,63,94,.15) !important;
+}
+:root.theme-dark .grid-yn-btn:focus-visible{ outline-color:rgba(34,211,238,.7); }
+@media (max-width: 420px){
+  .grid-yn{ gap:10px; }
+  .grid-yn-btn{ flex:1 1 0; min-width:0; }
+}
+
+/* Grid kayıtları — EKLEME modu (opener + restrictGNSS=false): altta
+   "Bu bölgeye yeni kayıt eklemek ister misiniz?" ✓/✗ görünür, sağ üstteki ✗ gizlenir */
+.polygon-records-fullscreen.is-grid.is-grid-add #polygon-records-actions{ display:block !important; }
+.polygon-records-fullscreen.is-grid.is-grid-add .grid-records-close{ display:none !important; }
+.polygon-records-fullscreen.is-grid.is-grid-add .buffer-nearby-title{ padding-right:0; }
+
+/* ===================== PROFİL — GRİD (aggregation layer) TABLOSU VE POP-UP ===================== */
+.profile-posts-table.is-grid-table th,
+.profile-posts-table.is-grid-table td{ width:auto !important; text-align:center !important; }
+.profile-posts-table.is-grid-table th:first-child,
+.profile-posts-table.is-grid-table td:first-child{ text-align:left !important; }
+.profile-posts-table.is-grid-table td{ font-variant-numeric:tabular-nums; }
+.profile-posts-table.is-grid-table tbody tr{ cursor:pointer; }
+.pf-grid-pop{ min-width:170px; line-height:1.4; }
+.pf-grid-title{ font-weight:800; font-size:14px; margin-bottom:4px; }
+.pf-grid-pk{ font-size:13px; overflow-wrap:anywhere; }
+.pf-grid-count{
+  margin-top:6px; padding:6px 10px; border-radius:10px;
+  background:#fff7ed; color:#9a3412; font-weight:800; font-size:14px; text-align:center;
+}
+.pf-grid-sub{ margin-top:4px; font-size:12px; color:#64748b; text-align:center; }
+:root.theme-dark .pf-grid-title{ color:#67e8f9; }
+:root.theme-dark .pf-grid-count{
+  background:#0b1324; color:#67e8f9; border:1px solid #22d3ee; box-shadow:0 0 8px rgba(34,211,238,.4);
+}
+:root.theme-dark .pf-grid-sub{ color:#94a3b8; }
+.profile-posts-table.is-grid-table td{ white-space:normal !important; }
+.profile-posts-table.is-grid-table thead th{ font-size:12.5px; padding:10px 6px; text-align:center; }
+.profile-posts-table.is-grid-table tbody td{ padding:10px 6px; }
+@media (max-width: 520px){
+  .profile-posts-table.is-grid-table thead th{ font-size:11px; padding:8px 3px; }
+  .profile-posts-table.is-grid-table tbody td{ font-size:12.5px; padding:9px 3px; }
+}

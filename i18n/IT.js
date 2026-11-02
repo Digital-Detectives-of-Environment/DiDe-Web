@@ -709,12 +709,20 @@ window.i18nLangs.it = {
     gridClose: 'Chiudi',
     gridLoading: 'Caricamento delle segnalazioni…',
     gridNoRecords: 'Non ci sono ancora segnalazioni in quest\'area.',
-    gridRecordsQuestionOne: 'C\'è {{count}} segnalazione in quest\'area. Vuoi vederla?',
-    gridRecordsQuestion: 'Ci sono {{count}} segnalazioni in quest\'area. Vuoi vederle?',
+    gridRecordsQuestionOne: 'C\'è {{count}} segnalazione nell\'area selezionata. Vuoi esaminarla?',
+    gridRecordsQuestion: 'Ci sono {{count}} segnalazioni nell\'area selezionata. Vuoi esaminarle?',
     gridAddQuestion: 'Vuoi aggiungere una nuova segnalazione in quest\'area?',
 
     // Tematik (ısı) haritası lejantı
     thematicLegendSub: 'Eventi per cella',
     thematicLegendNone: 'Nessuna segnalazione',
-    thematicLegendTotal: 'Totale: {{n}} eventi'
+    thematicLegendTotal: 'Totale: {{n}} eventi',
+    // Segnalazioni della cella + vista a celle del profilo (aggregation layer)
+    gridRecordCount: '{{count}} segnalazioni',
+    pfGridSelected: 'Cella selezionata',
+    pfGridPoints: 'Numero di punti all\'interno: {{n}}',
+    pfColTypeCount: 'Eventi del tipo',
+    pfColEventCount: 'Eventi totali',
+    pfColActiveCount: 'Attivi',
+    pfColClosedCount: 'Chiusi'
 };

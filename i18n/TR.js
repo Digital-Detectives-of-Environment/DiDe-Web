@@ -709,7 +709,7 @@ window.i18nLangs.tr = {
     pointsLostMsgOne: 'Katılımınızı geri çektiniz, {{n}} puan düştü.',
 
     // Aggregation layer başlığı + süpervizör olay indirme (ZIP)
-    polygonNearbyTitle: 'Seçtiğiniz bölgedeki mevcut kayıtlar:',
+    polygonNearbyTitle: 'Seçilen bölgedeki mevcut kayıtlar:',
     downloadEventsZip: 'Olayları indir (ZIP: GeoJSON + fotoğraflar + lisans)',
     eventsZipPreparing: 'Olay verisi hazırlanıyor…',
 
@@ -718,12 +718,20 @@ window.i18nLangs.tr = {
     gridClose: 'Kapat',
     gridLoading: 'Kayıtlar yükleniyor…',
     gridNoRecords: 'Bu bölgede henüz kayıt yok.',
-    gridRecordsQuestionOne: 'Bu bölgede {{count}} kayıt var. Görmek ister misiniz?',
-    gridRecordsQuestion: 'Bu bölgede {{count}} kayıt var. Görmek ister misiniz?',
+    gridRecordsQuestionOne: 'Seçilen bölgede {{count}} kayıt var. Bu kaydı incelemek ister misiniz?',
+    gridRecordsQuestion: 'Seçilen bölgede {{count}} kayıt var. Bu kayıtları incelemek ister misiniz?',
     gridAddQuestion: 'Bu bölgeye yeni kayıt eklemek ister misiniz?',
 
     // Tematik (ısı) haritası lejantı
     thematicLegendSub: 'Gridteki olay sayısı',
     thematicLegendNone: 'Kayıt yok',
-    thematicLegendTotal: 'Toplam: {{n}} olay'
+    thematicLegendTotal: 'Toplam: {{n}} olay',
+    // Grid kayıtları + profil grid görünümü (aggregation layer)
+    gridRecordCount: '{{count}} kayıt',
+    pfGridSelected: 'Seçilen grid',
+    pfGridPoints: 'İçindeki nokta sayısı: {{n}}',
+    pfColTypeCount: 'Türdeki olay',
+    pfColEventCount: 'Toplam olay',
+    pfColActiveCount: 'Aktif',
+    pfColClosedCount: 'Kapatılan'
 };

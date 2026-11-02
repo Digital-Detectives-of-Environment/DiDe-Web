@@ -184,6 +184,10 @@ async function loadAppConfig() {
       config.contacts = Array.isArray(config.contacts) ? config.contacts : [];
       APP_CONFIG = { ...APP_CONFIG, ...config };
       console.log('[CONFIG] polygonTable =', APP_CONFIG.polygonTable, '| polygonPk1 =', APP_CONFIG.polygonPk1);
+      // HIZ: grid (aggregation layer) GeoJSON'u config gelir gelmez arka planda indirilmeye
+      // başlar; olaylar / katmanlar yüklenirken hazır olur (bir kez indirilir, giriş-çıkışta
+      // yeniden kullanılır).
+      try { fetchPolygonFc(); } catch {}
       // Açık veri butonu: giriş yapılmadan ve .env OPEN_DATA=true iken görünür
       try { updateOpenDataButton(); } catch {}
       try { updateContactButton(); } catch {}
@@ -1515,31 +1519,53 @@ async function loadGeomLayersForEventsMap(){
 
 
 /* ===================== VG0: Load Polygon Layer ===================== */
+/* HIZ: Grid GeoJSON'u BİR KEZ indirilir ve bellekte tutulur (grid tablosu çalışma sırasında
+   değişmez). Giriş / çıkış / supervisor bölge haritası aynı veriyi yeniden kullanır.
+   Çok sayıda grid varsa SVG yerine canvas çizici kullanılır (binlerce poligon anında çizilir). */
+let __polygonFcPromise = null;
+let __polygonLoadSeq = 0;
+let __polygonCanvasRenderer = null;
+function fetchPolygonFc(force){
+  if (!APP_CONFIG || !APP_CONFIG.polygonTable) return Promise.resolve(null);
+  if (!__polygonFcPromise || force) {
+    __polygonFcPromise = fetch('/api/polygon-layer')
+      .then(r => {
+        if (!r.ok) { console.error('[VG0] /api/polygon-layer returned', r.status); return null; }
+        return r.json();
+      })
+      .then(fc => { if (!fc) __polygonFcPromise = null; return fc; })
+      .catch(e => { console.warn('[VG0] polygon-layer fetch error:', e); __polygonFcPromise = null; return null; });
+  }
+  return __polygonFcPromise;
+}
+function _polygonRendererFor(nFeatures){
+  if (!(nFeatures > 600) || typeof L === 'undefined' || !L.canvas) return undefined;
+  if (!__polygonCanvasRenderer) __polygonCanvasRenderer = L.canvas({ padding: 0.5, tolerance: 2 });
+  return __polygonCanvasRenderer;
+}
+
 async function loadPolygonLayer() {
   if (!map) return;
-  if (__polygonLayer) {
-    try { map.removeLayer(__polygonLayer); } catch {}
-    __polygonLayer = null;
-  }
-
   const polyTable = APP_CONFIG.polygonTable;
-  console.log('[VG0] loadPolygonLayer called — polygonTable =', polyTable);
   if (!polyTable) {
-    console.warn('[VG0] polygonTable is empty, skipping polygon layer load');
+    if (__polygonLayer) { try { map.removeLayer(__polygonLayer); } catch {} __polygonLayer = null; }
     return;
   }
+  const seq = ++__polygonLoadSeq;
 
   try {
-    const r = await fetch('/api/polygon-layer');
-    if (!r.ok) {
-      console.error('[VG0] /api/polygon-layer returned', r.status);
-      return;
+    const fc = await fetchPolygonFc();
+    // Bu arada başka bir loadPolygonLayer çağrısı başladıysa (giriş/çıkış/init çakışması)
+    // eski çağrı katman EKLEMEZ → haritada çift / sahipsiz grid katmanı kalmaz.
+    if (seq !== __polygonLoadSeq) return;
+    if (__polygonLayer) {
+      try { map.removeLayer(__polygonLayer); } catch {}
+      __polygonLayer = null;
     }
-    const fc = await r.json();
-    console.log('[VG0] Polygon GeoJSON features:', fc.features?.length || 0);
-    if (!fc.features || fc.features.length === 0) return;
+    if (!fc || !fc.features || fc.features.length === 0) return;
 
     __polygonLayer = L.geoJSON(fc, {
+      renderer: _polygonRendererFor(fc.features.length),
       style: (feature) => {
         // Aggregation layer: grid bazlı ısı (tematik) haritası stili
         if (thematicEnabled()) return thematicCellStyle(feature);
@@ -1554,9 +1580,7 @@ async function loadPolygonLayer() {
         };
       },
       onEachFeature: (feature, layer) => {
-        // No tooltip — user requested removal of grid label on hover
-        // Gride tıklanınca (giriş yapmadan da): grid vurgulanır ve
-        // "Bu bölgede N kayıt var, görmek ister misiniz?" sorusu açılır.
+        // Gride tıklanınca (giriş yapmadan da): grid vurgulanır ve grid sorusu açılır.
         layer.on('click', (e) => {
           try { L.DomEvent.stopPropagation(e); } catch {}
           onGridClick(feature, layer, e && e.latlng);
@@ -1565,8 +1589,10 @@ async function loadPolygonLayer() {
     });
     __polygonLayer.addTo(map);
 
-    // Register in geom layers for layer drawer
-    if (!__geomLayers.some(x => x.table === '__polygon_env')) {
+    // Register in geom layers for layer drawer (eski kayıt varsa yeni katmana bağlanır)
+    const reg = __geomLayers.find(x => x.table === '__polygon_env');
+    if (reg) { reg.layer = __polygonLayer; if (reg.visible === false) { try { map.removeLayer(__polygonLayer); } catch {} } }
+    else {
       __geomLayers.push({
         table: '__polygon_env',
         geomType: 'polygon',
@@ -1584,7 +1610,6 @@ async function loadPolygonLayer() {
     console.warn('[VG0] Polygon layer load error:', e);
   }
 }
-
 /* ===================== TEMATİK (ISI) HARİTASI — aggregation layer =====================
    Aggregation layer tanımlıysa ana haritada olay NOKTALARI gösterilmez (kümeleme de yok):
      - Gridler, katmanlar panelinde (radio button ile) seçilen TEK olay türündeki aktif olay
@@ -1639,6 +1664,29 @@ function _thematicTypeName(){
   const it = (__geomLayers || []).find(x => x.__isEventType && String(x.__typeId) === String(__thematic.typeId));
   return it ? it.table : '';
 }
+/* Lejant DİNAMİKTİR: haritadaki gridlerin GERÇEKTE aldığı renklere göre oluşturulur.
+   Sınıflar (renk aralıkları) en yüksek değere göre kurulur; ama lejantta yalnızca en az bir
+   gridin düştüğü sınıflar gösterilir (ara renk haritada yoksa lejantta da yoktur). Etiket,
+   o sınıftaki gridlerin GERÇEK değerleridir (ör. 5–6 aralığında yalnızca 6 varsa "6").
+   "Kayıt yok" satırı da yalnızca haritada boş grid varsa gösterilir. */
+function _thematicPresentClasses(){
+  const classes = __thematic.classes || [];
+  const stat = classes.map(() => ({ n: 0, min: Infinity, max: -Infinity }));
+  let empty = 0;
+  if (__polygonLayer) {
+    __polygonLayer.eachLayer(l => {
+      const v = __thematic.counts.get(_thematicKeyFromProps(l.feature && l.feature.properties)) || 0;
+      if (!v) { empty++; return; }
+      let i = classes.findIndex(c => v >= c.from && v <= c.to);
+      if (i < 0) i = classes.length - 1;
+      if (i < 0) return;
+      const st = stat[i]; st.n++; if (v < st.min) st.min = v; if (v > st.max) st.max = v;
+    });
+  }
+  const present = [];
+  classes.forEach((c, i) => { if (stat[i].n > 0) present.push({ color: c.color, min: stat[i].min, max: stat[i].max }); });
+  return { present, empty };
+}
 function updateThematicLegend(){
   if (!map) return;
   if (!thematicEnabled() || !__thematic.typeId || !__polygonLayer) {
@@ -1657,13 +1705,15 @@ function updateThematicLegend(){
   const box = __thematicLegend.getContainer(); if (!box) return;
   // Sınıflar tema değişince yeniden renklenir
   __thematic.classes = _thematicBuildClasses(__thematic.max);
-  const rows = __thematic.classes.map(c =>
-    `<div class="tl-row"><span class="tl-sw" style="background:${c.color}"></span><span>${c.from === c.to ? c.from : (c.from + '–' + c.to)}</span></div>`).join('');
+  const { present, empty } = _thematicPresentClasses();
+  // Yüksekten düşüğe (en yoğun renk en üstte)
+  const rows = present.slice().reverse().map(c =>
+    `<div class="tl-row"><span class="tl-sw" style="background:${c.color}"></span><span>${c.min === c.max ? c.min : (c.min + '–' + c.max)}</span></div>`).join('');
   box.innerHTML =
     `<div class="tl-title">${escapeHtml(_thematicTypeName())}</div>` +
     `<div class="tl-sub">${escapeHtml(t('thematicLegendSub'))}</div>` +
     (rows || '') +
-    `<div class="tl-row"><span class="tl-sw tl-none"></span><span>${escapeHtml(t('thematicLegendNone'))}</span></div>` +
+    (empty > 0 ? `<div class="tl-row"><span class="tl-sw tl-none"></span><span>${escapeHtml(t('thematicLegendNone'))}</span></div>` : '') +
     `<div class="tl-total">${escapeHtml(t('thematicLegendTotal', { n: __thematic.total }))}</div>`;
 }
 async function refreshThematic(){
@@ -1740,6 +1790,22 @@ function scheduleThematicPoints(){
 })();
 
 /* ===================== GRİD SORUSU VE GRİD KAYITLARI (aggregation layer) =====================
+   GÜNCEL AKIŞ (Evet / Hayır butonları, dil desteği + koyu tema uyumlu):
+     Başlık: "Seçilen bölge: <PK sütunu>: <değer>"
+     A) Ekleme yapabilen kullanıcı (opener) + restrictGNSS=false:
+        - Gridde kayıt varsa: "Seçilen bölgede N kayıt var. Bu kayıtları incelemek ister misiniz?"
+            Evet  → grid kayıtları (tampon görünümüyle aynı; marker'a dokun / + ipucu YOK),
+                    altta "Bu bölgeye yeni kayıt eklemek ister misiniz?" ✓ / ✗
+                    ✓ → olay bildirim formu (tıklanan noktada), ✗ → varsayılan ekran
+            Hayır → doğrudan olay bildirim formu
+        - Gridde kayıt yoksa: "Bu bölgeye yeni kayıt eklemek ister misiniz?"  Evet → form, Hayır → kapat
+     B) restrictGNSS=true (ya da ekleme yetkisi olmayan kullanıcı / ziyaretçi):
+        - "Seçilen bölgede N kayıt var. Bu kayıtları incelemek ister misiniz?"
+            Evet  → grid kayıtları (altta ekleme sorusu YOK, sağ üstte ✗)
+            Hayır → hiç tıklanmamış hale döner
+        - Kayıt yoksa: "Bu bölgede henüz kayıt yok." + Kapat
+   (GPS butonuyla konum bazlı ekleme akışı — tampon + noktalar + pop-up'taki + — DEĞİŞMEDİ.)
+   ESKİ AÇIKLAMA:
    Gride tıklanınca (giriş yapmadan da):
      1) grid vurgulanır (açık temada amber, koyu temada neon camgöbeği + parlama),
      2) alttan bir kart açılır: "Bu bölgede N kayıt var. Görmek ister misiniz?" ✓ / ✗
@@ -1773,13 +1839,23 @@ function _gridCanAddHere(){
             !boolFromConfigValue(APP_CONFIG.restrictGnss) &&
             (typeof allowBlackMarker !== 'function' || allowBlackMarker()));
 }
+function _gridPkNames(){
+  const pks = Array.isArray(APP_CONFIG.polygonPks) && APP_CONFIG.polygonPks.length
+    ? APP_CONFIG.polygonPks : [APP_CONFIG.polygonPk1, APP_CONFIG.polygonPk2];
+  return pks.filter(Boolean);
+}
 function _gridPkValues(feature){
   const props = (feature && feature.properties) || {};
   const out = {};
-  const pks = [APP_CONFIG.polygonPk1, APP_CONFIG.polygonPk2].filter(Boolean);
+  const pks = _gridPkNames();
   if (pks.length) pks.forEach(k => { if (props[k] != null) out[k] = props[k]; });
   else Object.keys(props).forEach(k => { out[k] = props[k]; });
   return out;
+}
+// "pk: değer" (bileşik PK'de "pk1: v1 · pk2: v2")
+function _gridPkLabel(feature){
+  const vals = _gridPkValues(feature);
+  return Object.keys(vals).map(k => `${k}: ${vals[k]}`).join(' · ');
 }
 function _ensureGridPrompt(){
   let el = document.getElementById('grid-prompt');
@@ -1788,51 +1864,70 @@ function _ensureGridPrompt(){
   el.id = 'grid-prompt';
   el.className = 'card polygon-flow-card grid-prompt hidden';
   el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'false');
   el.innerHTML =
     '<div class="grid-prompt-head"><span class="grid-prompt-title"></span>' +
       '<button type="button" class="grid-prompt-close" aria-label="">&times;</button></div>' +
-    '<div class="grid-prompt-row" data-row="records">' +
-      '<div class="grid-prompt-q" data-q="records"></div>' +
-      '<div class="pr-action-buttons"><button type="button" class="polygon-action-btn polygon-action-tick" data-act="records-yes">&#10003;</button>' +
-      '<button type="button" class="polygon-action-btn polygon-action-cross" data-act="records-no">&#10007;</button></div>' +
-    '</div>' +
-    '<div class="grid-prompt-row" data-row="add">' +
-      '<div class="grid-prompt-q" data-q="add"></div>' +
-      '<div class="pr-action-buttons"><button type="button" class="polygon-action-btn polygon-action-tick" data-act="add-yes">&#10003;</button>' +
-      '<button type="button" class="polygon-action-btn polygon-action-cross" data-act="add-no">&#10007;</button></div>' +
+    '<div class="grid-prompt-row">' +
+      '<div class="grid-prompt-q" data-q="main" aria-live="polite"></div>' +
+      '<div class="grid-yn">' +
+        '<button type="button" class="grid-yn-btn grid-yn-yes" data-act="yes"></button>' +
+        '<button type="button" class="grid-yn-btn grid-yn-no" data-act="no"></button>' +
+      '</div>' +
     '</div>';
   document.body.appendChild(el);
   // Kart üzerindeki tıklamalar haritaya geçmesin
   try { L.DomEvent.disableClickPropagation(el); } catch {}
   el.querySelector('.grid-prompt-close').addEventListener('click', () => closeGridPrompt());
   el.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-act]'); if (!b) return;
-    const act = b.getAttribute('data-act');
-    if (act === 'records-yes') openGridRecords();
-    else if (act === 'add-yes') gridStartAdd();
-    else if (act === 'records-no' || act === 'add-no') {
-      const row = el.querySelector(`[data-row="${act.startsWith('records') ? 'records' : 'add'}"]`);
-      if (row) row.classList.add('hidden');
-      if (!el.querySelector('.grid-prompt-row:not(.hidden)')) closeGridPrompt();
-    }
+    const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
+    _gridPromptAnswer(b.getAttribute('data-act') === 'yes');
   });
   return el;
 }
+// Kartın o anki durumu: 'loading' | 'review' | 'add' | 'empty'
+function _gridPromptState(){
+  if (!__gridSel || __gridSel.total == null) return 'loading';
+  if (__gridSel.total > 0) return 'review';
+  return _gridCanAddHere() ? 'add' : 'empty';
+}
+function _gridPromptAnswer(yes){
+  const st = _gridPromptState();
+  const canAdd = _gridCanAddHere();
+  if (st === 'loading') return;
+  if (st === 'review') {
+    if (yes) { openGridRecords(canAdd); return; }
+    // A) Hayır → doğrudan olay bildirim formu; B) Hayır → hiç tıklanmamış hale dön
+    if (canAdd) { gridStartAdd(); return; }
+    closeGridPrompt(); return;
+  }
+  if (st === 'add') { if (yes) gridStartAdd(); else closeGridPrompt(); return; }
+  closeGridPrompt();   // 'empty' → yalnızca Kapat
+}
 function _renderGridPromptTexts(){
   const el = document.getElementById('grid-prompt'); if (!el || !__gridSel) return;
-  const props = (__gridSel.feature && __gridSel.feature.properties) || {};
-  const label = Object.values(props).filter(v => v != null && v !== '').join(' · ');
+  const label = _gridPkLabel(__gridSel.feature);
   el.querySelector('.grid-prompt-title').textContent = t('gridPromptTitle') + (label ? ': ' + label : '');
   const close = el.querySelector('.grid-prompt-close');
   close.setAttribute('aria-label', t('gridClose')); close.title = t('gridClose');
-  const q = el.querySelector('[data-q="records"]');
-  const yes = el.querySelector('[data-act="records-yes"]');
-  if (__gridSel.total == null) { q.textContent = t('gridLoading'); yes.disabled = true; }
-  else if (__gridSel.total === 0) { q.textContent = t('gridNoRecords'); yes.disabled = true; }
-  else { q.textContent = t(__gridSel.total === 1 ? 'gridRecordsQuestionOne' : 'gridRecordsQuestion', { count: __gridSel.total }); yes.disabled = false; }
-  el.querySelector('[data-q="add"]').textContent = t('gridAddQuestion');
-  el.querySelectorAll('[data-act$="-yes"]').forEach(b => { b.setAttribute('aria-label', t('yes')); });
-  el.querySelectorAll('[data-act$="-no"]').forEach(b => { b.setAttribute('aria-label', t('no')); });
+  const q = el.querySelector('[data-q="main"]');
+  const yes = el.querySelector('[data-act="yes"]');
+  const no = el.querySelector('[data-act="no"]');
+  yes.textContent = t('yes'); no.textContent = t('no');
+  yes.style.display = ''; no.style.display = '';
+  yes.disabled = false; no.disabled = false;
+  const st = _gridPromptState();
+  if (st === 'loading') {
+    q.textContent = t('gridLoading'); yes.disabled = true; no.disabled = true;
+  } else if (st === 'review') {
+    q.textContent = t(__gridSel.total === 1 ? 'gridRecordsQuestionOne' : 'gridRecordsQuestion', { count: __gridSel.total });
+  } else if (st === 'add') {
+    q.textContent = t('gridAddQuestion');
+  } else {
+    q.textContent = t('gridNoRecords');
+    yes.style.display = 'none';
+    no.textContent = t('gridClose');
+  }
 }
 async function onGridClick(feature, layer, latlng){
   // Başka bir akış (kayıt paneli, form, tampon) açıkken grid sorusu açılmaz
@@ -1845,8 +1940,6 @@ async function onGridClick(feature, layer, latlng){
   reapplyGridHighlight();
 
   const el = _ensureGridPrompt();
-  el.querySelectorAll('.grid-prompt-row').forEach(r => r.classList.remove('hidden'));
-  el.querySelector('[data-row="add"]').classList.toggle('hidden', !_gridCanAddHere());
   _renderGridPromptTexts();
   el.classList.remove('hidden');
 
@@ -1875,16 +1968,29 @@ function closeGridPrompt(silent){
     __gridSel = null;
   }
 }
-/* ✓ Kayıtları gör: tampon akışıyla aynı görüntüleyici (süzgeç + sayfalar), ekleme butonları yok */
-function openGridRecords(){
+// Kayıt kartının alt satırını (ekleme sorusu) grid / tampon moduna göre ayarlar
+function _setRecordsAddLabel(gridAdd){
+  const lbl = qs('#polygon-records-add-label');
+  if (!lbl) return;
+  const key = gridAdd ? 'gridAddQuestion' : 'wantToAddRecord';
+  lbl.setAttribute('data-i18n', key);
+  lbl.textContent = t(key);
+}
+/* Evet → grid kayıtları: tampon akışıyla aynı görüntüleyici (süzgeç + sayfalar).
+   addMode=true (A durumu): altta "Bu bölgeye yeni kayıt eklemek ister misiniz?" ✓ / ✗.
+   addMode=false (B durumu): ekleme satırı yok, sağ üstte ✗ ile kapanır. */
+function openGridRecords(addMode){
   if (!__gridSel || !__gridSel.records || !__gridSel.records.length) return;
   const el = document.getElementById('grid-prompt'); if (el) el.classList.add('hidden');
   const card = qs('#polygon-records-card'); if (!card) return;
   __recordsMode = 'grid';
+  __gridSel.addMode = !!addMode;
   __bufferRecordsAll = __gridSel.records.slice();
   const sel = qs('#buffer-type-filter'); if (sel) sel.value = '';
   fillBufferTypeFilter();
   renderBufferRecords();
+  card.classList.toggle('is-grid-add', !!addMode);
+  _setRecordsAddLabel(!!addMode);
   let x = qs('#grid-records-close');
   if (!x) {
     x = document.createElement('button');
@@ -1899,24 +2005,46 @@ function openGridRecords(){
   if (mapEl) mapEl.classList.add('blur-background');
   pushOverlayState('polygon-records-card');
 }
-function gridRecordsClose(){
+// Grid kayıt kartını kapatır (durumu temizler); restoreView=false ise görünüm geri alınmaz
+function _gridRecordsHide(){
   const card = qs('#polygon-records-card');
-  if (card) { hide(card); card.classList.remove('is-grid'); }
+  if (card) { hide(card); card.classList.remove('is-grid', 'is-grid-add'); }
   hideBufferTypeRow();
+  _setRecordsAddLabel(false);
   __recordsMode = 'polygon';
+}
+function gridRecordsClose(){
+  _gridRecordsHide();
   const mapEl = document.getElementById('map');
   if (mapEl) mapEl.classList.remove('blur-background');
   try { restoreMapViewFromOverlay(); } catch {}
   clearGridHighlight();
   __gridSel = null;
 }
-/* ✓ Yeni kayıt ekle (yalnızca opener + restrictGNSS=false): tıklanan noktada mevcut akış */
+/* Yeni kayıt (yalnızca opener + restrictGNSS=false): tıklanan noktada olay bildirim formu
+   DOĞRUDAN açılır (siyah pin konur; tampon / tampon kayıtları adımı yok — grid kayıtları
+   zaten gösterildi ya da kullanıcı incelemek istemedi). Olayın grid PK'leri sunucuda atanır. */
 function gridStartAdd(){
   const ll = __gridSel && __gridSel.latlng;
-  closeGridPrompt();
-  if (!ll) return;
+  const recordsOpen = (__recordsMode === 'grid');
+  if (recordsOpen) _gridRecordsHide();
+  const el = document.getElementById('grid-prompt'); if (el) el.classList.add('hidden');
+  clearGridHighlight();
+  __gridSel = null;
+  if (!ll || !map) return;
   try { stopLiveLocation(); } catch {}
-  startAddAtPoint(ll.lat, ll.lng);
+  if (liveMarker) { try { map.removeLayer(liveMarker); } catch {} liveMarker = null; }
+  if (liveAccuracyCircle) { try { map.removeLayer(liveAccuracyCircle); } catch {} liveAccuracyCircle = null; }
+  const latlng = L.latLng(ll.lat, ll.lng);
+  if (clickMarker) clickMarker.setLatLng(latlng);
+  else clickMarker = L.marker(latlng, { icon: BLACK_PIN(), zIndexOffset: 1000 }).addTo(map).bindPopup(t('selectedLocation'));
+  if (typeof boundaryBlocks === 'function' && boundaryBlocks(ll.lng, ll.lat, 'map')) {
+    setTimeout(() => { if (clickMarker) { try { map.removeLayer(clickMarker); } catch {} clickMarker = null; } }, 700);
+    const mapEl = document.getElementById('map');
+    if (mapEl && recordsOpen) mapEl.classList.remove('blur-background');
+    return;
+  }
+  openEventFormDirectly(ll.lat, ll.lng);
 }
 (function wireGridPrompt(){
   document.addEventListener('keydown', (e) => {
@@ -1927,6 +2055,7 @@ function gridStartAdd(){
   window.addEventListener('languagechange', () => {
     try { _renderGridPromptTexts(); } catch {}
     const x = qs('#grid-records-close'); if (x) { x.setAttribute('aria-label', t('gridClose')); x.title = t('gridClose'); }
+    try { if (__recordsMode === 'grid') _setRecordsAddLabel(!!(__gridSel && __gridSel.addMode)); } catch {}
   });
 })();
 
@@ -2804,6 +2933,7 @@ function polygonRecordsClose() {
 window.polygonRecordsClose = polygonRecordsClose;
 
 function polygonRecordsContinue() {
+  if (__recordsMode === 'grid') { gridStartAdd(); return; }
   hide(qs('#polygon-records-card'));
   if (__recordsMode === 'buffer') { bufferRecordsContinue(); return; }
   openEventFormAfterPolygon();
@@ -3425,7 +3555,9 @@ function renderBufferRecords(){
     card.classList.remove('is-polygon');
   }
   const countEl = qs('#polygon-records-count');
-  if (countEl) countEl.textContent = t('bufferRecordCount', { count: list.length, radius: bufferRadiusMeters() });
+  if (countEl) countEl.textContent = (__recordsMode === 'grid')
+    ? t('gridRecordCount', { count: list.length })
+    : t('bufferRecordCount', { count: list.length, radius: bufferRadiusMeters() });
   renderRecordsPages(list);
 }
 
@@ -3619,7 +3751,9 @@ function openEventFormDirectly(lat, lng) {
     } else if (e.target.id === 'btn-polygon-records-continue') {
       polygonRecordsContinue();
     } else if (e.target.id === 'btn-polygon-records-return') {
-      if (__recordsMode === 'buffer') {
+      if (__recordsMode === 'grid') {
+        gridRecordsClose();
+      } else if (__recordsMode === 'buffer') {
         hide(qs('#polygon-records-card'));
         bufferRecordsCancel();
       } else {
@@ -7239,10 +7373,8 @@ async function loadGeomLayersForRegionsMap() {
 async function loadRegionsPolygonFileLayer() {
   if (!regionsMap || !regionsPolygonLayer) return;
   try {
-    const r = await fetch('/api/polygon-layer');
-    if (!r.ok) return;
-    const geojson = await r.json();
-    if (!geojson.features || geojson.features.length === 0) return;
+    const geojson = await fetchPolygonFc();
+    if (!geojson || !geojson.features || geojson.features.length === 0) return;
 
     regionsPolygonLayer.clearLayers();
     const gridColor = _getGridColor();
@@ -13660,26 +13792,16 @@ async function login(){
     resetLoginForm();
     attachMapClickForLoggedIn();
 
-    try {
-      await loadGeomLayersForMap(false);
-    } catch(e) {
-      console.warn('[LOGIN] Geom layers reload error:', e);
-    }
-
-    try {
-      await loadPolygonLayer();
-    } catch(e) {
-      console.warn('[LOGIN] Polygon layer load error:', e);
-    }
-
-    try {
-      await loadRasterLayers(map, __geomLayers, 'layer-list');
-    } catch(e) {
-      console.warn('[LOGIN] Raster layers reload error:', e);
-    }
-
+    // HIZ: blur, katmanların (geom / grid / raster) yüklenmesini BEKLEMEDEN hemen kalkar;
+    // katmanlar arka planda AYNI sırayla yüklenir (gridler önceden indirilmiş olduğundan
+    // anında gelir). Raster en sonda: büyük GeoTIFF'ler gridleri bekletmez.
     const mapEl = document.getElementById('map');
     if (mapEl) mapEl.classList.remove('blur-background');
+    (async () => {
+      try { await loadGeomLayersForMap(false); } catch(e) { console.warn('[LOGIN] Geom layers reload error:', e); }
+      try { await loadPolygonLayer(); } catch(e) { console.warn('[LOGIN] Polygon layer load error:', e); }
+      try { await loadRasterLayers(map, __geomLayers, 'layer-list'); } catch(e) { console.warn('[LOGIN] Raster layers reload error:', e); }
+    })();
 
     // Kullanıcı girişinde harita her zaman .env'deki güncel MAP_INITIAL_*
     // değerlerine göre konumlansın (logout ile simetrik davranış).
@@ -14764,16 +14886,17 @@ function importWizardBack() {
       console.warn('[INIT] Public geom layers error:', e);
     }
 
+    // Aggregation layer gridleri giriş yapmadan da görünür (gride tıklayınca kayıt sorusu).
+    // Ziyaretçi katmanları (loadGeomLayersForMap) haritayı kendi listesine göre düzenlediği
+    // için gridler onlardan SONRA yüklenir. HIZ: gridler raster'dan ÖNCE gelir (büyük
+    // GeoTIFF'lerin işlenmesini beklemez).
+    if (APP_CONFIG.polygonTable) { try { await loadPolygonLayer(); } catch (e) { console.warn('[INIT] guest polygon layer', e); } }
+
     try {
       await loadRasterLayers(map, __geomLayers, 'layer-list');
     } catch(e) {
       console.warn('[INIT] Public raster layers error:', e);
     }
-
-    // Aggregation layer gridleri giriş yapmadan da görünür (gride tıklayınca kayıt sorusu).
-    // Ziyaretçi katmanları (loadGeomLayersForMap) haritayı kendi listesine göre düzenlediği
-    // için gridler onlardan SONRA yüklenir.
-    if (APP_CONFIG.polygonTable) { try { await loadPolygonLayer(); } catch (e) { console.warn('[INIT] guest polygon layer', e); } }
 
     try { ensureMapLegend(map); } catch {}
 
@@ -15467,8 +15590,203 @@ const __pf = {
   markers: {},
   focusId: null,
   highlightId: null,
-  statsTimer: null
+  statsTimer: null,
+  // Aggregation layer tanımlıysa profil haritası/tablosu GRİD özeti gösterir
+  grid: null,          // /api/me/grid-summary yanıtı
+  gridRows: [],        // normalize tablo satırları (grid × olay türü)
+  gridLayer: null,
+  gridLayers: {}       // grid anahtarı → Leaflet poligon katmanı
 };
+
+/* ===================== PROFİL — GRİD (aggregation layer) GÖRÜNÜMÜ =====================
+   Aggregation layer tanımlıysa opener/solver profilindeki harita ve tablo NOKTA verisi
+   göstermez (konum gizliliği; eski hata: noktalar gelip kayboluyordu). "Verimi indir" ile
+   inen GRİD özetinin AYNISI gösterilir:
+     - Harita: kullanıcının eklediği / sildiği olaylara göre oluşan grid poligonları (sayıya
+       göre renkli). Poligona tıklayınca: seçilen gridin PK değerleri + içindeki nokta sayısı.
+     - Tablo (normalize): grid × olay türü başına bir satır → PK sütunları, olay türü, o türdeki
+       sayı, gridin toplam / aktif / kapatılan sayısı. Satıra tıklayınca haritada o gride gider. */
+function pfGridMode(){
+  return !!(APP_CONFIG && APP_CONFIG.polygonTable && typeof _gridPkNames === 'function' && _gridPkNames().length);
+}
+function pfGridPkFields(){
+  return (__pf.grid && Array.isArray(__pf.grid.pk_fields) && __pf.grid.pk_fields.length) ? __pf.grid.pk_fields : _gridPkNames();
+}
+function pfGridKey(props){
+  return pfGridPkFields().map(k => String(props && props[k] != null ? props[k] : '')).join('\u0001');
+}
+function pfRows(){ return pfGridMode() ? (__pf.gridRows || []) : __pf.posts; }
+function pfBuildGridRows(d){
+  const rows = [];
+  const feats = (d && Array.isArray(d.features)) ? d.features : [];
+  const typeRows = (d && Array.isArray(d.type_rows)) ? d.type_rows : [];
+  const byKey = new Map();
+  typeRows.forEach(r => { const k = pfGridKey(r); if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(r); });
+  feats.forEach(f => {
+    const p = f.properties || {};
+    const key = pfGridKey(p);
+    const base = { key, props: p, total: p.event_count || 0, active: p.active_count || 0, closed: p.closed_count || 0 };
+    const types = byKey.get(key) || [];
+    if (!types.length) rows.push({ ...base, type: '-', typeCount: base.total });
+    else types.forEach(tr => rows.push({ ...base, type: tr.event_type || '-', typeCount: tr.count || 0 }));
+  });
+  return rows;
+}
+async function pfLoadGridSummary(){
+  if (!pfGridMode()) return null;
+  try {
+    const r = await fetch('/api/me/grid-summary', { cache: 'no-store' });
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (!d || d.enabled === false) return null;
+    __pf.grid = d;
+    __pf.gridRows = pfBuildGridRows(d);
+    return d;
+  } catch { return null; }
+}
+// Tablo başlıkları (grid modunda dinamik; nokta modunda eski 4 sütun)
+function pfRenderTableHead(){
+  const tr = document.querySelector('#profile-posts-table thead tr');
+  if (!tr) return;
+  const table = document.getElementById('profile-posts-table');
+  if (pfGridMode()) {
+    const cols = [...pfGridPkFields(), t('eventType'), t('pfColTypeCount'), t('pfColEventCount'), t('pfColActiveCount'), t('pfColClosedCount')];
+    tr.innerHTML = cols.map(c => `<th>${escapeHtml(c)}</th>`).join('');
+    if (table) table.classList.add('is-grid-table');
+  } else {
+    tr.innerHTML = `<th data-i18n="type">${escapeHtml(t('type'))}</th><th data-i18n="addedDate">${escapeHtml(t('addedDate'))}</th>` +
+                   `<th data-i18n="deactivatedAt">${escapeHtml(t('deactivatedAt'))}</th><th data-i18n="numAgrees">${escapeHtml(t('numAgrees'))}</th>`;
+    if (table) table.classList.remove('is-grid-table');
+  }
+}
+function pfRenderGridTableRows(tb){
+  const rows = __pf.gridRows || [];
+  const pks = pfGridPkFields();
+  const ncol = pks.length + 5;
+  if (!rows.length){
+    tb.innerHTML = `<tr><td colspan="${ncol}" style="text-align:center;color:var(--muted,#888);padding:16px;">${t('noRecordsFound')}</td></tr>`;
+    return;
+  }
+  const start = (__pf.page - 1) * __pf.perPage;
+  rows.slice(start, start + __pf.perPage).forEach(r => {
+    const tr = document.createElement('tr');
+    tr.className = 'profile-post-row';
+    tr.dataset.gridKey = r.key;
+    if (__pf.highlightId != null && String(__pf.highlightId) === r.key) tr.classList.add('pf-row-highlight');
+    tr.innerHTML =
+      pks.map(k => `<td data-label="${escapeHtml(k)}">${escapeHtml(r.props[k] != null ? String(r.props[k]) : '-')}</td>`).join('') +
+      `<td data-label="${escapeHtml(t('eventType'))}">${escapeHtml(String(r.type))}</td>` +
+      `<td data-label="${escapeHtml(t('pfColTypeCount'))}">${r.typeCount}</td>` +
+      `<td data-label="${escapeHtml(t('pfColEventCount'))}">${r.total}</td>` +
+      `<td data-label="${escapeHtml(t('pfColActiveCount'))}">${r.active}</td>` +
+      `<td data-label="${escapeHtml(t('pfColClosedCount'))}">${r.closed}</td>`;
+    tr.addEventListener('click', () => { pfOpenMap('grid:' + r.key); });
+    tb.appendChild(tr);
+  });
+}
+function _pfGridColor(n, max){
+  const pal = (typeof _thematicPalette === 'function') ? _thematicPalette() : ['#ffffb2', '#fecc5c', '#fd8d3c', '#f03b20', '#bd0026'];
+  if (!(max > 0)) return pal[0];
+  if (max === 1) return pal[pal.length - 1];
+  const i = Math.round(((n - 1) / (max - 1)) * (pal.length - 1));
+  return pal[Math.max(0, Math.min(pal.length - 1, i))];
+}
+function pfGridPopupHtml(props){
+  const pks = pfGridPkFields();
+  const pkTxt = pks.map(k => `<div class="pf-grid-pk"><b>${escapeHtml(k)}:</b> ${escapeHtml(props[k] != null ? String(props[k]) : '-')}</div>`).join('');
+  return `<div class="pf-grid-pop">
+      <div class="pf-grid-title">${escapeHtml(t('pfGridSelected'))}</div>
+      ${pkTxt}
+      <div class="pf-grid-count">${escapeHtml(t('pfGridPoints', { n: props.event_count || 0 }))}</div>
+      <div class="pf-grid-sub">${escapeHtml(t('pfColActiveCount'))}: ${props.active_count || 0} · ${escapeHtml(t('pfColClosedCount'))}: ${props.closed_count || 0}</div>
+    </div>`;
+}
+function pfDrawGridLayer(m){
+  if (__pf.gridLayer) { try { m.removeLayer(__pf.gridLayer); } catch {} __pf.gridLayer = null; }
+  __pf.gridLayers = {};
+  const feats = (__pf.grid && Array.isArray(__pf.grid.features)) ? __pf.grid.features : [];
+  if (!feats.length) return null;
+  const max = feats.reduce((a, f) => Math.max(a, (f.properties && f.properties.event_count) || 0), 0);
+  const dark = document.documentElement.classList.contains('theme-dark');
+  __pf.gridLayer = L.geoJSON({ type: 'FeatureCollection', features: feats }, {
+    style: (f) => {
+      const c = _pfGridColor((f.properties && f.properties.event_count) || 0, max);
+      return { color: dark ? '#22d3ee' : '#7c2d12', weight: 2, opacity: 0.95, fillColor: c, fillOpacity: dark ? 0.6 : 0.65 };
+    },
+    onEachFeature: (f, layer) => {
+      const key = pfGridKey(f.properties || {});
+      __pf.gridLayers[key] = layer;
+      layer.bindPopup('<div></div>', { maxWidth: 280 });
+      layer.on('popupopen', () => {
+        try {
+          const wrap = document.createElement('div');
+          wrap.innerHTML = pfGridPopupHtml(f.properties || {});
+          const actions = document.createElement('div');
+          actions.className = 'pf-pop-actions';
+          const btn = document.createElement('button');
+          btn.className = 'pf-pop-table'; btn.type = 'button';
+          btn.title = t('goToTable'); btn.setAttribute('aria-label', t('goToTable'));
+          btn.innerHTML = '<img src="/map-view.svg" alt="" width="22" height="22" onerror="this.onerror=null;this.src=\'/useposition.svg\';" />';
+          btn.onclick = () => pfGotoTableForGrid(key);
+          actions.appendChild(btn);
+          wrap.appendChild(actions);
+          layer.getPopup().setContent(wrap);
+        } catch (e) { console.warn('pf grid popup', e); }
+      });
+      layer.on('mouseover', () => { try { layer.setStyle({ weight: 4 }); } catch {} });
+      layer.on('mouseout', () => { try { __pf.gridLayer.resetStyle(layer); } catch {} });
+    }
+  }).addTo(m);
+  return __pf.gridLayer;
+}
+function pfOpenGridMap(focusKey){
+  const view = pfEl('profile-map-view');
+  if (!view) return;
+  view.classList.remove('hidden');
+  const m = pfEnsureMap();
+  if (!m) return;
+  try { m.invalidateSize(); } catch {}
+  __pf.highlightId = null;
+  // Nokta / küme katmanı bu modda KULLANILMAZ
+  try { if (__pf.markersLayer) __pf.markersLayer.clearLayers(); } catch {}
+  __pf.markers = {};
+  const draw = () => {
+    const gl = pfDrawGridLayer(m);
+    const target = focusKey ? __pf.gridLayers[focusKey] : null;
+    if (target) {
+      try { m.fitBounds(target.getBounds().pad(0.6), { animate: false, maxZoom: 17 }); } catch {}
+      setTimeout(() => { try { target.openPopup(); } catch {} }, 120);
+    } else if (gl) {
+      try { m.fitBounds(gl.getBounds().pad(0.15), { animate: false, maxZoom: 16 }); } catch {}
+    }
+  };
+  setTimeout(() => {
+    try { m.invalidateSize(); } catch {}
+    try { pfRefreshZoomLimits(m); } catch (e) {}
+    // Veri henüz yoksa önce çek (ör. tablo açılmadan doğrudan harita butonu)
+    if (!__pf.grid) pfLoadGridSummary().then(draw); else draw();
+    try { _startTileWatchdog(__pf.tileLayer); } catch (e) {}
+    [0, 250, 700, 1500].forEach((ms) => {
+      setTimeout(() => { try { _syncTileLayer(m, __pf.tileLayer); } catch (e) {} }, ms);
+    });
+    setTimeout(() => { try { m.invalidateSize(); } catch {} try { pfRefreshZoomLimits(m); } catch (e) {} }, 400);
+  }, 60);
+}
+function pfGotoTableForGrid(key){
+  const rows = __pf.gridRows || [];
+  const idx = rows.findIndex(r => r.key === key);
+  if (idx >= 0){
+    __pf.page = Math.floor(idx / __pf.perPage) + 1;
+    __pf.highlightId = key;
+  }
+  pfCloseMap();
+  pfShowPage(1);
+  pfRenderPostsTable();
+  setTimeout(() => {
+    const row = Array.from(document.querySelectorAll('.profile-post-row')).find(r => r.dataset.gridKey === key);
+    if (row) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, 80);
+}
 
 function pfEl(id){ return document.getElementById(id); }
 
@@ -15514,9 +15832,12 @@ async function openProfileOverlay(){
 
   // Verileri çek
   try {
+    __pf.grid = null; __pf.gridRows = [];
+    pfRenderTableHead();
     const [statsR, postsR] = await Promise.all([
       fetch('/api/me/stats').then(r => r.json()).catch(() => ({})),
-      fetch('/api/me/posts').then(r => r.json()).catch(() => ({ posts: [] }))
+      fetch('/api/me/posts').then(r => r.json()).catch(() => ({ posts: [] })),
+      pfGridMode() ? pfLoadGridSummary() : Promise.resolve(null)
     ]);
     pfRenderProfile(statsR);
     __pf.posts = Array.isArray(postsR.posts) ? postsR.posts : [];
@@ -15543,11 +15864,22 @@ function pfStartLivePolling(){
     const ov = pfEl('profile-overlay');
     if (!ov || ov.classList.contains('hidden')) { pfStopLivePolling(); return; }
     try {
-      const [statsR, postsR] = await Promise.all([
+      const [statsR, postsR, gridR] = await Promise.all([
         fetch('/api/me/stats').then(r => r.json()).catch(() => null),
-        fetch('/api/me/posts').then(r => r.json()).catch(() => null)
+        fetch('/api/me/posts').then(r => r.json()).catch(() => null),
+        pfGridMode() ? pfLoadGridSummary() : Promise.resolve(null)
       ]);
       if (statsR) pfRenderProfile(statsR);
+      if (pfGridMode()) {
+        if (gridR) {
+          const maxPageG = pfTotalPages();
+          if (__pf.page > maxPageG) __pf.page = maxPageG;
+          const mapViewG = pfEl('profile-map-view');
+          if (!mapViewG || mapViewG.classList.contains('hidden')) pfRenderPostsTable();
+        }
+        if (postsR && Array.isArray(postsR.posts)) __pf.posts = postsR.posts;
+        return;
+      }
       if (postsR && Array.isArray(postsR.posts)) {
         // Beğeni sayıları değişmiş olabilir → tabloyu tazele (sayfa/scroll konumunu koru)
         const sameLen = postsR.posts.length === __pf.posts.length;
@@ -15642,7 +15974,7 @@ async function pfCopyQr() {
 }
 
 function pfTotalPages(){
-  return Math.max(1, Math.ceil(__pf.posts.length / __pf.perPage));
+  return Math.max(1, Math.ceil(pfRows().length / __pf.perPage));
 }
 
 // Ekranı düşey olarak dolduracak satır sayısını GERÇEK ölçümle belirler:
@@ -15657,13 +15989,13 @@ function pfAutoFit(){
   const slide = document.getElementById('profile-slide-posts');
   const tb = pfEl('profile-posts-tbody');
   const wrap = slide && slide.querySelector('.profile-table-wrap');
-  if (!slide || !tb || !wrap || !__pf.posts.length) return;
+  if (!slide || !tb || !wrap || !pfRows().length) return;
 
   // Ölçüm sırasında kayma olmasın
   try { slide.scrollTop = 0; } catch {}
 
   // 1) Probe: bol satır render et
-  const probe = Math.min(__pf.posts.length, 60);
+  const probe = Math.min(pfRows().length, 60);
   const savedPage = __pf.page || 1;
   __pf.page = 1;
   __pf.perPage = probe;
@@ -15699,6 +16031,13 @@ function pfRenderPostsTable(){
   const tb = pfEl('profile-posts-tbody');
   if (!tb) return;
   tb.innerHTML = '';
+
+  // Aggregation layer: normalize grid tablosu (nokta sütunları yerine)
+  if (pfGridMode()){
+    pfRenderGridTableRows(tb);
+    pfRenderPagination();
+    return;
+  }
 
   if (__pf.posts.length === 0){
     tb.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted,#888);padding:16px;">${t('noRecordsFound')}</td></tr>`;
@@ -16041,6 +16380,12 @@ function pfPopupOnOpen(p, mk){
 }
 
 function pfOpenMap(focusEventId){
+  // Aggregation layer tanımlıysa nokta değil GRİD gösterilir
+  if (pfGridMode()) {
+    const k = (typeof focusEventId === 'string' && focusEventId.startsWith('grid:')) ? focusEventId.slice(5) : null;
+    pfOpenGridMap(k);
+    return;
+  }
   const view = pfEl('profile-map-view');
   if (!view) return;
   view.classList.remove('hidden');
@@ -16212,16 +16557,7 @@ function pfApplyLanguage(){
   if (pfLangEn) pfLangEn.classList.toggle('active', cur === 'en');
 
   // Tablo sütun başlıklarını tazele (data-i18n dışı güvence)
-  try {
-    const thead = document.querySelector('#profile-posts-table thead tr');
-    if (thead){
-      const ths = thead.querySelectorAll('th');
-      if (ths[0]) ths[0].textContent = t('type');
-      if (ths[1]) ths[1].textContent = t('addedDate');
-      if (ths[2]) ths[2].textContent = t('deactivatedAt');
-      if (ths[3]) ths[3].textContent = t('numAgrees');
-    }
-  } catch {}
+  try { pfRenderTableHead(); } catch {}
 
   // Satırların içeriğini (boş kayıt metni vb.) tazele
   pfRenderPostsTable();
