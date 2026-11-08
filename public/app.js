@@ -94,6 +94,10 @@ let APP_CONFIG = {
   // Güvenli varsayılan: false (mevcut davranış: ziyaretçi veri indiremez).
   openData: false,
 
+  // .env → MULTIMEDIA: true ise bir olaya birden fazla fotoğraf / video eklenebilir.
+  // false ise olay başına en fazla 1 fotoğraf ve 1 video (yenisi öncekinin yerine geçer).
+  multimedia: false,
+
   // .env → CONTACT_MAIL_ADDRESS: [{ name, email }]. Boşsa iletişim butonu gösterilmez.
   contacts: [],
 
@@ -181,6 +185,7 @@ async function loadAppConfig() {
       config.bufferRadius = Number(config.bufferRadius) || 0;
       
       config.openData = (config.openData === true);
+      config.multimedia = (config.multimedia === true);
       config.contacts = Array.isArray(config.contacts) ? config.contacts : [];
       APP_CONFIG = { ...APP_CONFIG, ...config };
       console.log('[CONFIG] polygonTable =', APP_CONFIG.polygonTable, '| polygonPk1 =', APP_CONFIG.polygonPk1);
@@ -501,6 +506,9 @@ function maybeShowPostIntervalNotice(){
 /* Media (multiple URL — backend TEXT(JSON)) */
 let photoUrls = [];
 let videoUrls = [];
+// Fotoğrafın çekildiği andaki yön / konum (restrictGNSS=true, yeni gönderi) — bkz. beginPhotoShot()
+const __photoShots = new Map();      // fotoğraf url → { dir, lat, lng }
+let __gpsAddLatLng = null;           // konum butonuyla alınan konum { lat, lng }
 let lastSelectedEventType = '';
 
 /* === Theme === */
@@ -3809,6 +3817,9 @@ function openEventFormDirectly(lat, lng) {
   const lngEl = qs('#lng');
   if (latEl) latEl.value = String(lat);
   if (lngEl) lngEl.value = String(lng);
+  // Konum butonuyla alınan konum saklanır; formda çekilmiş fotoğraf varsa onun konumu geçerlidir
+  __gpsAddLatLng = { lat: Number(lat), lng: Number(lng) };
+  try { refreshPhotoShotLocation(); } catch {}
 
   if (currentUser && currentUser.role === 'user') {
     const olayCard = qs('#olay-card');
@@ -11905,6 +11916,7 @@ function resetEdit(){
 
   photoUrls = []; 
   videoUrls = []; 
+  clearPhotoShots();
   renderMediaLists();
   if (clickMarker){ 
     map.removeLayer(clickMarker); 
@@ -11949,10 +11961,15 @@ async function submitOlay(){
     video_urls: Array.isArray(videoUrls) ? videoUrls : (videoUrls ? [videoUrls] : []),
   };
 
-  // restrictGNSS=true ve YENİ gönderi: konum butonuna basıldığı andaki yön gönderilir;
-  // o an yön henüz okunamadıysa şu anki yön kullanılır. Yön yoksa alan hiç gönderilmez.
+  // restrictGNSS=true ve YENİ gönderi:
+  //   - fotoğraf çekildiyse FOTOĞRAFIN ÇEKİLDİĞİ ANDAKİ yön gönderilir (enlem/boylam da o
+  //     ana göre forma yazılmıştır); o an pusula okunamadıysa yön gönderilmez (NULL),
+  //   - fotoğraf yoksa konum butonuna basıldığı andaki yön (o an okunamadıysa şu anki yön).
+  // Yön yoksa alan hiç gönderilmez.
   if (!editingEventId && boolFromConfigValue(APP_CONFIG.restrictGnss)) {
-    const dir = (__gpsAddDirection != null) ? __gpsAddDirection : currentHeadingDeg();
+    const shot = currentPhotoShot();
+    const dir = shot ? shot.dir
+              : ((__gpsAddDirection != null) ? __gpsAddDirection : currentHeadingDeg());
     if (dir != null) payload.direction = dir;
   }
 
@@ -12008,6 +12025,7 @@ async function submitOlay(){
       }
       toast(t('eventAdded', {id: d.event_id}), 'success');
       __gpsAddDirection = null;   // yön bu gönderiye kaydedildi; sonrakinde yeniden alınır
+      clearPhotoShots();
     }
     
     photoUrls = []; 
@@ -12985,7 +13003,8 @@ function renderMediaLists(){
       e.stopPropagation();
       const idx = parseInt(btn.getAttribute('data-remove-photo'), 10);
       if (confirm(t('confirmRemovePhoto'))) {
-        photoUrls.splice(idx, 1);
+        const removed = photoUrls.splice(idx, 1)[0];
+        if (removed != null) forgetPhotoShot(removed);
         renderMediaLists();
         toast(t('photoRemoved'), 'success');
       }
@@ -13030,12 +13049,132 @@ async function uploadDataUrl(endpoint, dataUrl){
   return normalizeUploadUrl(url);
 }
 
+/* ===== Olay başına medya sayısı (.env MULTIMEDIA) =====
+   MULTIMEDIA=true  → fotoğraf / video listeye eklenir (eski davranış).
+   MULTIMEDIA=false → olay başına en fazla 1 fotoğraf ve 1 video: yenisi öncekinin yerine geçer. */
+function multiMediaAllowed(){
+  return !!(APP_CONFIG && APP_CONFIG.multimedia === true);
+}
+function addPhotoUrl(url){
+  if (!multiMediaAllowed()) {
+    const replaced = (photoUrls || []).filter(u => u !== url);
+    replaced.forEach(forgetPhotoShot);
+    photoUrls = [url];
+    if (replaced.length) toast(t('photoReplaced'), 'info');
+  } else {
+    photoUrls = Array.from(new Set([...(photoUrls || []), url]));
+  }
+}
+function addVideoUrl(url){
+  if (!multiMediaAllowed()) {
+    const hadOther = (videoUrls || []).some(u => u !== url);
+    videoUrls = [url];
+    if (hadOther) toast(t('videoReplaced'), 'info');
+  } else {
+    videoUrls = Array.from(new Set([...(videoUrls || []), url]));
+  }
+}
+
+/* ===== Fotoğrafın çekildiği andaki yön + konum =====
+   restrictGNSS=true iken YENİ gönderide, olayın yönü (event.direction) ve enlem/boylamı,
+   konum butonuna basıldığı an değil FOTOĞRAFIN ÇEKİLDİĞİ AN alınır:
+     - uygulama kamerasında: "Çek" (capture) butonuna basıldığı an,
+     - telefonun kamerasıyla (#file-photo): çekilen fotoğraf uygulamaya döndüğü an.
+   Video için uygulanmaz. Fotoğraf silinirse konum butonuyla alınan konuma / yöne dönülür.
+   Birden fazla fotoğraf varsa (MULTIMEDIA=true) en son eklenen fotoğrafınki kullanılır. */
+function photoShotEnabled(){
+  return !editingEventId && boolFromConfigValue(APP_CONFIG.restrictGnss);
+}
+
+// Fotoğraf çekildiği AN çağrılır: yön hemen okunur, konum hemen istenir.
+function beginPhotoShot(){
+  if (!photoShotEnabled()) return null;
+  const shot = { dir: currentHeadingDeg(), lat: null, lng: null };
+  shot.ready = new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(shot); } };
+    if (!_geoAvailable()) return finish();
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (done) return;
+          const { latitude, longitude } = pos.coords;
+          if (Number.isFinite(latitude) && Number.isFinite(longitude)) { shot.lat = latitude; shot.lng = longitude; }
+          finish();
+        },
+        () => finish(),
+        { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
+      );
+    } catch { finish(); }
+    setTimeout(finish, 16000);
+  });
+  return shot;
+}
+
+// Fotoğraf yüklendikten sonra: o fotoğrafın yönü / konumu gönderiye uygulanır
+async function applyPhotoShot(url, shot){
+  if (!shot || !url) return;
+  try { await shot.ready; } catch {}
+  if (!photoShotEnabled() || !(photoUrls || []).includes(url)) return;
+  __photoShots.set(url, { dir: shot.dir, lat: shot.lat, lng: shot.lng });
+  if (refreshPhotoShotLocation()) toast(t('photoShotApplied'), 'success', 2500);
+}
+
+function forgetPhotoShot(url){
+  if (!__photoShots.delete(url)) return;
+  refreshPhotoShotLocation();
+}
+
+function clearPhotoShots(){
+  __photoShots.clear();
+  __gpsAddLatLng = null;
+}
+
+// Geçerli fotoğraf kaydı: listede en son eklenmiş ve çekim bilgisi olan fotoğraf
+function currentPhotoShot(){
+  if (!photoShotEnabled()) return null;
+  const list = Array.isArray(photoUrls) ? photoUrls : [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const sh = __photoShots.get(list[i]);
+    if (sh) return sh;
+  }
+  return null;
+}
+
+function _setFormLatLng(lat, lng){
+  const latEl = qs('#lat'), lngEl = qs('#lng');
+  if (latEl) latEl.value = String(lat);
+  if (lngEl) lngEl.value = String(lng);
+  try { if (clickMarker) clickMarker.setLatLng(L.latLng(lat, lng)); } catch {}
+}
+
+// Formdaki enlem/boylamı geçerli fotoğrafa (yoksa konum butonuyla alınan konuma) göre ayarlar.
+// Fotoğrafın konumu uygulandıysa true döner.
+function refreshPhotoShotLocation(){
+  if (!photoShotEnabled()) return false;
+  const sh = currentPhotoShot();
+  if (sh && Number.isFinite(sh.lat) && Number.isFinite(sh.lng)) {
+    if (!__gpsAddLatLng) {
+      const la = parseFloat(qs('#lat')?.value), ln = parseFloat(qs('#lng')?.value);
+      if (Number.isFinite(la) && Number.isFinite(ln)) __gpsAddLatLng = { lat: la, lng: ln };
+    }
+    _setFormLatLng(sh.lat, sh.lng);
+    return true;
+  }
+  // Fotoğraf yok ya da çekim anında konum alınamadı → konum butonuyla alınan konum geçerli
+  if (__gpsAddLatLng) _setFormLatLng(__gpsAddLatLng.lat, __gpsAddLatLng.lng);
+  return false;
+}
+
 async function handleSelectPhoto(file){
+  // Telefon kamerasından dönüldüğü an: yön + konum (restrictGNSS=true, yeni gönderi)
+  const shot = beginPhotoShot();
   try {
     const dataUrl = await readAsDataURL(file);
     const url = await uploadDataUrl('/api/upload/photo', dataUrl);
-    photoUrls = Array.from(new Set([...(photoUrls || []), url]));
+    addPhotoUrl(url);
     renderMediaLists();
+    applyPhotoShot(url, shot);
   } catch(e) { 
     alert(t('photoUploadFailed') + ': ' + e.message); 
   }
@@ -13045,7 +13184,7 @@ async function handleSelectVideo(file){
   try {
     const dataUrl = await readAsDataURL(file);
     const url = await uploadDataUrl('/api/upload/video', dataUrl);
-    videoUrls = Array.from(new Set([...(videoUrls || []), url]));
+    addVideoUrl(url);
     renderMediaLists();
   } catch(e) { 
     alert(t('videoUploadFailed') + ': ' + e.message); 
@@ -13072,6 +13211,8 @@ function stopPmStream(){
 }
 
 async function openPhotoModal(){
+  // Kullanıcı dokunuşu içinde: pusula (yön) izni / dinleyicisi hazır olsun (iOS izni ister)
+  try { requestOrientationFromGesture(); } catch {}
   const modal = qs('#photo-modal'); 
   const v = qs('#pm-video'); 
   const c = qs('#pm-canvas');
@@ -13099,7 +13240,11 @@ async function openPhotoModal(){
     alert(t('cameraPermissionDenied'));
   }
 
+  // Bu modalda çekilen karenin yön / konum kaydı (Çek butonuna basıldığı an)
+  let pmShot = null;
+
   function resetShot(){
+    pmShot = null;
     hide(c); 
     show(v);
     hide(useBtn); 
@@ -13113,6 +13258,8 @@ async function openPhotoModal(){
       alert(t('cameraNotOpened')); 
       return; 
     }
+    // Fotoğrafın çekildiği AN: yön hemen okunur, konum hemen istenir
+    pmShot = beginPhotoShot();
     const trackSettings = pmStream.getVideoTracks()[0]?.getSettings?.() || {};
     const w = trackSettings.width || (v?.videoWidth) || 1280;
     const h = trackSettings.height || (v?.videoHeight) || 720;
@@ -13135,9 +13282,11 @@ async function openPhotoModal(){
       if (!c) return;
       const dataUrl = c.toDataURL('image/jpeg', 0.92);
       const url = await uploadDataUrl('/api/upload/photo', dataUrl);
-      photoUrls = Array.from(new Set([...(photoUrls || []), url]));
+      const shot = pmShot;
+      addPhotoUrl(url);
       renderMediaLists();
       closeModal(modal, stopPmStream);
+      applyPhotoShot(url, shot);
     } catch(e) { 
       alert(t('uploadError') + ': ' + e.message); 
     }
@@ -13246,7 +13395,7 @@ async function openVideoModal(){
         const blob = new Blob(vmChunks, { type: vmRecorder.mimeType || 'video/webm' });
         const dataUrl = await blobToDataUrl(blob);
         const url = await uploadDataUrl('/api/upload/video', dataUrl);
-        videoUrls = Array.from(new Set([...(videoUrls || []), url]));
+        addVideoUrl(url);
         renderMediaLists();
         closeModal(modal, stopVm);
         toast(t('videoAdded'), 'success');

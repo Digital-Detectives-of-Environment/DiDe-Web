@@ -96,6 +96,29 @@ if (OPEN_DATA_RAW === '') {
 }
 const OPEN_DATA = OPEN_DATA_NORM === 'true';
 
+// ==================== MULTIMEDIA (olay başına fotoğraf / video sayısı) ====================
+// Bir olaya birden fazla fotoğraf ve video eklenebilsin mi? YALNIZCA "true" veya "false" alır.
+//   MULTIMEDIA=true  -> bir olaya birden fazla fotoğraf ve birden fazla video eklenebilir.
+//   MULTIMEDIA=false -> bir olaya EN FAZLA 1 fotoğraf ve EN FAZLA 1 video eklenebilir
+//                       (yeni çekilen fotoğraf / video öncekinin yerine geçer).
+// Tanımlı değilse güvenli varsayılan false kullanılır ve uyarı yazılır; tanımlı ama true/false
+// dışında bir değerse sistem başlamaz. Bu kuraldan ÖNCE eklenmiş çoklu medyalı olaylar korunur
+// (medyaları silinebilir, ancak 1'in üzerine yeni medya eklenemez).
+const MULTIMEDIA_RAW  = String(process.env.MULTIMEDIA ?? '').trim();
+const MULTIMEDIA_NORM = MULTIMEDIA_RAW.toLowerCase();
+if (MULTIMEDIA_RAW === '') {
+  console.warn(`[WARN] MULTIMEDIA is not set in your .env file → defaulting to MULTIMEDIA=false (max. 1 photo and 1 video per event).`);
+} else if (MULTIMEDIA_NORM !== 'true' && MULTIMEDIA_NORM !== 'false') {
+  console.error(`\n[FATAL] MULTIMEDIA is invalid in your .env file.`);
+  console.error(`        It must be set to either "true" or "false".`);
+  console.error(`          MULTIMEDIA=true  -> Users can add several photos and several videos to an event.`);
+  console.error(`          MULTIMEDIA=false -> Users can add at most ONE photo and ONE video to an event.`);
+  console.error(`        Current value: "${MULTIMEDIA_RAW}".`);
+  console.error(`        System cannot start. Exiting.\n`);
+  process.exit(1);
+}
+const MULTIMEDIA = MULTIMEDIA_NORM === 'true';
+
 // ==================== CONTACT_MAIL_ADDRESS (iletişim) ====================
 // Giriş ekranının sağ alt köşesindeki yuvarlak "İletişim" (mektup) butonunda gösterilen
 // ad + e-posta listesi. İSTEĞE BAĞLIDIR: boşsa / tanımlı değilse buton hiç görünmez.
@@ -2654,6 +2677,19 @@ function saveDataUrlToUploads(dataUrl, kind /* 'photo'|'video' */) {
   return `/uploads/${fname}`;
 }
 
+// MULTIMEDIA=false: bir olayda en fazla 1 fotoğraf ve 1 video olabilir.
+// allowed: (PATCH için) olayda ZATEN kayıtlı olan medya. Kural gelmeden önce eklenmiş çoklu
+// medyalı olaylar bozulmasın diye, yalnızca mevcut medyadan oluşan (yeni dosya eklenmeyen)
+// listeler 1'den fazla olsa da kabul edilir.
+function mediaLimitExceeded(list, allowed) {
+  if (MULTIMEDIA) return false;
+  const arr = Array.isArray(list) ? list : [];
+  if (arr.length <= 1) return false;
+  if (!Array.isArray(allowed) || !allowed.length) return true;
+  const known = new Set(allowed.map(v => path.basename(String(v || ''))).filter(Boolean));
+  return arr.some(v => !known.has(path.basename(String(v || ''))));
+}
+
 function normalizeIncomingToUrlArray(input, kind /* 'photo'|'video' */) {
   if (!input) return [];
   const arr = Array.isArray(input) ? input : [input];
@@ -3975,6 +4011,8 @@ app.get('/api/config', (_req, res) => {
     restrictGnss: RESTRICT_GNSS,
     // .env → OPEN_DATA: true ise giriş ekranında "Açık veri" indirme butonu görünür
     openData: OPEN_DATA,
+    // .env → MULTIMEDIA: false ise olay başına en fazla 1 fotoğraf ve 1 video eklenebilir
+    multimedia: MULTIMEDIA,
     // .env → CONTACT_MAIL_ADDRESS: [{ name, email }]. Boşsa iletişim butonu gösterilmez.
     contacts: CONTACTS,
     eventTypeValidityUnits: EVENT_TYPE_VALIDITY_UNITS,
@@ -5950,6 +5988,8 @@ app.post('/api/submit_olay', requireAuth, async (req, res) => {
     const { p_id, event_type, description, latitude, longitude } = req.body || {};
     // Yön (azimut, derece): yalnızca restrictGNSS=true iken (olay SADECE konum butonuyla
     // eklenebildiğinde) kaydedilir. Aksi halde haritaya tıklanan noktanın yönü anlamsızdır → NULL.
+    // İstemci: fotoğraf çekildiyse FOTOĞRAFIN ÇEKİLDİĞİ ANDAKİ yön (ve konum) gönderilir;
+    // fotoğraf yoksa konum butonuna basıldığı andaki yön gönderilir.
     const direction = RESTRICT_GNSS ? normalizeDirection(req.body?.direction) : null;
     const lat = parseFloat(latitude), lng = parseFloat(longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng))
@@ -5983,6 +6023,11 @@ app.post('/api/submit_olay', requireAuth, async (req, res) => {
 
     const photoUrls = normalizeIncomingToUrlArray(photoIncoming, 'photo');
     const videoUrls = normalizeIncomingToUrlArray(videoIncoming, 'video');
+
+    // .env MULTIMEDIA=false → olay başına en fazla 1 fotoğraf ve 1 video
+    if (mediaLimitExceeded(photoUrls) || mediaLimitExceeded(videoUrls)) {
+      return res.status(400).json({ error: 'single_media_only', message: getErrorMessage(req, 'single_media_only') });
+    }
 
     // Build dynamic PK columns based on validated Primary_Keys
     let pkColumns = '';
@@ -6048,15 +6093,19 @@ app.patch('/api/event/:id', requireAuth, async (req, res) => {
   const id = +req.params.id;
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'gecersiz_id', message: getErrorMessage(req, 'gecersiz_id') });
 
+  // Olayda zaten kayıtlı medya (MULTIMEDIA=false kuralı için)
+  let existingPhotos = [], existingVideos = [];
   // Permission check: find who created this event
   try {
     const ownerCheck = await pool.query(
-      `SELECT created_by_id, created_by_name, created_by_role_name FROM event WHERE event_id=$1 AND COALESCE(active,true)=true`,
+      `SELECT created_by_id, created_by_name, created_by_role_name, photo_urls, video_urls FROM event WHERE event_id=$1 AND COALESCE(active,true)=true`,
       [id]
     );
     if (!ownerCheck.rowCount) return res.status(404).json({ error: 'bulunamadi', message: getErrorMessage(req, 'bulunamadi') });
 
     const evt = ownerCheck.rows[0];
+    existingPhotos = parseJsonText(evt.photo_urls);
+    existingVideos = parseJsonText(evt.video_urls);
     const isMine = (evt.created_by_id === req.user.id) || (evt.created_by_name === req.user.username);
     const evtRole = evt.created_by_role_name || '';
 
@@ -6090,11 +6139,17 @@ app.patch('/api/event/:id', requireAuth, async (req, res) => {
   if (req.body?.photo_urls !== undefined || req.body?.photo !== undefined || req.body?.photo_attachments !== undefined) {
     const photoIncoming = req.body?.photo_urls ?? req.body?.photo ?? req.body?.photo_attachments ?? [];
     const photos = normalizeIncomingToUrlArray(photoIncoming, 'photo');
+    if (mediaLimitExceeded(photos, existingPhotos)) {
+      return res.status(400).json({ error: 'single_media_only', message: getErrorMessage(req, 'single_media_only') });
+    }
     fields.push(`photo_urls=$${idx++}::text`); vals.push(toJsonText(photos));
   }
   if (req.body?.video_urls !== undefined || req.body?.video !== undefined || req.body?.video_attachments !== undefined) {
     const videoIncoming = req.body?.video_urls ?? req.body?.video ?? req.body?.video_attachments ?? [];
     const videos = normalizeIncomingToUrlArray(videoIncoming, 'video');
+    if (mediaLimitExceeded(videos, existingVideos)) {
+      return res.status(400).json({ error: 'single_media_only', message: getErrorMessage(req, 'single_media_only') });
+    }
     fields.push(`video_urls=$${idx++}::text`); vals.push(toJsonText(videos));
   }
 

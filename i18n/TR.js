@@ -661,6 +661,11 @@ window.i18nLangs.tr = {
     open_data_disabled: 'Açık veri indirme bu sitede kapalı.',
     open_data_empty: 'İndirilecek herkese açık veri bulunamadı.',
     open_data_rate_limited: 'Çok sık indirme denendi. Lütfen birkaç dakika sonra tekrar deneyin.',
+    // Medya sınırı (.env MULTIMEDIA=false) ve fotoğraf anı konumu / yönü
+    single_media_only: 'Bir olaya yalnızca bir fotoğraf ve bir video eklenebilir.',
+    photoReplaced: 'Yeni fotoğraf öncekinin yerine geçti (olay başına yalnızca bir fotoğraf).',
+    videoReplaced: 'Yeni video öncekinin yerine geçti (olay başına yalnızca bir video).',
+    photoShotApplied: 'Konum ve yön, fotoğrafın çekildiği ana göre güncellendi.',
 
     // Bülten: Tanıtım (showcase)
     newsletterTypeShowcase: 'Tanıtım',

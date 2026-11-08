@@ -652,6 +652,11 @@ window.i18nLangs.it = {
     open_data_disabled: 'Il download dei dati aperti è disattivato su questo sito.',
     open_data_empty: 'Nessun dato pubblico disponibile per il download.',
     open_data_rate_limited: 'Troppi tentativi di download. Riprova tra qualche minuto.',
+    // Limite media (.env MULTIMEDIA=false) e posizione / direzione al momento della foto
+    single_media_only: 'A un evento si possono aggiungere solo una foto e un video.',
+    photoReplaced: 'La nuova foto ha sostituito la precedente (una sola foto per evento).',
+    videoReplaced: 'Il nuovo video ha sostituito il precedente (un solo video per evento).',
+    photoShotApplied: 'Posizione e direzione aggiornate al momento dello scatto della foto.',
 
     // Bülten: Tanıtım (showcase)
     newsletterTypeShowcase: 'Presentazione',
