@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 set -euo pipefail
 
 PROJECT_NAME="dide"
@@ -261,11 +262,27 @@ setup_nginx() {
   log "Nginx reverse proxy is being configured..."
 
   NGINX_SITE="/etc/nginx/sites-available/${PROJECT_NAME}"
+  local GS_SNIPPET="/etc/nginx/snippets/dide-geoserver.conf"
+  local SERVER_NAME_VALUE="${SERVER_NAME:-_}"
 
-  sudo tee "$NGINX_SITE" >/dev/null <<EOF
+  # An existing site with a certificate (certbot) is NEVER overwritten: rewriting it
+  # would delete the ssl_certificate (.pem) lines and break HTTPS.
+  if [ -f "$NGINX_SITE" ] && grep -Eq 'ssl_certificate|managed by Certbot' "$NGINX_SITE"; then
+    log "Nginx site ${NGINX_SITE} already has an SSL certificate (certbot) → left unchanged."
+  else
+    # Keep the GeoServer WFS locations if GEOSERVER_WFS_setup.sh was run before
+    local GS_INCLUDE=""
+    if [ -f "$GS_SNIPPET" ]; then
+      GS_INCLUDE="    include ${GS_SNIPPET};  # DiDe GeoServer WFS (GEOSERVER_WFS_setup.sh)"
+    fi
+
+    sudo tee "$NGINX_SITE" >/dev/null <<EOF
 server {
     listen 80 default_server;
-    server_name _;
+    server_name ${SERVER_NAME_VALUE};
+
+    # Photo / video uploads (app limit: 25 MB per file, up to 10 files)
+    client_max_body_size 260M;
 
     location / {
         proxy_pass http://127.0.0.1:${PORT};
@@ -276,15 +293,23 @@ server {
         proxy_set_header Host \$host;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
+        # The first grid / download computation after a start can take longer than
+        # Nginx's default 60 s (that gave "504 Gateway Time-out")
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
     }
+${GS_INCLUDE}
 }
 EOF
+  fi
 
   sudo ln -sf "$NGINX_SITE" "/etc/nginx/sites-enabled/${PROJECT_NAME}"
   sudo rm -f /etc/nginx/sites-enabled/default || true
 
   sudo nginx -t
-  sudo systemctl reload nginx
+  sudo systemctl enable nginx >/dev/null 2>&1 || true
+  sudo systemctl reload-or-restart nginx
 
   log "Nginx aktif "
 }
@@ -303,6 +328,11 @@ final_info() {
   echo "  git pull"
   echo "  npm install"
   echo "  pm2 restart $PROJECT_NAME"
+  echo
+  echo "Next (optional):"
+  echo "  1) HTTPS certificate : sudo certbot --nginx -d your.domain"
+  echo "  2) WFS links         : sudo bash $PROJECT_DIR/GEOSERVER_WFS_setup.sh --env-file $PROJECT_DIR/.env \\"
+  echo "                           --gs-admin-user admin --gs-admin-pass geoserver"
 }
 main() {
   require_root_sudo

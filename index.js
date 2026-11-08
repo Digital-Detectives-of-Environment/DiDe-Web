@@ -2845,20 +2845,35 @@ async function _readAndLoadBoundaryFile(file) {
 // açılışta bir kez hesaplanır; /api/boundary, rota sınırı ve zoom bu geometriyi kullanır.
 let BOUNDARY_INTERSECTION_GEOJSON = null;
 // Kesişim modunda gridleri boundary ile kırpmak için ortak SQL parçası (boundary birleşimi)
-// HIZ: kesişim modunda birleşik sınır açılışta BİR KEZ hesaplanıp dide_boundary_union tablosuna
-// yazılır ve bu ifade o tabloyu okur (her istekte ST_Union yeniden hesaplanmaz). Tablo
-// oluşturulamazsa eski (anlık ST_Union) ifade kullanılmaya devam eder.
+// HIZ: kesişim modunda birleşik sınır açılışta BİR KEZ hesaplanır (her istekte ST_Union yeniden
+// hesaplanmaz). Ayrı bir TABLO OLUŞTURULMAZ: birleşik geometri, sabit değer döndüren IMMUTABLE bir
+// SQL fonksiyonuna (dide_boundary_union_geom) gömülür; PostgreSQL bu fonksiyonu sorgu planlanırken
+// sabit geometriye dönüştürür (eski tek satırlık tablo okumasıyla aynı sonuç, aynı hız).
+// Fonksiyon oluşturulamazsa eski (anlık ST_Union) ifade kullanılmaya devam eder.
 let BOUNDARY_UNION_SQL = `(SELECT ST_Union(ST_MakeValid(geom)) FROM public.dide_boundary WHERE geom IS NOT NULL)`;
-const BOUNDARY_UNION_TABLE = 'dide_boundary_union';
+const BOUNDARY_UNION_FN = 'dide_boundary_union_geom';
+// Eski sürümlerin oluşturduğu birleşik sınır tablosu (artık kullanılmıyor; açılışta kaldırılır)
+const LEGACY_BOUNDARY_UNION_TABLE = 'dide_boundary_union';
 async function _precomputeBoundaryUnion() {
   try {
-    await pool.query(`DROP TABLE IF EXISTS public.${BOUNDARY_UNION_TABLE}`);
-    await pool.query(
-      `CREATE TABLE public.${BOUNDARY_UNION_TABLE} AS
-         SELECT ST_Union(ST_MakeValid(geom)) AS u FROM public.${BOUNDARY_DB_TABLE} WHERE geom IS NOT NULL`
+    // Eski sürümden kalan tabloyu kaldır (yalnızca bu uygulamanın ürettiği önbellek tablosudur)
+    try { await pool.query(`DROP TABLE IF EXISTS public.${LEGACY_BOUNDARY_UNION_TABLE}`); } catch {}
+    const r = await pool.query(
+      `SELECT encode(ST_AsEWKB(ST_Union(ST_MakeValid(geom))), 'hex') AS hex
+         FROM public.${BOUNDARY_DB_TABLE} WHERE geom IS NOT NULL`
     );
-    await pool.query(`CREATE INDEX IF NOT EXISTS ${BOUNDARY_UNION_TABLE}_gix ON public.${BOUNDARY_UNION_TABLE} USING GIST (u)`);
-    BOUNDARY_UNION_SQL = `(SELECT u FROM public.${BOUNDARY_UNION_TABLE} LIMIT 1)`;
+    const hex = r.rows[0] && r.rows[0].hex;
+    // Yalnızca onaltılık karakterler (SQL'e güvenle gömülebilir)
+    if (!hex || !/^[0-9a-fA-F]+$/.test(hex)) {
+      console.warn('[BOUNDARY] union precompute: empty union (using on-the-fly union).');
+      return;
+    }
+    await pool.query(
+      `CREATE OR REPLACE FUNCTION public.${BOUNDARY_UNION_FN}() RETURNS geometry
+         LANGUAGE sql IMMUTABLE PARALLEL SAFE
+         AS $dide_union$ SELECT '${hex}'::geometry $dide_union$`
+    );
+    BOUNDARY_UNION_SQL = `(SELECT public.${BOUNDARY_UNION_FN}())`;
   } catch (e) {
     console.warn('[BOUNDARY] union precompute failed (using on-the-fly union):', e.message);
   }
@@ -2882,7 +2897,7 @@ async function initBoundary() {
         return;
       }
       const polyTable = assertSafeIdent(POLYGON_TABLE, 'table');
-      // HIZ: önce birleşik sınır tablosu (birkaç geometri → hızlı), sonra yalnızca sınırla
+      // HIZ: önce birleşik sınır (bir kez hesaplanır → hızlı), sonra yalnızca sınırla
       // KESİŞEN gridler birleştirilir. Sonuç diske önbelleğe yazılır; grid tablosu ve
       // boundary dosyası değişmedikçe sonraki açılışlarda HİÇ hesaplanmaz.
       await _precomputeBoundaryUnion();
