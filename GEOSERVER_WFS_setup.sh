@@ -57,8 +57,9 @@ Required:
 
 Optional:
   --nginx-site NAME          Nginx site file name (default: dide — same as install_dide.sh)
-  --server-name DOMAIN       Public domain (normally detected from Nginx / certbot;
-                             used for the GeoServer web-UI CSRF whitelist and the printed links)
+  --server-name DOMAIN       Public domain of the site, e.g. temiz.hacettepe.edu.tr (normally
+                             detected from .env CORS_ORIGIN / the site certificate / server_name;
+                             used for the printed WFS links and the GeoServer web-UI CSRF whitelist)
   --node-upstream HOST:PORT  Node app address (default: 127.0.0.1:<PORT from .env>)
   --geoserver-version VER    GeoServer version to install (default: 2.25.2)
   --db-schema NAME           Database schema (default: public)
@@ -156,6 +157,75 @@ fi
 [[ -f "$NGINX_CONF" ]] || die "Nginx site config not found (/etc/nginx/sites-available/${NGINX_SITE_NAME}).
        Run docs/initial_setup/install_dide.sh first (it creates the site), or pass --nginx-site NAME."
 echo "Nginx site config  : $NGINX_CONF"
+
+# -----------------------------------------------------------------------------
+# Public domain of the site (used for the printed WFS links, the sanity check and
+# the GeoServer web-UI CSRF whitelist). The server's Linux user name / hostname are
+# NEVER used. Candidates, in order of priority:
+#   1) --server-name DOMAIN                       (explicit, always wins)
+#   2) CORS_ORIGIN in .env                        (the app's public origin, if not localhost/IP)
+#   3) the certificate the site really uses       (ssl_certificate /etc/letsencrypt/live/<domain>/…)
+#   4) server_name lines of the site config
+#   5) other certbot folders in /etc/letsencrypt/live (old / unused certificates → lowest priority)
+# Among the automatic candidates, a name that resolves in DNS is preferred, so an old
+# or non-existent name (e.g. a machine name) is not chosen when a real domain exists.
+# -----------------------------------------------------------------------------
+is_ip() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ || "$1" == *:*:* ]]; }
+valid_domain() {
+  local d="$1"
+  [[ -n "$d" && "$d" != "_" && "$d" != "localhost" && "$d" != "example.com" && "$d" == *.* ]] || return 1
+  [[ "$d" != \** && "$d" != \~* ]] || return 1       # wildcard / regex server_name
+  is_ip "$d" && return 1
+  [[ "$d" =~ ^[A-Za-z0-9.-]+$ ]]
+}
+resolves() { getent ahosts "$1" >/dev/null 2>&1; }
+
+declare -a _DOMAINS=() _DOMAIN_SRC=()
+add_domain() {   # add_domain NAME SOURCE  (lower-case, no duplicates)
+  local d; d="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's#^[a-z]+://##; s#[:/].*$##')"
+  valid_domain "$d" || return 0
+  local x; for x in "${_DOMAINS[@]}"; do [[ "$x" == "$d" ]] && return 0; done
+  _DOMAINS+=("$d"); _DOMAIN_SRC+=("$2")
+}
+
+CORS_ORIGIN_VALUE="$(get_env_value CORS_ORIGIN)"
+IFS=',' read -r -a _cors <<<"${CORS_ORIGIN_VALUE}"
+for _o in "${_cors[@]}"; do add_domain "$(printf '%s' "$_o" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')" ".env CORS_ORIGIN"; done
+while read -r _d; do add_domain "$_d" "certificate used by the site"; done \
+  < <(grep -oP '^\s*ssl_certificate\s+/etc/letsencrypt/live/\K[^/]+' "$NGINX_CONF" 2>/dev/null || true)
+while read -r _d; do add_domain "$_d" "server_name in ${NGINX_CONF}"; done \
+  < <(grep -oP '^\s*server_name\s+\K[^;]+' "$NGINX_CONF" 2>/dev/null | tr ' \t' '\n\n' | sed '/^$/d' || true)
+for _le in /etc/letsencrypt/live/*/; do
+  [[ -d "$_le" ]] || continue
+  _c="$(basename "$_le")"; [[ "$_c" == "README" ]] && continue
+  add_domain "$_c" "certbot folder /etc/letsencrypt/live"
+done
+
+PRIMARY_DOMAIN=""; PRIMARY_DOMAIN_SRC=""
+if [[ -n "$NGINX_SERVER_NAME" ]]; then
+  PRIMARY_DOMAIN="$(printf '%s' "$NGINX_SERVER_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's#^[a-z]+://##; s#[:/].*$##')"
+  PRIMARY_DOMAIN_SRC="--server-name"
+  resolves "$PRIMARY_DOMAIN" || warn "--server-name ${PRIMARY_DOMAIN} does not resolve in DNS from this server (used anyway)."
+else
+  for _i in "${!_DOMAINS[@]}"; do
+    if resolves "${_DOMAINS[$_i]}"; then PRIMARY_DOMAIN="${_DOMAINS[$_i]}"; PRIMARY_DOMAIN_SRC="${_DOMAIN_SRC[$_i]}"; break; fi
+  done
+  if [[ -z "$PRIMARY_DOMAIN" && ${#_DOMAINS[@]} -gt 0 ]]; then
+    PRIMARY_DOMAIN="${_DOMAINS[0]}"; PRIMARY_DOMAIN_SRC="${_DOMAIN_SRC[0]} (does NOT resolve in DNS)"
+  fi
+fi
+CSRF_WHITELIST="$(printf '%s\n' "$PRIMARY_DOMAIN" "${_DOMAINS[@]}" | sed '/^$/d' | awk '!seen[$0]++' | paste -sd, -)"
+
+if [[ -n "$PRIMARY_DOMAIN" ]]; then
+  echo "Public domain      : ${PRIMARY_DOMAIN}   (from ${PRIMARY_DOMAIN_SRC})"
+  for _i in "${!_DOMAINS[@]}"; do
+    [[ "${_DOMAINS[$_i]}" == "$PRIMARY_DOMAIN" ]] && continue
+    echo "  other candidate  : ${_DOMAINS[$_i]}   (${_DOMAIN_SRC[$_i]}) — not used"
+  done
+  echo "  (wrong domain? re-run with:  --server-name your.domain)"
+else
+  echo "Public domain      : <not found> → links are printed with the server IP (use --server-name your.domain)"
+fi
 
 log "Installing packages (the existing Nginx configuration is not modified)"
 apt-get update -y
@@ -427,24 +497,6 @@ if (( XMX < 256 )); then XMX=256; fi
 if (( XMX > 2048 )); then XMX=2048; fi
 XMS=$(( XMX < 256 ? XMX : 256 ))
 
-# Public domain(s): --server-name, server_name lines of the site, certbot folders
-declare -a _DOMAINS=()
-if [[ -n "$NGINX_SERVER_NAME" ]]; then _DOMAINS+=("$NGINX_SERVER_NAME"); fi
-while read -r _d; do
-  [[ -z "$_d" || "$_d" == "_" || "$_d" == "localhost" || "$_d" == "example.com" ]] && continue
-  _DOMAINS+=("$_d")
-done < <(grep -oP '^\s*server_name\s+\K[^;]+' "$NGINX_CONF" 2>/dev/null | tr ' \t' '\n\n' | sed '/^$/d' | sort -u || true)
-for _le in /etc/letsencrypt/live/*/; do
-  [[ -d "$_le" ]] || continue
-  _c="$(basename "$_le")"; [[ "$_c" == "README" ]] && continue
-  _DOMAINS+=("$_c")
-done
-PRIMARY_DOMAIN=""
-CSRF_WHITELIST=""
-if [[ ${#_DOMAINS[@]} -gt 0 ]]; then
-  PRIMARY_DOMAIN="${_DOMAINS[0]}"
-  CSRF_WHITELIST="$(printf '%s\n' "${_DOMAINS[@]}" | awk '!seen[$0]++' | paste -sd, -)"
-fi
 CSRF_ENV_LINE=""
 if [[ -n "$CSRF_WHITELIST" ]]; then CSRF_ENV_LINE="Environment=GEOSERVER_CSRF_WHITELIST=${CSRF_WHITELIST}"; fi
 
