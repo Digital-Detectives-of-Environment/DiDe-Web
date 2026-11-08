@@ -661,10 +661,10 @@ window.i18nLangs.en = {
     open_data_disabled: 'Open data download is disabled on this site.',
     open_data_empty: 'No public data available to download.',
     open_data_rate_limited: 'Too many download attempts. Please try again in a few minutes.',
-    // Media limit (.env MULTIMEDIA=false) and photo-time location / direction
+    // Media limit (1 photo + 1 video per event) and photo-time location / direction
     single_media_only: 'Only one photo and one video can be added to an event.',
-    photoReplaced: 'The new photo replaced the previous one (only one photo per event).',
-    videoReplaced: 'The new video replaced the previous one (only one video per event).',
+    onlyOnePhoto: 'You cannot add more than one photo. Remove the current photo to add a new one.',
+    onlyOneVideo: 'You cannot add more than one video. Remove the current video to add a new one.',
     photoShotApplied: 'Location and direction were updated to the moment the photo was taken.',
 
     // Bülten: Tanıtım (showcase)

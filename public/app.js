@@ -94,8 +94,8 @@ let APP_CONFIG = {
   // Güvenli varsayılan: false (mevcut davranış: ziyaretçi veri indiremez).
   openData: false,
 
-  // .env → MULTIMEDIA: true ise bir olaya birden fazla fotoğraf / video eklenebilir.
-  // false ise olay başına en fazla 1 fotoğraf ve 1 video (yenisi öncekinin yerine geçer).
+  // MULTIMEDIA (sunucuda kod içinde false): olay başına en fazla 1 fotoğraf ve 1 video.
+  // Fotoğraf / video eklenince ilgili buton soluklaşır, tekrar basılınca kırmızı uyarı çıkar.
   multimedia: false,
 
   // .env → CONTACT_MAIL_ADDRESS: [{ name, email }]. Boşsa iletişim butonu gösterilmez.
@@ -675,6 +675,8 @@ function setMediaButtonsAsIcons(){
     const iv = bv.querySelector('#ico-video');
     if (iv) iv.onerror = () => { iv.outerHTML = buttonVideoSVG(); };
   }
+  // Dil değişince / butonlar yeniden çizilince sınır durumu (soluk görünüm + başlık) korunur
+  try { updateMediaButtonsState(); } catch {}
 }
 
 function placeMicIntoMediaBar(){
@@ -12997,6 +12999,9 @@ function renderMediaLists(){
     });
   });
 
+  // Fotoğraf / video sınırına göre butonlar soluk ya da normal görünür
+  try { updateMediaButtonsState(); } catch {}
+
   qsa('[data-remove-photo]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.preventDefault();
@@ -13049,30 +13054,80 @@ async function uploadDataUrl(endpoint, dataUrl){
   return normalizeUploadUrl(url);
 }
 
-/* ===== Olay başına medya sayısı (.env MULTIMEDIA) =====
-   MULTIMEDIA=true  → fotoğraf / video listeye eklenir (eski davranış).
-   MULTIMEDIA=false → olay başına en fazla 1 fotoğraf ve 1 video: yenisi öncekinin yerine geçer. */
+/* ===== Olay başına medya sayısı (MULTIMEDIA — sunucuda kod içinde false) =====
+   Olay başına en fazla 1 fotoğraf ve 1 video eklenebilir:
+     - fotoğraf eklenince fotoğraf butonu, video eklenince video butonu soluklaşır,
+     - soluk butona basılınca kamera AÇILMAZ; üstte kırmızı uyarı bandı çıkar,
+     - eklenen fotoğraf / video silinince buton yeniden normal haline döner. */
 function multiMediaAllowed(){
   return !!(APP_CONFIG && APP_CONFIG.multimedia === true);
 }
+function photoLimitReached(){
+  return !multiMediaAllowed() && Array.isArray(photoUrls) && photoUrls.length >= 1;
+}
+function videoLimitReached(){
+  return !multiMediaAllowed() && Array.isArray(videoUrls) && videoUrls.length >= 1;
+}
+// Buton görünümü: sınıra ulaşıldıysa soluk (tıklama olayı yine gelir → uyarı gösterilir)
+function _setMediaBtnLimited(btn, limited, titleKey){
+  if (!btn) return;
+  if (limited) {
+    btn.style.opacity = '0.35';
+    btn.style.cursor = 'not-allowed';
+    btn.style.transform = 'none';
+    btn.setAttribute('aria-disabled', 'true');
+  } else {
+    btn.style.opacity = '';
+    btn.style.cursor = '';
+    btn.style.transform = '';
+    btn.removeAttribute('aria-disabled');
+  }
+  const label = t(limited ? (titleKey === 'photo' ? 'onlyOnePhoto' : 'onlyOneVideo')
+                          : (titleKey === 'photo' ? 'addPhoto' : 'addVideo'));
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+}
+function updateMediaButtonsState(){
+  _setMediaBtnLimited(qs('#btn-add-photo'), photoLimitReached(), 'photo');
+  _setMediaBtnLimited(qs('#btn-add-video'), videoLimitReached(), 'video');
+}
+// Fotoğraf / video ekler; sınıra ulaşıldıysa eklemez, uyarı gösterir ve false döner
 function addPhotoUrl(url){
   if (!multiMediaAllowed()) {
-    const replaced = (photoUrls || []).filter(u => u !== url);
-    replaced.forEach(forgetPhotoShot);
+    if ((photoUrls || []).includes(url)) return true;
+    if (photoLimitReached()) { showGridWarning(t('onlyOnePhoto')); return false; }
     photoUrls = [url];
-    if (replaced.length) toast(t('photoReplaced'), 'info');
   } else {
     photoUrls = Array.from(new Set([...(photoUrls || []), url]));
   }
+  return true;
 }
 function addVideoUrl(url){
   if (!multiMediaAllowed()) {
-    const hadOther = (videoUrls || []).some(u => u !== url);
+    if ((videoUrls || []).includes(url)) return true;
+    if (videoLimitReached()) { showGridWarning(t('onlyOneVideo')); return false; }
     videoUrls = [url];
-    if (hadOther) toast(t('videoReplaced'), 'info');
   } else {
     videoUrls = Array.from(new Set([...(videoUrls || []), url]));
   }
+  return true;
+}
+// Fotoğraf / video butonu: sınıra ulaşıldıysa kamera açılmaz, yalnızca kırmızı uyarı çıkar
+function onAddPhotoClick(e){
+  if (photoLimitReached()) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    showGridWarning(t('onlyOnePhoto'));
+    return;
+  }
+  openPhotoModal();
+}
+function onAddVideoClick(e){
+  if (videoLimitReached()) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    showGridWarning(t('onlyOneVideo'));
+    return;
+  }
+  openVideoModal();
 }
 
 /* ===== Fotoğrafın çekildiği andaki yön + konum =====
@@ -13172,8 +13227,11 @@ async function handleSelectPhoto(file){
   try {
     const dataUrl = await readAsDataURL(file);
     const url = await uploadDataUrl('/api/upload/photo', dataUrl);
-    addPhotoUrl(url);
+    if (!addPhotoUrl(url)) return;
     renderMediaLists();
+    // Fotoğraf eklendi → açık kalan kamera penceresi kapanır (ikinci fotoğraf eklenemez)
+    const pm = qs('#photo-modal');
+    if (pm && pm.classList.contains('show')) { closeModal(pm, stopPmStream); pm.style.zIndex = ''; }
     applyPhotoShot(url, shot);
   } catch(e) { 
     alert(t('photoUploadFailed') + ': ' + e.message); 
@@ -13184,15 +13242,18 @@ async function handleSelectVideo(file){
   try {
     const dataUrl = await readAsDataURL(file);
     const url = await uploadDataUrl('/api/upload/video', dataUrl);
-    addVideoUrl(url);
+    if (!addVideoUrl(url)) return;
     renderMediaLists();
+    // Video eklendi → açık kalan kayıt penceresi kapanır (ikinci video eklenemez)
+    const vm = qs('#video-modal');
+    if (vm && vm.classList.contains('show')) { closeModal(vm, stopVm); vm.style.zIndex = ''; }
   } catch(e) { 
     alert(t('videoUploadFailed') + ': ' + e.message); 
   }
 }
 
-qs('#btn-add-photo')?.addEventListener('click', openPhotoModal);
-qs('#btn-add-video')?.addEventListener('click', openVideoModal);
+qs('#btn-add-photo')?.addEventListener('click', onAddPhotoClick);
+qs('#btn-add-video')?.addEventListener('click', onAddVideoClick);
 qs('#file-photo')?.addEventListener('change', e => {
   const f = e.target.files?.[0]; 
   if (f) handleSelectPhoto(f); 
@@ -13283,10 +13344,11 @@ async function openPhotoModal(){
       const dataUrl = c.toDataURL('image/jpeg', 0.92);
       const url = await uploadDataUrl('/api/upload/photo', dataUrl);
       const shot = pmShot;
-      addPhotoUrl(url);
+      const added = addPhotoUrl(url);
       renderMediaLists();
       closeModal(modal, stopPmStream);
-      applyPhotoShot(url, shot);
+      if (modal) modal.style.zIndex = '';
+      if (added) applyPhotoShot(url, shot);
     } catch(e) { 
       alert(t('uploadError') + ': ' + e.message); 
     }
@@ -13395,10 +13457,11 @@ async function openVideoModal(){
         const blob = new Blob(vmChunks, { type: vmRecorder.mimeType || 'video/webm' });
         const dataUrl = await blobToDataUrl(blob);
         const url = await uploadDataUrl('/api/upload/video', dataUrl);
-        addVideoUrl(url);
+        const added = addVideoUrl(url);
         renderMediaLists();
         closeModal(modal, stopVm);
-        toast(t('videoAdded'), 'success');
+        if (modal) modal.style.zIndex = '';
+        if (added) toast(t('videoAdded'), 'success');
       } catch(e) { 
         alert(t('videoUploadError') + ': ' + e.message); 
       }

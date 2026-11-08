@@ -661,10 +661,10 @@ window.i18nLangs.tr = {
     open_data_disabled: 'Açık veri indirme bu sitede kapalı.',
     open_data_empty: 'İndirilecek herkese açık veri bulunamadı.',
     open_data_rate_limited: 'Çok sık indirme denendi. Lütfen birkaç dakika sonra tekrar deneyin.',
-    // Medya sınırı (.env MULTIMEDIA=false) ve fotoğraf anı konumu / yönü
+    // Medya sınırı (olay başına 1 fotoğraf + 1 video) ve fotoğraf anı konumu / yönü
     single_media_only: 'Bir olaya yalnızca bir fotoğraf ve bir video eklenebilir.',
-    photoReplaced: 'Yeni fotoğraf öncekinin yerine geçti (olay başına yalnızca bir fotoğraf).',
-    videoReplaced: 'Yeni video öncekinin yerine geçti (olay başına yalnızca bir video).',
+    onlyOnePhoto: 'Birden fazla fotoğraf ekleyemezsiniz. Yeni bir fotoğraf eklemek için önce mevcut fotoğrafı kaldırın.',
+    onlyOneVideo: 'Birden fazla video ekleyemezsiniz. Yeni bir video eklemek için önce mevcut videoyu kaldırın.',
     photoShotApplied: 'Konum ve yön, fotoğrafın çekildiği ana göre güncellendi.',
 
     // Bülten: Tanıtım (showcase)

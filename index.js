@@ -97,27 +97,12 @@ if (OPEN_DATA_RAW === '') {
 const OPEN_DATA = OPEN_DATA_NORM === 'true';
 
 // ==================== MULTIMEDIA (olay başına fotoğraf / video sayısı) ====================
-// Bir olaya birden fazla fotoğraf ve video eklenebilsin mi? YALNIZCA "true" veya "false" alır.
-//   MULTIMEDIA=true  -> bir olaya birden fazla fotoğraf ve birden fazla video eklenebilir.
-//   MULTIMEDIA=false -> bir olaya EN FAZLA 1 fotoğraf ve EN FAZLA 1 video eklenebilir
-//                       (yeni çekilen fotoğraf / video öncekinin yerine geçer).
-// Tanımlı değilse güvenli varsayılan false kullanılır ve uyarı yazılır; tanımlı ama true/false
-// dışında bir değerse sistem başlamaz. Bu kuraldan ÖNCE eklenmiş çoklu medyalı olaylar korunur
-// (medyaları silinebilir, ancak 1'in üzerine yeni medya eklenemez).
-const MULTIMEDIA_RAW  = String(process.env.MULTIMEDIA ?? '').trim();
-const MULTIMEDIA_NORM = MULTIMEDIA_RAW.toLowerCase();
-if (MULTIMEDIA_RAW === '') {
-  console.warn(`[WARN] MULTIMEDIA is not set in your .env file → defaulting to MULTIMEDIA=false (max. 1 photo and 1 video per event).`);
-} else if (MULTIMEDIA_NORM !== 'true' && MULTIMEDIA_NORM !== 'false') {
-  console.error(`\n[FATAL] MULTIMEDIA is invalid in your .env file.`);
-  console.error(`        It must be set to either "true" or "false".`);
-  console.error(`          MULTIMEDIA=true  -> Users can add several photos and several videos to an event.`);
-  console.error(`          MULTIMEDIA=false -> Users can add at most ONE photo and ONE video to an event.`);
-  console.error(`        Current value: "${MULTIMEDIA_RAW}".`);
-  console.error(`        System cannot start. Exiting.\n`);
-  process.exit(1);
-}
-const MULTIMEDIA = MULTIMEDIA_NORM === 'true';
+// Kod içine gömülüdür (hardcoded) — .env'de karşılığı YOKTUR; .env'de MULTIMEDIA yazılsa da dikkate alınmaz.
+//   false -> bir olaya EN FAZLA 1 fotoğraf ve EN FAZLA 1 video eklenebilir. Fotoğraf / video
+//            eklendikten sonra formdaki ilgili buton soluklaşır; tekrar basılınca kırmızı uyarı çıkar.
+// Bu kuraldan ÖNCE eklenmiş çoklu medyalı olaylar korunur (medyaları silinebilir, ancak 1'in
+// üzerine yeni medya eklenemez). Sunucu da bu kuralı uygular (submit_olay / PATCH).
+const MULTIMEDIA = false;
 
 // ==================== CONTACT_MAIL_ADDRESS (iletişim) ====================
 // Giriş ekranının sağ alt köşesindeki yuvarlak "İletişim" (mektup) butonunda gösterilen
@@ -4011,7 +3996,7 @@ app.get('/api/config', (_req, res) => {
     restrictGnss: RESTRICT_GNSS,
     // .env → OPEN_DATA: true ise giriş ekranında "Açık veri" indirme butonu görünür
     openData: OPEN_DATA,
-    // .env → MULTIMEDIA: false ise olay başına en fazla 1 fotoğraf ve 1 video eklenebilir
+    // MULTIMEDIA (kod içinde false): olay başına en fazla 1 fotoğraf ve 1 video eklenebilir
     multimedia: MULTIMEDIA,
     // .env → CONTACT_MAIL_ADDRESS: [{ name, email }]. Boşsa iletişim butonu gösterilmez.
     contacts: CONTACTS,
@@ -6024,7 +6009,7 @@ app.post('/api/submit_olay', requireAuth, async (req, res) => {
     const photoUrls = normalizeIncomingToUrlArray(photoIncoming, 'photo');
     const videoUrls = normalizeIncomingToUrlArray(videoIncoming, 'video');
 
-    // .env MULTIMEDIA=false → olay başına en fazla 1 fotoğraf ve 1 video
+    // MULTIMEDIA=false (kod içinde) → olay başına en fazla 1 fotoğraf ve 1 video
     if (mediaLimitExceeded(photoUrls) || mediaLimitExceeded(videoUrls)) {
       return res.status(400).json({ error: 'single_media_only', message: getErrorMessage(req, 'single_media_only') });
     }
